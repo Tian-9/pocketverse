@@ -1,7 +1,7 @@
 name: Deploy to GitHub Pages
 on:
   push:
-    branches: [main, claude/modest-volta-y60i7s]
+    branches: [claude/modest-volta-y60i7s]  # 默认分支切到 main 后改回 [main]
   workflow_dispatch:
 permissions:
   contents: read
