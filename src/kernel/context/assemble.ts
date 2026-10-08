@@ -28,9 +28,11 @@ export interface AssembleInput {
   /** 扫描最近几条消息做 L1 触发 */
   scanDepth?: number;
   hasTools?: boolean;
+  /** 自定义对话规则，空则用默认 */
+  rules?: string;
 }
 
-const RULES = [
+export const DEFAULT_RULES = [
   '你在扮演一个角色，和用户进行沉浸式的文字角色扮演。',
   '始终以角色的身份、口吻和视角说话，不要跳出角色解释自己是 AI。',
   '回复像手机聊天：一次一到三段，口语化，长度和对方匹配，不要独白。',
@@ -87,7 +89,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const constantStyle = input.lore.filter((e) => isStyle(e) && e.enabled && e.constant).sort((a, b) => a.order - b.order);
 
   const system = [
-    section('规则', RULES + (input.hasTools ? '\n\n' + TOOL_RULES : '')),
+    section('规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + TOOL_RULES : '')),
     constantStyle.length ? section('写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
     section('用户', `用户的名字是「${input.userName}」。${input.userProfile ? '\n' + input.userProfile : ''}`),
     section(`世界：${input.world.name}`, input.world.summary),

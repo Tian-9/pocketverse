@@ -96,7 +96,7 @@ export interface KernelEvents {
   'plugin.enabled': { pluginId: string };
   'plugin.disabled': { pluginId: string };
   'theme.changed': { themeId: string };
-  'notify': { title: string; body?: string; pluginId?: string; screen?: string };
+  'notify': { title: string; body?: string; pluginId?: string; screen?: string; action?: () => void };
   'llm.turn.start': { conversationId: string };
   'llm.turn.end': { conversationId: string; usage: { input: number; output: number; cacheRead: number; cacheWrite: number }; model: string };
   'llm.turn.error': { conversationId: string; message: string };

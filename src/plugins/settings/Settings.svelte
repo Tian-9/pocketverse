@@ -6,6 +6,7 @@
   import { theme } from '$kernel/theme/theme.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { MODELS } from '$kernel/llm/pricing';
+  import { chat } from '$kernel/chat/engine.svelte';
   const modelLabel = $derived(MODELS.find((m) => m.id === llm.settings.model)?.label ?? llm.settings.model);
   const modeLabel = $derived({ system: '跟随系统', light: '浅色', dark: '深色' }[theme.mode]);
   const enabledCount = $derived(registry.plugins.filter((p) => !p.core && registry.isEnabled(p.id)).length);
@@ -15,6 +16,9 @@
 <SectionTitle text="模型" />
 <List footer={llm.configured ? `本月 $${llm.stats.monthUsd.toFixed(2)} · 缓存命中 ${llm.stats.requests ? Math.round(llm.stats.hitRate * 100) + '%' : '—'}` : '还没有配置 API Key，聊天前先填。'}>
   <Cell title="API 与模型" value={llm.configured ? modelLabel : '未配置'} icon={{ paths: icons.sparkle, background: gradients.purple }} chevron onclick={() => nav.push('settings', 'api')} />
+</List>
+<List footer="基础对话规则，相当于预设的主提示词。">
+  <Cell title="对话规则" value={chat.rules ? '已自定义' : '默认'} icon={{ paths: icons.book, background: gradients.teal }} chevron onclick={() => nav.push('settings', 'rules')} />
 </List>
 <SectionTitle text="外观" />
 <List>
@@ -26,6 +30,6 @@
 </List>
 <SectionTitle text="关于" />
 <List>
-  <Cell title="Pocketverse" value="0.0.3 · M2" />
+  <Cell title="Pocketverse" value="0.0.4 · M3" />
 </List>
 <div style="height:40px"></div>

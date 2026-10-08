@@ -12,7 +12,8 @@
     timer = setTimeout(() => (current = null), 4000);
   });
   function open() {
-    if (current?.pluginId) nav.push(current.pluginId, current.screen ?? 'app');
+    if (current?.action) current.action();
+    else if (current?.pluginId) nav.push(current.pluginId, current.screen ?? 'app');
     current = null;
   }
   const icon = $derived(current?.pluginId ? registry.get(current.pluginId)?.app?.icon : undefined);

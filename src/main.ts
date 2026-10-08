@@ -1,4 +1,6 @@
 import './app.css';
+import { registerSW } from 'virtual:pwa-register';
+import { bus } from '$kernel/bus/bus';
 import { mount } from 'svelte';
 import App from './App.svelte';
 import { builtinPlugins } from './plugins';
@@ -27,6 +29,12 @@ async function boot() {
   // 插件都 setup 完再发 app.resumed，否则没人听
   await scheduler.boot();
 }
+
+const updateSW = registerSW({
+  onNeedRefresh() {
+    bus.emit('notify', { title: '有新版本', body: '点这里更新，正在进行的对话不受影响', action: () => updateSW(true) });
+  },
+});
 
 mount(App, { target: document.getElementById('app')! });
 boot().catch((e) => console.error('[boot]', e));

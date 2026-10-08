@@ -23,14 +23,17 @@ class ChatEngine {
   live = $state<Record<string, Live>>({});
   userName = $state('我');
   userProfile = $state('');
+  rules = $state('');
 
   async boot() {
     this.userName = await db().getKV('kernel.userName', '我');
     this.userProfile = await db().getKV('kernel.userProfile', '');
+    this.rules = await db().getKV('kernel.rules', '');
     bus.on('app.closed', () => this.consolidateAll());
   }
   async setUserName(n: string) { this.userName = n.trim() || '我'; await db().setKV('kernel.userName', this.userName); }
   async setUserProfile(p: string) { this.userProfile = p; await db().setKV('kernel.userProfile', p); }
+  async setRules(r: string) { this.rules = r; await db().setKV('kernel.rules', r); }
 
   statusOf(conversationId: string): TurnStatus { return this.live[conversationId]?.status ?? 'idle'; }
 
@@ -98,7 +101,7 @@ class ChatEngine {
     const { system, messages, l1Hits } = assemble({
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
       lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
-      pluginStable, pluginVolatile, hasTools: tools.length > 0,
+      pluginStable, pluginVolatile, hasTools: tools.length > 0, rules: this.rules,
     });
 
     const abort = new AbortController();
