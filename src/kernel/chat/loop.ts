@@ -13,16 +13,18 @@ export async function runToolLoop(
   base: { system: TextBlock[]; messages: ChatMessage[]; purpose: string; conversationId?: string; names?: { user: string; assistant: string } },
   tools: LoopTool[],
   opts: LoopOptions = {},
-): Promise<{ result: ChatResult; toolsUsed: string[]; rounds: number }> {
+): Promise<{ result: ChatResult; toolsUsed: string[]; rounds: number; thinking: string }> {
   const maxRounds = opts.maxRounds ?? 4;
   const messages: ChatMessage[] = base.messages.map((m) => ({ role: m.role, content: [...m.content] }));
   const specs = tools.map((t) => t.spec);
   const toolsUsed: string[] = [];
   let rounds = 0;
   let last: ChatResult;
+  const thinkings: string[] = [];
   for (;;) {
     rounds++;
     last = await chat({ system: base.system, messages, tools: specs, purpose: base.purpose, conversationId: base.conversationId, names: base.names }, opts.hooks);
+    if (last.thinking) thinkings.push(last.thinking);
     const calls = last.content.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
     if (!calls.length || last.stopReason !== 'tool_use' || rounds > maxRounds) break;
     messages.push({ role: 'assistant', content: last.content });
@@ -40,5 +42,5 @@ export async function runToolLoop(
     }
     messages.push({ role: 'user', content: results });
   }
-  return { result: last!, toolsUsed, rounds };
+  return { result: last!, toolsUsed, rounds, thinking: thinkings.join('\n\n') };
 }

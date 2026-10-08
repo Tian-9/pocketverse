@@ -29,6 +29,8 @@ export interface ChatRequest {
   /** 记账用途标签，如 'chat' | 'consolidate' */
   purpose: string;
   conversationId?: string;
+  /** 要求返回思考摘要（Anthropic 官方的 summarized 展示，不是原始思维链） */
+  showThinking?: boolean;
   /** 仅用于预览显示的名字，不发给模型 */
   names?: { user: string; assistant: string };
 }
@@ -43,6 +45,8 @@ export interface Usage { input: number; output: number; cacheRead: number; cache
 
 export interface ChatResult {
   text: string;
+  /** 思考摘要，开了 showThinking 才有 */
+  thinking?: string;
   /** 完整回复块，含 tool_use 和 opaque，用于工具循环回传 */
   content: Block[];
   usage: Usage;

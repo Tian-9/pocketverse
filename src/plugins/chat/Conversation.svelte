@@ -69,6 +69,7 @@
   interface Card { pluginId: string; tag: string; body: string; attrs: Record<string, string> }
   function cardsOf(m: Message): Card[] { return (m.meta?.cards as Card[] | undefined) ?? []; }
   function cardComponent(c: Card) { return registry.get(c.pluginId)?.outputHandlers?.find((h) => h.tag === c.tag)?.component ?? null; }
+  let openThinking = $state<Record<string, boolean>>({});
   function caption(m: Message): string {
     const meta = m.meta ?? {};
     const parts: string[] = [];
@@ -111,6 +112,10 @@
               {#if Card}<Card body={c.body} attrs={c.attrs} />{/if}
             {/each}
             {#if caption(m)}<div class="caption">{caption(m)}</div>{/if}
+            {#if m.meta?.thinking}
+              <button class="think-toggle" onclick={() => (openThinking[m.id] = !openThinking[m.id])}>{openThinking[m.id] ? '收起' : '他在想什么 ›'}</button>
+              {#if openThinking[m.id]}<div class="think">{m.meta.thinking}</div>{/if}
+            {/if}
           </div>
         </div>
       {/if}
@@ -172,6 +177,8 @@
   .msg.assistant { align-self: flex-start; }
   .col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .caption { font-size: 11px; color: var(--label-3); padding-left: 6px; }
+  .think-toggle { font-size: 11px; color: var(--tint); padding: 0 6px; text-align: left; }
+  .think { font-size: 12.5px; line-height: 1.45; color: var(--label-2); background: var(--bg-grouped); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; max-width: 100%; }
   .bubble { padding: 8px 13px; border-radius: 18px; font-size: 17px; line-height: 1.35; white-space: pre-wrap; word-break: break-word; min-width: 0; }
   .assistant .bubble { background: var(--bubble-them); color: var(--bubble-them-fg); border-bottom-left-radius: 5px; }
   .user .bubble { background: var(--bubble-me); color: var(--bubble-me-fg); border-bottom-right-radius: 5px; }

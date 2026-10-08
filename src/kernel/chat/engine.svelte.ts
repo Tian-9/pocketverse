@@ -134,7 +134,7 @@ class ChatEngine {
       else { l.status = 'thinking'; l.statusText = '正在思考…'; }
     };
     try {
-      const { result: r, toolsUsed } = await runToolLoop(
+      const { result: r, toolsUsed, thinking } = await runToolLoop(
         (req, hooks) => llm.chat(req, hooks),
         { system, messages, purpose: 'chat', conversationId, names: { user: this.userName, assistant: character.name } },
         tools,
@@ -154,6 +154,7 @@ class ChatEngine {
       if (toolsUsed.length) meta.tools = toolsUsed;
       if (l1Hits.length) meta.lore = l1Hits;
       if (cards.length) meta.cards = cards;
+      if (thinking) meta.thinking = thinking;
       if (r.refusal) {
         await repo.addMessage(conversationId, 'system', `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）`);
       } else if (text || cards.length) {

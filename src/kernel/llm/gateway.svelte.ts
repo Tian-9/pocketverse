@@ -16,6 +16,8 @@ export interface LlmSettings {
   tools?: boolean;
   /** 每次调用前预览完整请求，确认才发 */
   preview?: boolean;
+  /** 显示思考摘要 */
+  showThinking?: boolean;
 }
 
 const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4096, tools: true };
@@ -57,6 +59,7 @@ class Gateway {
       model: req.model ?? this.settings.model,
       maxTokens: req.maxTokens ?? this.settings.maxTokens,
       effort: req.effort ?? this.settings.effort,
+      showThinking: req.purpose === 'chat' ? !!this.settings.showThinking : false,
       ...req,
     };
     if (this.settings.preview) {

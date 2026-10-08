@@ -41,6 +41,7 @@ export class ClaudeProvider implements LlmProvider {
           system,
           messages,
           ...(tools ? { tools } : {}),
+          thinking: { type: 'adaptive', display: req.showThinking ? 'summarized' : 'omitted' },
           output_config: {
             ...(req.effort ? { effort: req.effort } : {}),
             ...(req.jsonSchema ? { format: { type: 'json_schema', schema: req.jsonSchema } } : {}),
@@ -53,8 +54,11 @@ export class ClaudeProvider implements LlmProvider {
       );
 
       let text = '';
+      let thinking = '';
       for await (const ev of stream) {
-        if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
+        if (ev.type === 'content_block_delta' && ev.delta.type === 'thinking_delta') {
+          thinking += ev.delta.thinking;
+        } else if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
           if (text === '') hooks.onStatus?.('typing');
           text += ev.delta.text;
           hooks.onText?.(ev.delta.text);
@@ -66,6 +70,7 @@ export class ClaudeProvider implements LlmProvider {
       const u = final.usage;
       const result: ChatResult = {
         text,
+        ...(thinking.trim() ? { thinking: thinking.trim() } : {}),
         content: final.content.map(fromBlock),
         model: final.model,
         stopReason: final.stop_reason ?? 'end_turn',

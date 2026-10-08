@@ -50,6 +50,10 @@
 <List footer="开着时，每一次发给模型的请求（聊天、记忆整理、朋友圈、日记）都会先整页显示出来，你点发送才真的发。想看清楚到底传了什么就开它。">
   <Cell title="发送前预览完整请求">{#snippet right()}<Toggle checked={!!llm.settings.preview} label="预览" onchange={(v) => llm.save({ preview: v })} />{/snippet}</Cell>
 </List>
+<SectionTitle text="思考" />
+<List footer="开着时，聊天回复下面可以展开模型的思考摘要。这是 Anthropic 官方提供的摘要展示，不是原始思维链，计费不变。只对聊天生效。">
+  <Cell title="显示思考摘要">{#snippet right()}<Toggle checked={!!llm.settings.showThinking} label="思考摘要" onchange={(v) => llm.save({ showThinking: v })} />{/snippet}</Cell>
+</List>
 <SectionTitle text="记忆与工具" />
 <List footer="开着时角色可以翻世界书、回忆、记状态、维护自己的笔记。关掉只靠常驻设定和触发词，更快更省。">
   <Cell title="允许角色用工具">{#snippet right()}<Toggle checked={llm.settings.tools !== false} label="工具" onchange={(v) => llm.save({ tools: v })} />{/snippet}</Cell>
