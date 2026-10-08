@@ -4,6 +4,9 @@
   import { db } from '$kernel/storage/db';
   import { repo } from '$kernel/data/repo';
   import { nav } from '$kernel/nav/nav.svelte';
+  import { parseStChat } from '$kernel/importers/stChat';
+  import { bus } from '$kernel/bus/bus';
+  import { ulid } from 'ulid';
 
   let { id }: { id: string } = $props();
   const c = live(() => db().characters.get(id), undefined);
@@ -26,6 +29,25 @@
     nav.home();
     nav.push('chat', 'app');
     nav.push('chat', 'conversation', { id: conv.id });
+  }
+  let chatInput = $state<HTMLInputElement | null>(null);
+  async function importChat(e: Event) {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    (e.target as HTMLInputElement).value = '';
+    if (!f) return;
+    try {
+      const parsed = parseStChat(await f.text());
+      const ch = await db().characters.get(id); if (!ch) return;
+      const conv = await repo.directConversation(ch);
+      await db().messages.bulkAdd(parsed.messages.map((m) => ({ id: ulid(), conversationId: conv.id, role: m.role, content: [{ type: 'text', text: m.text }], ts: m.ts, meta: { imported: 'sillytavern' } })));
+      if (parsed.summary) {
+        const cp = await repo.campaignFor(ch);
+        await db().memories.add({ id: ulid(), campaignId: cp.id, characterId: ch.id, when: '导入前', text: `酒馆里的摘要：${parsed.summary}`, importance: 3, sourceMessageIds: [], createdAt: Date.now() });
+      }
+      bus.emit('notify', { title: `导入了 ${parsed.messages.length} 条聊天记录`, body: '去「他记得什么」点一次整理，记忆就会从旧对话里长出来', pluginId: 'characters' });
+    } catch (err) {
+      bus.emit('notify', { title: '导入失败', body: err instanceof Error ? err.message : String(err) });
+    }
   }
   async function remove() {
     await repo.deleteCharacter(id);
@@ -54,6 +76,8 @@
   <div class="actions">
     <Button onclick={startChat}>开始聊天</Button>
     <Button kind="tinted" onclick={() => nav.push('characters', 'memories', { id })}>他记得什么</Button>
+    <Button kind="plain" onclick={() => chatInput?.click()}>导入酒馆聊天记录（.jsonl）</Button>
+    <input type="file" accept=".jsonl,.json,text/plain" bind:this={chatInput} onchange={importChat} hidden />
     <Button kind="plain" onclick={() => (confirmDelete = true)}><span style="color:var(--red)">删除角色</span></Button>
   </div>
 {/if}
