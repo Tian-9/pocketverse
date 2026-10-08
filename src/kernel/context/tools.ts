@@ -5,6 +5,8 @@ import type { ToolSpec } from '../llm/types';
 import { search } from './search';
 import { runMemoryCommand, type MemCommand } from './memfs';
 import { bus } from '../bus/bus';
+import { expandMacros } from './macros';
+import { chat } from '../chat/engine.svelte';
 import { registry } from '../registry/registry.svelte';
 
 export interface ToolContext { campaign: Campaign; characters: Character[]; lore: LoreEntry[]; overlays: LoreOverlay[] }
@@ -25,10 +27,10 @@ export const kernelTools: KernelTool[] = [
       ];
       const hits = search(docs, str(input?.query, 200));
       if (!hits.length) return '没有找到相关条目。';
-      return hits.map((h) => {
+      return expandForModel(hits.map((h) => {
         const d = docs.find((x) => x.id === h.id)!;
         return `[${d.id}] ${d.title}${d.kind === 'overlay' ? '（本局变化）' : ''}：${d.text.split('\n')[0]}`;
-      }).join('\n');
+      }).join('\n'), ctx);
     },
   },
   {
@@ -38,9 +40,9 @@ export const kernelTools: KernelTool[] = [
       const id = str(input?.id, 64);
       const ov = ctx.overlays.find((o) => !o.pending && (o.id === id || o.loreEntryId === id));
       const e = ctx.lore.find((x) => x.id === id && x.kind !== 'style');
-      if (ov && e) return `## ${e.title}（本局已变化）\n${ov.content}\n\n原文：${e.content}`;
-      if (ov) return `## ${ov.title}（本局新增）\n${ov.content}`;
-      if (e) return `## ${e.title}\n${e.content}`;
+      if (ov && e) return expandForModel(`## ${e.title}（本局已变化）\n${ov.content}\n\n原文：${e.content}`, ctx);
+      if (ov) return expandForModel(`## ${ov.title}（本局新增）\n${ov.content}`, ctx);
+      if (e) return expandForModel(`## ${e.title}\n${e.content}`, ctx);
       return '没有这个条目。';
     },
   },
@@ -70,7 +72,7 @@ export const kernelTools: KernelTool[] = [
     async handler(input, ctx) {
       const name = str(input?.name, 50);
       const c = ctx.characters.find((x) => x.name === name) ?? ctx.characters[0];
-      return c ? `## ${c.name}\n${c.full || c.core}` : '没有这个角色。';
+      return c ? expandForModel(`## ${c.name}\n${c.full || c.core}`, ctx) : '没有这个角色。';
     },
   },
   {
@@ -130,6 +132,11 @@ export const kernelTools: KernelTool[] = [
     },
   },
 ];
+
+/** 工具返回给模型的文本也要替换占位符 */
+export function expandForModel(text: string, ctx: ToolContext): string {
+  return expandMacros(text, { user: chat.userName, char: ctx.characters[0]?.name ?? '角色' });
+}
 
 export function toolLabel(name: string): string {
   const k = kernelTools.find((t) => t.spec.name === name)?.label;

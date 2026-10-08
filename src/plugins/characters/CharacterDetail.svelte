@@ -28,7 +28,7 @@
     const ch = await db().characters.get(id);
     if (!ch) return;
     const conv = await repo.directConversation(ch);
-    nav.home();
+    await nav.home();
     nav.push('chat', 'app');
     nav.push('chat', 'conversation', { id: conv.id });
   }

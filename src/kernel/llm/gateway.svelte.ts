@@ -5,6 +5,7 @@ import { ClaudeProvider } from './claude';
 import { costUsd } from './pricing';
 import type { ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
 import { LlmError } from './types';
+import { gate } from './gate.svelte';
 
 export interface LlmSettings {
   apiKey: string;
@@ -13,6 +14,8 @@ export interface LlmSettings {
   maxTokens: number;
   /** 允许模型用工具（世界书检索、记忆等） */
   tools?: boolean;
+  /** 每次调用前预览完整请求，确认才发 */
+  preview?: boolean;
 }
 
 const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4096, tools: true };
@@ -56,6 +59,10 @@ class Gateway {
       effort: req.effort ?? this.settings.effort,
       ...req,
     };
+    if (this.settings.preview) {
+      const ok = await gate.confirm(full);
+      if (!ok) throw new LlmError('你取消了发送', 'aborted');
+    }
     const result = await this.p.chat(full, hooks);
     await this.record(full, result);
     return result;

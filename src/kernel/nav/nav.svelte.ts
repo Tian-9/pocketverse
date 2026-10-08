@@ -29,18 +29,27 @@ class Nav {
     if (first) bus.emit('app.opened', { pluginId });
   }
 
-  /** 界面上的返回按钮：走历史后退，popstate 里真正出栈 */
-  pop() {
-    if (!this.stack.length) return;
-    if (this.hasHistory && this.entries.length) history.back();
-    else this.popScreen();
+  /** 界面上的返回按钮：走历史后退，popstate 里真正出栈。返回的 Promise 在出栈完成后 resolve，之后再 push 才安全。 */
+  pop(): Promise<void> {
+    if (!this.stack.length) return Promise.resolve();
+    if (this.hasHistory && this.entries.length) return this.goBack(1);
+    this.popScreen();
+    return Promise.resolve();
   }
 
-  home() {
-    const screens = this.entries.filter((e) => e.kind === 'screen').length;
-    if (this.hasHistory && this.entries.length) history.go(-this.entries.length);
-    else while (this.stack.length) this.popScreen();
-    void screens;
+  home(): Promise<void> {
+    if (this.hasHistory && this.entries.length) return this.goBack(this.entries.length);
+    while (this.stack.length) this.popScreen();
+    return Promise.resolve();
+  }
+
+  /** 历史后退是异步的：等 popstate 处理完再 resolve */
+  private waiters: (() => void)[] = [];
+  private goBack(n: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.waiters.push(resolve);
+      history.go(-n);
+    });
   }
 
   /** 弹窗打开时登记，返回手势会先关它 */
@@ -70,6 +79,8 @@ class Nav {
       if (en.kind === 'overlay') en.close?.();
       else this.popScreen();
     }
+    const w = this.waiters.splice(0);
+    for (const r of w) r();
   }
 
   private popScreen() {

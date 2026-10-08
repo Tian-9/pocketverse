@@ -2,6 +2,7 @@ import type { ChatMessage, TextBlock } from '../llm/types';
 import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Message, World } from '../storage/db';
 import { textOf } from '../data/repo';
 import { triggerL1 } from './l1';
+import { expandMacros } from './macros';
 
 export interface AssembleInput {
   world: World;
@@ -138,5 +139,9 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
     const pb = prev.content[prev.content.length - 1]!;
     if (pb.type === 'text') pb.cache = true;
   }
+  // 酒馆占位符：{{user}} / {{char}} → 名字。只在拼装时替换，数据里保留原样。
+  const names = { user: input.userName, char: input.characters[0]?.name ?? '角色' };
+  for (const b of system) b.text = expandMacros(b.text, names);
+  for (const m of messages) for (const b of m.content) if (b.type === 'text') b.text = expandMacros(b.text, names);
   return { system, messages, l1Hits: loreHits.map((h) => h.entry.title) };
 }

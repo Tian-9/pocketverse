@@ -145,6 +145,7 @@ class ChatEngine {
       const partial = this.live[conversationId]?.text.trim();
       if (e instanceof LlmError && e.kind === 'aborted') {
         if (partial) await repo.addMessage(conversationId, 'assistant', partial);
+        else if (e.message.includes('取消')) await repo.addMessage(conversationId, 'system', '（你在预览里取消了发送，这条没有发出去）');
       } else {
         const msg = e instanceof Error ? e.message : String(e);
         await repo.addMessage(conversationId, 'system', `（出错了：${msg}）`);

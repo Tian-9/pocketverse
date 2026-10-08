@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { World, Character, Campaign, Conversation, Message } from '../storage/db';
+import { expandMacros } from '../context/macros';
 
 /** 领域操作。存档概念对用户隐藏：一个角色默认一个存档。 */
 export const repo = {
@@ -60,7 +61,10 @@ export const repo = {
     if (found) return found;
     const conv: Conversation = { id: ulid(), campaignId: campaign.id, kind: 'direct', participantIds: [character.id], pluginId };
     await db().conversations.add(conv);
-    if (character.useFirstMessage && character.firstMessage?.trim()) await this.addMessage(conv.id, 'assistant', character.firstMessage.trim());
+    if (character.useFirstMessage && character.firstMessage?.trim()) {
+      const userName = await db().getKV('kernel.userName', '我');
+      await this.addMessage(conv.id, 'assistant', expandMacros(character.firstMessage.trim(), { user: userName, char: character.name }));
+    }
     return conv;
   },
 

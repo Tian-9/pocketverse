@@ -46,6 +46,10 @@
   </div>
 </List>
 
+<SectionTitle text="安全" />
+<List footer="开着时，每一次发给模型的请求（聊天、记忆整理、朋友圈、日记）都会先整页显示出来，你点发送才真的发。想看清楚到底传了什么就开它。">
+  <Cell title="发送前预览完整请求">{#snippet right()}<Toggle checked={!!llm.settings.preview} label="预览" onchange={(v) => llm.save({ preview: v })} />{/snippet}</Cell>
+</List>
 <SectionTitle text="记忆与工具" />
 <List footer="开着时角色可以翻世界书、回忆、记状态、维护自己的笔记。关掉只靠常驻设定和触发词，更快更省。">
   <Cell title="允许角色用工具">{#snippet right()}<Toggle checked={llm.settings.tools !== false} label="工具" onchange={(v) => llm.save({ tools: v })} />{/snippet}</Cell>

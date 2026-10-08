@@ -28,7 +28,7 @@
       await db().lore.bulkAdd(book.map(({ include: _i, ...e }) => ({ ...e, id: ulid(), worldId: c.worldId, scope: 'character' as const, characterIds: [c.id] })));
     }
     bus.emit('notify', { title: `已导入 ${c.name}`, body: book.length ? `带 ${book.length} 条角色世界书` : undefined, pluginId: 'characters' });
-    nav.pop();
+    await nav.pop();
     nav.push('characters', 'detail', { id: c.id });
   }
   function exportSkeleton() {

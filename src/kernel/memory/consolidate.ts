@@ -4,6 +4,7 @@ import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Messa
 import { textOf } from '../data/repo';
 import { llm } from '../llm/gateway.svelte';
 import { bus } from '../bus/bus';
+import { expandMacros } from '../context/macros';
 
 export const CONSOLIDATE_EVERY = 12; // 每多少条新的角色回复合并一次
 export const CONSOLIDATE_MODEL = 'claude-haiku-5-5';
@@ -90,7 +91,9 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
 
   const lore = await db().lore.where('worldId').equals(campaign.worldId).filter((e) => e.enabled && e.kind !== 'style' && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id))).toArray();
   const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
-  const prompt = buildPrompt(campaign, character, lore, msgs, existing);
+  const prompt0 = buildPrompt(campaign, character, lore, msgs, existing);
+  const userName = await db().getKV('kernel.userName', '我');
+  const prompt = { system: prompt0.system, user: expandMacros(prompt0.user, { user: userName, char: character.name }) };
   const r = await llm.chat({
     model: CONSOLIDATE_MODEL, effort: 'low', maxTokens: 4000, purpose: 'consolidate', conversationId,
     system: [{ type: 'text', text: prompt.system }], messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
