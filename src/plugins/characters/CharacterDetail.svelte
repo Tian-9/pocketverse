@@ -41,7 +41,7 @@
   </List>
   <SectionTitle text="核心设定（常驻上下文）" />
   <List footer="每轮对话都会带上这一段，尽量精炼。更长的背景放到下面的完整设定里，模型需要时才会去读。">
-    <Field multiline rows={8} bind:value={core} placeholder="她是谁、什么性格、现在的处境" oninput={save} />
+    <Field multiline rows={8} bind:value={core} placeholder="他是谁、什么性格、现在的处境" oninput={save} />
   </List>
   <SectionTitle text="完整设定与示例对话" />
   <List>
@@ -53,7 +53,7 @@
   </List>
   <div class="actions">
     <Button onclick={startChat}>开始聊天</Button>
-    <Button kind="tinted" onclick={() => nav.push('characters', 'memories', { id })}>她记得什么</Button>
+    <Button kind="tinted" onclick={() => nav.push('characters', 'memories', { id })}>他记得什么</Button>
     <Button kind="plain" onclick={() => (confirmDelete = true)}><span style="color:var(--red)">删除角色</span></Button>
   </div>
 {/if}

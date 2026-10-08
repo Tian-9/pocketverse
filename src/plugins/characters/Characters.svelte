@@ -4,7 +4,7 @@
   import { db } from '$kernel/storage/db';
   import { repo } from '$kernel/data/repo';
   import { nav } from '$kernel/nav/nav.svelte';
-  import { parseCardFile, cardToCharacterFields } from '$kernel/importers/charaCard';
+  import { parseCardFile, extractCardFromPng } from '$kernel/importers/charaCard';
   import { bus } from '$kernel/bus/bus';
 
   const chars = live(() => db().characters.orderBy('name').toArray(), []);
@@ -16,12 +16,12 @@
     (e.target as HTMLInputElement).value = '';
     busy = true;
     try {
+      // 一次只检查一张；多选的话逐张进检查页
       for (const f of files) {
         const card = await parseCardFile(f);
-        const fields = cardToCharacterFields(card);
-        const avatar = f.type === 'image/png' ? f : undefined;
-        const c = await repo.createCharacter({ ...fields, avatar });
-        bus.emit('notify', { title: `已导入 ${c.name}`, body: fields.firstMessage ? '带开场白' : undefined, pluginId: 'characters' });
+        const isPng = f.type === 'image/png' || f.name.toLowerCase().endsWith('.png');
+        const raw = isPng ? extractCardFromPng(new Uint8Array(await f.arrayBuffer())) : JSON.parse(await f.text());
+        nav.push('characters', 'inspect', { card, avatar: isPng ? f : undefined, raw });
       }
     } catch (err) {
       bus.emit('notify', { title: '导入失败', body: err instanceof Error ? err.message : String(err) });
@@ -43,7 +43,7 @@
 <input type="file" accept=".png,.json,image/png,application/json" multiple bind:this={fileInput} onchange={onFiles} hidden />
 
 {#if chars.value.length === 0}
-  <Placeholder title="还没有角色" body="点右上角 + 导入 PNG 或 JSON 角色卡，或者新建一个空白角色。" paths={icons.person} />
+  <Placeholder title="还没有角色" body="点右上角 + 导入 PNG 或 JSON 角色卡。导入前会先进检查页，可疑内容删干净再入库。" paths={icons.person} />
   <div class="actions">
     <button class="link" onclick={() => fileInput.click()}>导入角色卡</button>
     <button class="link" onclick={createBlank}>新建空白角色</button>

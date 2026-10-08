@@ -54,7 +54,7 @@
 </NavBar>
 
 {#if rows.value.length === 0}
-  <Placeholder title="还没有动态" body="角色聊到想记录的事会自己发；你离开几小时再回来，她也会发。右上角 + 可以现在让她发一条。" paths={icons.clock} />
+  <Placeholder title="还没有动态" body="角色聊到想记录的事会自己发；你离开几小时再回来，他也会发。右上角 + 可以现在让他发一条。" paths={icons.clock} />
 {:else}
   <div class="feed">
     {#each rows.value as p (p.id)}

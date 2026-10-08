@@ -81,16 +81,20 @@ function stateText(c: Campaign, chars: Character[]): string {
  */
 export function assemble(input: AssembleInput): { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[] } {
   const { windowSize = 60, scanDepth = 4, now = new Date() } = input;
-  const constant = input.lore.filter((e) => e.enabled && e.constant).sort((a, b) => a.order - b.order);
+  const isStyle = (e: LoreEntry) => e.kind === 'style';
+  const loreOnly = input.lore.filter((e) => !isStyle(e));
+  const constant = loreOnly.filter((e) => e.enabled && e.constant).sort((a, b) => a.order - b.order);
+  const constantStyle = input.lore.filter((e) => isStyle(e) && e.enabled && e.constant).sort((a, b) => a.order - b.order);
 
   const system = [
     section('规则', RULES + (input.hasTools ? '\n\n' + TOOL_RULES : '')),
+    constantStyle.length ? section('写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
     section('用户', `用户的名字是「${input.userName}」。${input.userProfile ? '\n' + input.userProfile : ''}`),
     section(`世界：${input.world.name}`, input.world.summary),
     ...input.characters.map((c) => section(input.characters.length > 1 ? `角色：${c.name}` : `你扮演的角色：${c.name}`, c.core)),
     section('当前状态', stateText(input.campaign, input.characters)),
     constant.length ? section('世界书（常驻）', constant.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
-    section('世界书目录', loreDirectory(input.lore.filter((e) => !e.constant), input.overlays)),
+    section('世界书目录', loreDirectory(loreOnly.filter((e) => !e.constant), input.overlays)),
     input.highlights.length ? section('近期要事', input.highlights.map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n')) : null,
     section('你的记忆目录 /memories', input.memoryIndex),
     ...(input.pluginStable ?? []).map((t) => (t.trim() ? ({ type: 'text', text: t } as TextBlock) : null)),
@@ -113,7 +117,10 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const hits = triggerL1(input.lore, input.overlays.filter((o) => !o.pending), { scanText: scan, budgetTokens: input.l1Budget });
 
   const tail: string[] = [];
-  if (hits.length) tail.push('<世界书>\n' + hits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n') + '\n</世界书>');
+  const styleHits = hits.filter((h) => isStyle(h.entry));
+  const loreHits = hits.filter((h) => !isStyle(h.entry));
+  if (styleHits.length) tail.push('<风格>\n' + styleHits.map((h) => `## ${h.entry.title}\n${h.entry.content}`).join('\n\n') + '\n</风格>');
+  if (loreHits.length) tail.push('<世界书>\n' + loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n') + '\n</世界书>');
   tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
   tail.push(`现在是 ${now.toLocaleString('zh-CN', { hour12: false })}。`);
   if (input.userText?.trim()) tail.push(input.userText.trim());
@@ -129,5 +136,5 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
     const pb = prev.content[prev.content.length - 1]!;
     if (pb.type === 'text') pb.cache = true;
   }
-  return { system, messages, l1Hits: hits.map((h) => h.entry.title) };
+  return { system, messages, l1Hits: loreHits.map((h) => h.entry.title) };
 }

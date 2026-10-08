@@ -6,6 +6,8 @@ export interface World { id: string; name: string; summary: string; createdAt: n
 export interface LoreEntry {
   id: string; worldId: string; title: string; summary: string; content: string;
   scope: 'world' | 'character' | 'relation'; characterIds?: string[];
+  /** 设定（可查、可覆盖）还是风格指令（像规则一样插入） */
+  kind?: 'lore' | 'style';
   triggers: { keywords: string[]; regex?: string; recursive?: boolean };
   constant: boolean; order: number; enabled: boolean;
 }

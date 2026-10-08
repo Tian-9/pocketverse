@@ -122,7 +122,7 @@
   <List>
     <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
     <Cell title="编辑角色" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
-    <Cell title="她记得什么" onclick={() => { menu = false; if (character.value) nav.push('characters', 'memories', { id: character.value.id }); }} />
+    <Cell title="他记得什么" onclick={() => { menu = false; if (character.value) nav.push('characters', 'memories', { id: character.value.id }); }} />
     <Cell title="清空对话" onclick={clearAll} />
   </List>
 </Sheet>

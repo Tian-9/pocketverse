@@ -6,17 +6,17 @@
   let { id }: { id: string } = $props();
   const e = live(() => db().lore.get(id), undefined);
   let title = $state(''), summary = $state(''), content = $state(''), keywords = $state(''), regex = $state(''), order = $state('0');
-  let constant = $state(false), recursive = $state(false);
+  let constant = $state(false), recursive = $state(false), style = $state(false);
   let loaded = $state(false);
   $effect(() => {
     const v = e.value;
-    if (v && !loaded) { title = v.title; summary = v.summary; content = v.content; keywords = v.triggers.keywords.join(', '); regex = v.triggers.regex ?? ''; order = String(v.order); constant = v.constant; recursive = !!v.triggers.recursive; loaded = true; }
+    if (v && !loaded) { title = v.title; summary = v.summary; content = v.content; keywords = v.triggers.keywords.join(', '); regex = v.triggers.regex ?? ''; order = String(v.order); constant = v.constant; recursive = !!v.triggers.recursive; style = v.kind === 'style'; loaded = true; }
   });
   let t: ReturnType<typeof setTimeout> | undefined;
   function save() {
     clearTimeout(t);
     t = setTimeout(() => db().lore.update(id, {
-      title: title.trim() || '未命名', summary: summary.trim(), content, order: Number(order) || 0, constant,
+      title: title.trim() || '未命名', summary: summary.trim(), content, order: Number(order) || 0, constant, kind: style ? 'style' : 'lore',
       triggers: { keywords: keywords.split(/[,，、\n]/).map((k) => k.trim()).filter(Boolean), regex: regex.trim() || undefined, recursive },
     }), 400);
   }
@@ -35,6 +35,10 @@
   </List>
   <SectionTitle text="正文" />
   <List><Field multiline rows={8} bind:value={content} placeholder="触发或被查询时才进上下文" oninput={save} /></List>
+  <SectionTitle text="类型" />
+  <List footer="设定进目录、可检索、可被本局变化覆盖。风格指令像规则一样插入，不进目录。">
+    <Cell title="风格 / 附加指令" subtitle={style ? '当前：指令' : '当前：世界设定'}>{#snippet right()}<Toggle bind:checked={style} onchange={save} label="风格指令" />{/snippet}</Cell>
+  </List>
   <SectionTitle text="触发" />
   <List footer="最近几条消息里出现任一触发词就插入正文。常驻条目每轮都在，别多。">
     <Field label="触发词" bind:value={keywords} placeholder="逗号分隔" oninput={save} />

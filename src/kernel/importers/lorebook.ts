@@ -1,7 +1,7 @@
 import type { LoreEntry } from '../storage/db';
 
 /** SillyTavern 世界书 JSON：{ entries: { [n]: {...} } } 或 { entries: [...] }，也兼容角色卡内嵌的 character_book。 */
-export function parseLorebook(json: unknown): Omit<LoreEntry, 'id' | 'worldId'>[] {
+export function parseLorebook(json: unknown, kind: 'lore' | 'style' = 'lore'): Omit<LoreEntry, 'id' | 'worldId'>[] {
   const root = json as Record<string, unknown>;
   const raw = root?.entries ?? (root?.data as Record<string, unknown> | undefined)?.entries;
   const list: Record<string, unknown>[] = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? Object.values(raw as object) : [];
@@ -15,6 +15,7 @@ export function parseLorebook(json: unknown): Omit<LoreEntry, 'id' | 'worldId'>[
       summary: content.replace(/\s+/g, ' ').slice(0, 60),
       content,
       scope: 'world' as const,
+      kind,
       triggers: { keywords: keys, recursive: e.excludeRecursion === true ? false : undefined },
       constant: e.constant === true,
       order: typeof e.order === 'number' ? e.order : typeof e.insertion_order === 'number' ? e.insertion_order : i,

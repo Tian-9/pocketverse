@@ -53,3 +53,19 @@ describe('assemble (full)', () => {
     expect(pb.type === 'text' && pb.cache).toBe(true);
   });
 });
+
+describe('style entries', () => {
+  it('puts constant style entries after rules and triggered ones in a <风格> block, never in the directory', () => {
+    const style: LoreEntry[] = [
+      { id: 's1', worldId: 'w', title: '粤语', summary: '', content: '全程用粤语口语。', scope: 'world', kind: 'style', triggers: { keywords: [] }, constant: true, order: 0, enabled: true },
+      { id: 's2', worldId: 'w', title: '雨天文风', summary: '', content: '下雨时句子更短。', scope: 'world', kind: 'style', triggers: { keywords: ['雨'] }, constant: false, order: 1, enabled: true },
+    ];
+    const r = assemble({ ...base, lore: [...lore, ...style], history: [], userText: '雨好大' });
+    expect(r.system[1]!.text.startsWith('# 写作风格与附加指令')).toBe(true);
+    expect(r.system.find((b) => b.text.startsWith('# 世界书目录'))!.text).not.toContain('雨天文风');
+    const tail = r.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join();
+    expect(tail).toContain('<风格>');
+    expect(tail).toContain('句子更短');
+    expect(r.l1Hits).toEqual([]);
+  });
+});

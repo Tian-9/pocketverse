@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NavBar, List, Cell, Toggle, SectionTitle, Placeholder, Glyph, icons } from '$kernel/api';
+  import { NavBar, List, Cell, Toggle, SectionTitle, Placeholder, Glyph, Sheet, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import { repo } from '$kernel/data/repo';
@@ -14,19 +14,23 @@
   const entries = live(() => db().lore.orderBy('order').toArray(), []);
   const pendingCount = live(() => db().overlays.filter((o) => o.pending === true).count(), 0);
   let fileInput: HTMLInputElement;
+  let pendingFiles = $state<File[]>([]);
 
-  async function onFiles(e: Event) {
-    const files = [...((e.target as HTMLInputElement).files ?? [])];
+  function onFiles(e: Event) {
+    pendingFiles = [...((e.target as HTMLInputElement).files ?? [])];
     (e.target as HTMLInputElement).value = '';
+  }
+  async function importAs(kind: 'lore' | 'style') {
+    const files = pendingFiles; pendingFiles = [];
     const w = await repo.ensureDefaultWorld();
     try {
       let n = 0;
       for (const f of files) {
-        const parsed = parseLorebook(JSON.parse(await f.text()));
+        const parsed = parseLorebook(JSON.parse(await f.text()), kind);
         await db().lore.bulkAdd(parsed.map((p) => ({ ...p, id: ulid(), worldId: w.id })));
         n += parsed.length;
       }
-      bus.emit('notify', { title: `已导入 ${n} 条世界书`, pluginId: 'lore' });
+      bus.emit('notify', { title: `已导入 ${n} 条${kind === 'style' ? '风格指令' : '世界书'}`, pluginId: 'lore' });
     } catch (err) {
       bus.emit('notify', { title: '导入失败', body: err instanceof Error ? err.message : String(err) });
     }
@@ -37,7 +41,7 @@
     await db().lore.add({ id, worldId: w.id, title: '新条目', summary: '', content: '', scope: 'world', triggers: { keywords: [] }, constant: false, order: (entries.value.at(-1)?.order ?? 0) + 1, enabled: true });
     nav.push('lore', 'entry', { id });
   }
-  const trig = (e: (typeof entries.value)[number]) => e.constant ? '常驻' : e.triggers.keywords.length ? '触发词：' + e.triggers.keywords.slice(0, 4).join('、') : '没有触发词，只能被搜到';
+  const trig = (e: (typeof entries.value)[number]) => (e.kind === 'style' ? '风格指令 · ' : '') + (e.constant ? '常驻' : e.triggers.keywords.length ? '触发词：' + e.triggers.keywords.slice(0, 4).join('、') : e.kind === 'style' ? '没有触发词，不会生效' : '没有触发词，只能被搜到');
 </script>
 
 <NavBar title="世界书" large back="桌面">
@@ -67,6 +71,14 @@
   </List>
 {/if}
 <div class="actions"><button class="link" onclick={create}>新建条目</button></div>
+
+<Sheet open={pendingFiles.length > 0} title="这份世界书是什么">
+  <List footer="设定：哈利波特的魔法部、某个城市的规则，模型按需查阅，剧情可以改变它。风格指令：怎么说粤语、怎么写某种文风，像规则一样直接生效。">
+    <Cell title="世界设定" subtitle="进目录，可检索，可被本局变化覆盖" chevron onclick={() => importAs('lore')} />
+    <Cell title="风格 / 附加指令" subtitle="常驻的放在规则后面，有触发词的命中时插入" chevron onclick={() => importAs('style')} />
+    <Cell title="取消" onclick={() => (pendingFiles = [])} />
+  </List>
+</Sheet>
 <div style="height:40px"></div>
 
 <style>

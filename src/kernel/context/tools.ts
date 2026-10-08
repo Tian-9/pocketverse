@@ -20,7 +20,7 @@ export const kernelTools: KernelTool[] = [
     async handler(input, ctx) {
       const active = ctx.overlays.filter((o) => !o.pending);
       const docs = [
-        ...ctx.lore.filter((e) => e.enabled).map((e) => ({ id: e.id, kind: 'lore', title: e.title, text: e.summary + '\n' + e.content })),
+        ...ctx.lore.filter((e) => e.enabled && e.kind !== 'style').map((e) => ({ id: e.id, kind: 'lore', title: e.title, text: e.summary + '\n' + e.content })),
         ...active.map((o) => ({ id: o.id, kind: 'overlay', title: o.title, text: o.summary + '\n' + o.content })),
       ];
       const hits = search(docs, str(input?.query, 200));
@@ -37,7 +37,7 @@ export const kernelTools: KernelTool[] = [
     async handler(input, ctx) {
       const id = str(input?.id, 64);
       const ov = ctx.overlays.find((o) => !o.pending && (o.id === id || o.loreEntryId === id));
-      const e = ctx.lore.find((x) => x.id === id);
+      const e = ctx.lore.find((x) => x.id === id && x.kind !== 'style');
       if (ov && e) return `## ${e.title}（本局已变化）\n${ov.content}\n\n原文：${e.content}`;
       if (ov) return `## ${ov.title}（本局新增）\n${ov.content}`;
       if (e) return `## ${e.title}\n${e.content}`;
