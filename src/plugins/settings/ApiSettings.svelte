@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { NavBar, List, Cell, Field, SectionTitle, Button, Glyph, icons } from '$kernel/api';
+  import { NavBar, List, Cell, Field, SectionTitle, Toggle, Glyph, icons } from '$kernel/api';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { MODELS } from '$kernel/llm/pricing';
   import { chat } from '$kernel/chat/engine.svelte';
 
   let key = $state(llm.settings.apiKey);
   let userName = $state(chat.userName);
+  let userProfile = $state(chat.userProfile);
   let testing = $state(false);
   let testResult = $state('');
   const efforts: { id: typeof llm.settings.effort; label: string }[] = [
@@ -45,9 +46,15 @@
   </div>
 </List>
 
+<SectionTitle text="记忆与工具" />
+<List footer="开着时角色可以翻世界书、回忆、记状态、维护自己的笔记。关掉只靠常驻设定和触发词，更快更省。">
+  <Cell title="允许角色用工具">{#snippet right()}<Toggle checked={llm.settings.tools !== false} label="工具" onchange={(v) => llm.save({ tools: v })} />{/snippet}</Cell>
+</List>
+
 <SectionTitle text="你" />
-<List footer="角色会用这个名字称呼你。">
+<List footer="角色会用这个名字称呼你。自我介绍会常驻在上下文里，写你希望所有角色都知道的事。">
   <Field label="名字" bind:value={userName} placeholder="我" oninput={(v) => chat.setUserName(v)} />
+  <Field multiline rows={3} bind:value={userProfile} placeholder="自我介绍，可选" oninput={(v) => chat.setUserProfile(v)} />
 </List>
 
 <SectionTitle text="用量" />

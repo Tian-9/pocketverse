@@ -1,13 +1,16 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { BetaMessageParam, BetaTextBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
-import type { ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
+import type {
+  BetaMessageParam, BetaTextBlockParam, BetaContentBlockParam, BetaToolUnion, BetaContentBlock, BetaTool,
+} from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import type { Block, ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
 import { LlmError } from './types';
 
 /**
  * Claude 适配器。浏览器直连，Key 在本机。
- * - 缓存：system 末尾和倒数第二条消息末尾各一个断点，由拼装器通过 block.cache 标记。
- * - fallback：开服务端自动回退，安全分类器拒答时换模型重跑。
- * - 上下文编辑：清旧工具结果（M2 接工具后生效，现在无副作用）。
+ * - 缓存：拼装器用 block.cache 标断点，这里翻译成 cache_control。
+ * - 工具：自定义工具走 JSON schema；memory 走内置 memory_20250818。
+ * - fallback：服务端自动回退，安全分类器拒答时换模型重跑。
+ * - 上下文编辑：自动清旧工具结果。
  */
 export class ClaudeProvider implements LlmProvider {
   id = 'claude';
@@ -22,12 +25,12 @@ export class ClaudeProvider implements LlmProvider {
     const system: BetaTextBlockParam[] = req.system.map((b) => ({
       type: 'text', text: b.text, ...(b.cache ? { cache_control: { type: 'ephemeral' } } : {}),
     }));
-    const messages: BetaMessageParam[] = req.messages.map((m) => ({
-      role: m.role,
-      content: m.content.map((b) => ({
-        type: 'text' as const, text: b.text, ...(b.cache ? { cache_control: { type: 'ephemeral' as const } } : {}),
-      })),
-    }));
+    const messages: BetaMessageParam[] = req.messages.map((m) => ({ role: m.role, content: m.content.map(toParam) }));
+    const tools: BetaToolUnion[] | undefined = req.tools?.length
+      ? req.tools.map((t) => t.builtin === 'memory'
+        ? { type: 'memory_20250818', name: 'memory' }
+        : { name: t.name, description: t.description, input_schema: (t.inputSchema ?? { type: 'object', properties: {} }) as BetaTool['input_schema'] })
+      : undefined;
 
     try {
       hooks.onStatus?.('thinking');
@@ -37,7 +40,11 @@ export class ClaudeProvider implements LlmProvider {
           max_tokens: req.maxTokens,
           system,
           messages,
-          ...(req.effort ? { output_config: { effort: req.effort } } : {}),
+          ...(tools ? { tools } : {}),
+          output_config: {
+            ...(req.effort ? { effort: req.effort } : {}),
+            ...(req.jsonSchema ? { format: { type: 'json_schema', schema: req.jsonSchema } } : {}),
+          },
           betas: ['server-side-fallback-2026-07-01', 'context-management-2025-06-27'],
           fallbacks: 'default',
           context_management: { edits: [{ type: 'clear_tool_uses_20250919' }] },
@@ -51,12 +58,15 @@ export class ClaudeProvider implements LlmProvider {
           if (text === '') hooks.onStatus?.('typing');
           text += ev.delta.text;
           hooks.onText?.(ev.delta.text);
+        } else if (ev.type === 'content_block_start' && ev.content_block.type === 'tool_use') {
+          hooks.onStatus?.('tool:' + ev.content_block.name);
         }
       }
       const final = await stream.finalMessage();
       const u = final.usage;
       const result: ChatResult = {
         text,
+        content: final.content.map(fromBlock),
         model: final.model,
         stopReason: final.stop_reason ?? 'end_turn',
         usage: {
@@ -74,6 +84,26 @@ export class ClaudeProvider implements LlmProvider {
       throw toLlmError(e);
     }
   }
+}
+
+function toParam(b: Block): BetaContentBlockParam {
+  switch (b.type) {
+    case 'text':
+      return { type: 'text', text: b.text, ...(b.cache ? { cache_control: { type: 'ephemeral' } } : {}) };
+    case 'tool_use':
+      return { type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> };
+    case 'tool_result':
+      return { type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}), ...(b.cache ? { cache_control: { type: 'ephemeral' } } : {}) };
+    case 'opaque':
+      return b.block as BetaContentBlockParam;
+  }
+}
+
+function fromBlock(b: BetaContentBlock): Block {
+  if (b.type === 'text') return { type: 'text', text: b.text };
+  if (b.type === 'tool_use') return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
+  // thinking / redacted_thinking 等：原样保留，同一轮回传
+  return { type: 'opaque', provider: 'claude', block: b };
 }
 
 function toLlmError(e: unknown): LlmError {

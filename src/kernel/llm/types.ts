@@ -1,16 +1,31 @@
 export type Role = 'user' | 'assistant';
 
-/** 一段文本，可选缓存断点 */
 export interface TextBlock { type: 'text'; text: string; cache?: boolean }
+export interface ToolUseBlock { type: 'tool_use'; id: string; name: string; input: unknown }
+export interface ToolResultBlock { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; cache?: boolean }
+/** 适配器私有块（如 thinking），同一轮工具循环内原样回传 */
+export interface OpaqueBlock { type: 'opaque'; provider: string; block: unknown }
+export type Block = TextBlock | ToolUseBlock | ToolResultBlock | OpaqueBlock;
 
-export interface ChatMessage { role: Role; content: TextBlock[] }
+export interface ChatMessage { role: Role; content: Block[] }
+
+/** 自定义工具（JSON schema），或适配器内置工具（如 Claude 的 memory） */
+export interface ToolSpec {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  builtin?: 'memory';
+}
 
 export interface ChatRequest {
   model: string;
   system: TextBlock[];
   messages: ChatMessage[];
+  tools?: ToolSpec[];
   maxTokens: number;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** 结构化输出的 JSON schema */
+  jsonSchema?: Record<string, unknown>;
   /** 记账用途标签，如 'chat' | 'consolidate' */
   purpose: string;
   conversationId?: string;
@@ -26,9 +41,10 @@ export interface Usage { input: number; output: number; cacheRead: number; cache
 
 export interface ChatResult {
   text: string;
+  /** 完整回复块，含 tool_use 和 opaque，用于工具循环回传 */
+  content: Block[];
   usage: Usage;
   stopReason: string;
-  /** 实际服务的模型（fallback 时可能不同） */
   model: string;
   refusal?: { category: string | null; explanation?: string | null };
 }

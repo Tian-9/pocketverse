@@ -20,11 +20,15 @@ export interface CampaignState {
 export interface Campaign {
   id: string; worldId: string; characterIds: string[]; name: string;
   createdAt: number; lastPlayedAt: number; state: CampaignState;
+  /** 上次合并处理到的消息 ts */
+  consolidatedUpTo?: number;
 }
 export interface Conversation { id: string; campaignId: string; kind: string; participantIds: string[]; pluginId: string }
 export interface Message {
   id: string; conversationId: string; role: 'user' | 'assistant' | 'system';
   content: unknown[]; ts: number; inWorldTs?: string; tokens?: number;
+  /** 附加信息：用过的工具名、补发标记等 */
+  meta?: Record<string, unknown>;
 }
 export interface EpisodicMemory {
   id: string; campaignId: string; characterId?: string; when: string; text: string;
@@ -33,7 +37,10 @@ export interface EpisodicMemory {
 export interface LoreOverlay {
   id: string; campaignId: string; loreEntryId?: string; title: string; summary: string;
   content: string; reason: string; createdAt: number;
+  /** 合并任务提出、尚未被用户采纳 */
+  pending?: boolean;
 }
+export interface MemFile { campaignId: string; path: string; content: string; updatedAt: number }
 export interface KV { key: string; value: unknown }
 export interface UsageRecord {
   id: string; ts: number; model: string; conversationId?: string; purpose: string;
@@ -51,10 +58,11 @@ const KERNEL_SCHEMA: Record<string, string> = {
   overlays: 'id, campaignId, loreEntryId, createdAt',
   kv: 'key',
   usage: 'id, ts, conversationId',
+  memfs: '[campaignId+path], campaignId',
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 2;
+const KERNEL_VERSION = 3;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -67,6 +75,7 @@ export class PocketDB extends Dexie {
   overlays!: Table<LoreOverlay, string>;
   kv!: Table<KV, string>;
   usage!: Table<UsageRecord, string>;
+  memfs!: Table<MemFile, [string, string]>;
 
   constructor(name = 'pocketverse', plugins: PluginManifest[] = []) {
     super(name);

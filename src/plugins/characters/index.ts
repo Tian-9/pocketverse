@@ -1,6 +1,7 @@
 import { definePlugin, icons, gradients } from '$kernel/api';
 import Characters from './Characters.svelte';
 import CharacterDetail from './CharacterDetail.svelte';
+import Memories from './Memories.svelte';
 
 export default definePlugin({
   id: 'characters',
@@ -9,5 +10,5 @@ export default definePlugin({
   core: true,
   description: '世界与角色管理，导入角色卡。',
   app: { screen: Characters, icon: { paths: icons.person, background: gradients.orange } },
-  screens: { detail: CharacterDetail },
+  screens: { detail: CharacterDetail, memories: Memories },
 });

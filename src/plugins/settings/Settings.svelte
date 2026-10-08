@@ -26,6 +26,6 @@
 </List>
 <SectionTitle text="关于" />
 <List>
-  <Cell title="Pocketverse" value="0.0.2 · M1" />
+  <Cell title="Pocketverse" value="0.0.3 · M2" />
 </List>
 <div style="height:40px"></div>

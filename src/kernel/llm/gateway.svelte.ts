@@ -11,9 +11,11 @@ export interface LlmSettings {
   model: string;
   effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   maxTokens: number;
+  /** 允许模型用工具（世界书检索、记忆等） */
+  tools?: boolean;
 }
 
-const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4096 };
+const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4096, tools: true };
 
 export interface UsageStats {
   todayUsd: number; monthUsd: number; requests: number;

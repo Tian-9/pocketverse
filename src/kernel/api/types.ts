@@ -97,6 +97,8 @@ export interface KernelEvents {
   'llm.turn.start': { conversationId: string };
   'llm.turn.end': { conversationId: string; usage: { input: number; output: number; cacheRead: number; cacheWrite: number }; model: string };
   'llm.turn.error': { conversationId: string; message: string };
+  'memory.written': { kind: 'state' | 'overlay' | 'episodic' | 'memfs'; id: string };
+  'memory.consolidated': { campaignId: string; memories: number; overlays: number };
 }
 export type EventName = keyof KernelEvents | (string & {});
 export type EventHandlers = {

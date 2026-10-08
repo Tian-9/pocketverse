@@ -2,86 +2,131 @@ import { db } from '../storage/db';
 import type { Message } from '../storage/db';
 import { repo } from '../data/repo';
 import { assemble } from '../context/assemble';
+import { kernelTools, toolLabel } from '../context/tools';
+import type { ToolContext } from '../context/tools';
+import { memoryIndex } from '../context/memfs';
+import { runToolLoop, type LoopTool } from './loop';
 import { llm } from '../llm/gateway.svelte';
 import { LlmError } from '../llm/types';
 import { bus } from '../bus/bus';
+import { registry } from '../registry/registry.svelte';
+import { consolidate } from '../memory/consolidate';
+import type { PromptContext } from '../api/types';
 
-export type TurnStatus = 'idle' | 'thinking' | 'typing';
+export type TurnStatus = 'idle' | 'thinking' | 'typing' | 'tool';
 
-interface Live { conversationId: string; status: TurnStatus; text: string; error?: string; abort: AbortController }
+interface Live { conversationId: string; status: TurnStatus; statusText: string; text: string; abort: AbortController }
 
-/** 聊天引擎：一轮 = 存用户消息 → 拼装 → 流式调用 → 存回复 → 记账。每个会话同时只允许一轮。 */
+/** 聊天引擎：一轮 = 存用户消息 → 拼装 → 工具循环 → 存回复 → 记账 → 视情况合并记忆。 */
 class ChatEngine {
   live = $state<Record<string, Live>>({});
   userName = $state('我');
+  userProfile = $state('');
 
   async boot() {
     this.userName = await db().getKV('kernel.userName', '我');
+    this.userProfile = await db().getKV('kernel.userProfile', '');
+    bus.on('app.closed', () => this.consolidateAll());
   }
-  async setUserName(n: string) {
-    this.userName = n.trim() || '我';
-    await db().setKV('kernel.userName', this.userName);
-  }
+  async setUserName(n: string) { this.userName = n.trim() || '我'; await db().setKV('kernel.userName', this.userName); }
+  async setUserProfile(p: string) { this.userProfile = p; await db().setKV('kernel.userProfile', p); }
 
-  statusOf(conversationId: string): TurnStatus {
-    return this.live[conversationId]?.status ?? 'idle';
-  }
+  statusOf(conversationId: string): TurnStatus { return this.live[conversationId]?.status ?? 'idle'; }
 
   async send(conversationId: string, text: string) {
     if (this.live[conversationId]) return;
     await repo.addMessage(conversationId, 'user', text);
-    await this.runTurn(conversationId, { userText: undefined });
+    await this.runTurn(conversationId);
   }
 
-  /** 删掉最后一条角色回复后重跑 */
   async regenerate(conversationId: string) {
     if (this.live[conversationId]) return;
     const msgs = await repo.messagesOf(conversationId);
     const last = msgs[msgs.length - 1];
     if (last?.role === 'assistant') await db().messages.delete(last.id);
-    await this.runTurn(conversationId, {});
+    await this.runTurn(conversationId);
   }
 
-  stop(conversationId: string) {
-    this.live[conversationId]?.abort.abort();
+  stop(conversationId: string) { this.live[conversationId]?.abort.abort(); }
+  async deleteMessage(id: string) { await db().messages.delete(id); }
+  async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
+
+  /** 手动触发一次合并（设置或角色页用） */
+  async consolidateNow(conversationId: string) { return consolidate(conversationId, { force: true }); }
+
+  private async consolidateAll() {
+    const convs = await db().conversations.toArray();
+    for (const c of convs) consolidate(c.id).catch((e) => console.warn('[consolidate]', e));
   }
 
-  async deleteMessage(id: string) {
-    await db().messages.delete(id);
-  }
-
-  async editMessage(id: string, text: string) {
-    await db().messages.update(id, { content: [{ type: 'text', text }] });
-  }
-
-  private async runTurn(conversationId: string, opts: { userText?: string }) {
+  private async runTurn(conversationId: string) {
     const conv = await db().conversations.get(conversationId);
     const character = conv && (await repo.characterOfConversation(conv));
-    if (!conv || !character) throw new Error('会话或角色不存在');
-    const history = await repo.messagesOf(conversationId);
-    const now = new Date();
-    const volatile = [`现在是 ${now.toLocaleString('zh-CN', { hour12: false })}。`];
-    const { system, messages } = assemble({ character, userName: this.userName, history, userText: opts.userText, volatile });
+    const campaign = conv && (await db().campaigns.get(conv.campaignId));
+    const world = campaign && (await db().worlds.get(campaign.worldId));
+    if (!conv || !character || !campaign || !world) throw new Error('会话、角色或世界不存在');
+
+    const [history, lore, overlays, memories, memIndex] = await Promise.all([
+      repo.messagesOf(conversationId),
+      db().lore.where('worldId').equals(world.id).filter((e) => e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id)).toArray(),
+      db().overlays.where('campaignId').equals(campaign.id).toArray(),
+      db().memories.where('campaignId').equals(campaign.id).filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
+      memoryIndex(campaign.id),
+    ]);
+
+    const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id] };
+    const plugins = registry.plugins.filter((p) => registry.isEnabled(p.id));
+    const pluginStable: string[] = [], pluginVolatile: string[] = [];
+    for (const p of plugins) for (const c of p.promptContributors ?? []) {
+      try {
+        if (c.stable) pluginStable.push(await c.stable(pctx));
+        if (c.volatile) pluginVolatile.push(await c.volatile(pctx));
+      } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); }
+    }
+
+    const tctx: ToolContext = { campaign, characters: [character], lore, overlays };
+    const useTools = llm.settings.tools !== false;
+    const tools: LoopTool[] = useTools ? [
+      ...kernelTools.map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
+      ...plugins.flatMap((p) => (p.tools ?? []).map((t) => ({
+        spec: { name: t.name, description: t.description, inputSchema: t.inputSchema },
+        run: async (input: unknown) => { const r = await t.handler(input, pctx); return typeof r === 'string' ? r : JSON.stringify(r ?? null); },
+      }))),
+    ] : [];
+
+    const { system, messages, l1Hits } = assemble({
+      world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
+      lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
+      pluginStable, pluginVolatile, hasTools: tools.length > 0,
+    });
 
     const abort = new AbortController();
-    this.live[conversationId] = { conversationId, status: 'thinking', text: '', abort };
+    this.live[conversationId] = { conversationId, status: 'thinking', statusText: '正在思考…', text: '', abort };
     bus.emit('llm.turn.start', { conversationId });
+    const setStatus = (s: string) => {
+      const l = this.live[conversationId]; if (!l) return;
+      if (s === 'typing') { l.status = 'typing'; l.statusText = '正在输入…'; }
+      else if (s.startsWith('tool:')) { l.status = 'tool'; l.statusText = `正在${toolLabel(s.slice(5))}…`; }
+      else { l.status = 'thinking'; l.statusText = '正在思考…'; }
+    };
     try {
-      const r = await llm.chat(
+      const { result: r, toolsUsed } = await runToolLoop(
+        (req, hooks) => llm.chat(req, hooks),
         { system, messages, purpose: 'chat', conversationId },
-        {
-          signal: abort.signal,
-          onStatus: (s) => { const l = this.live[conversationId]; if (l) l.status = s === 'typing' ? 'typing' : 'thinking'; },
-          onText: (d) => { const l = this.live[conversationId]; if (l) l.text += d; },
-        },
+        tools,
+        { hooks: { signal: abort.signal, onStatus: setStatus, onText: (d) => { const l = this.live[conversationId]; if (l) { l.text += d; } } }, onToolUsed: () => { const l = this.live[conversationId]; if (l) l.text = ''; } },
       );
       const text = r.text.trim();
+      const meta: Record<string, unknown> = {};
+      if (toolsUsed.length) meta.tools = toolsUsed;
+      if (l1Hits.length) meta.lore = l1Hits;
       if (r.refusal) {
         await repo.addMessage(conversationId, 'system', `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）`);
       } else if (text) {
-        await repo.addMessage(conversationId, 'assistant', text);
+        await repo.addMessage(conversationId, 'assistant', text, Object.keys(meta).length ? { meta } : {});
       }
       bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });
+      consolidate(conversationId).catch((e) => console.warn('[consolidate]', e));
     } catch (e) {
       const partial = this.live[conversationId]?.text.trim();
       if (e instanceof LlmError && e.kind === 'aborted') {

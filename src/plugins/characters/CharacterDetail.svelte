@@ -53,6 +53,7 @@
   </List>
   <div class="actions">
     <Button onclick={startChat}>开始聊天</Button>
+    <Button kind="tinted" onclick={() => nav.push('characters', 'memories', { id })}>她记得什么</Button>
     <Button kind="plain" onclick={() => (confirmDelete = true)}><span style="color:var(--red)">删除角色</span></Button>
   </div>
 {/if}

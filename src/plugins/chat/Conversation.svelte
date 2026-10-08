@@ -8,6 +8,7 @@
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
   import { tick } from 'svelte';
+  import { toolLabel } from '$kernel/context/tools';
 
   let { id }: { id: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
@@ -55,6 +56,15 @@
     if (ch?.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
     menu = false;
   }
+  function caption(m: Message): string {
+    const meta = m.meta ?? {};
+    const parts: string[] = [];
+    const lore = meta.lore as string[] | undefined;
+    const tools = meta.tools as string[] | undefined;
+    if (lore?.length) parts.push('触发世界书：' + lore.join('、'));
+    if (tools?.length) parts.push('用了 ' + [...new Set(tools)].map(toolLabel).join('、'));
+    return parts.join(' · ');
+  }
   function fmt(ts: number) { return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }); }
   function showTime(i: number) { const m = messages.value[i], p = messages.value[i - 1]; return !p || m!.ts - p.ts > 10 * 60 * 1000; }
 </script>
@@ -65,7 +75,7 @@
       <button class="iconbtn" onclick={() => (menu = true)} aria-label="更多"><Glyph paths={['M5 12h.01M12 12h.01M19 12h.01']} size={22} color="var(--tint)" width={3} /></button>
     {/snippet}
   </NavBar>
-  <div class="status">{status === 'thinking' ? '正在思考…' : status === 'typing' ? '正在输入…' : ' '}</div>
+  <div class="status">{liveTurn?.statusText ?? ' '}</div>
 
   <div class="msgs" bind:this={scroller}>
     {#each messages.value as m, i (m.id)}
@@ -75,7 +85,10 @@
       {:else}
         <div class="msg {m.role}" onpointerdown={() => pressStart(m)} onpointerup={pressEnd} onpointerleave={pressEnd} onpointercancel={pressEnd} oncontextmenu={(e) => { e.preventDefault(); picked = m; }} role="listitem">
           {#if m.role === 'assistant' && character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={30} />{/if}
-          <div class="bubble">{textOf(m)}</div>
+          <div class="col">
+            <div class="bubble">{textOf(m)}</div>
+            {#if caption(m)}<div class="caption">{caption(m)}</div>{/if}
+          </div>
         </div>
       {/if}
     {/each}
@@ -101,6 +114,7 @@
   <List>
     <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
     <Cell title="编辑角色" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
+    <Cell title="她记得什么" onclick={() => { menu = false; if (character.value) nav.push('characters', 'memories', { id: character.value.id }); }} />
     <Cell title="清空对话" onclick={clearAll} />
   </List>
 </Sheet>
@@ -123,6 +137,8 @@
   .msg { display: flex; align-items: flex-end; gap: 6px; max-width: 80%; }
   .msg.user { align-self: flex-end; }
   .msg.assistant { align-self: flex-start; }
+  .col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .caption { font-size: 11px; color: var(--label-3); padding-left: 6px; }
   .bubble { padding: 8px 13px; border-radius: 18px; font-size: 17px; line-height: 1.35; white-space: pre-wrap; word-break: break-word; min-width: 0; }
   .assistant .bubble { background: var(--bubble-them); color: var(--bubble-them-fg); border-bottom-left-radius: 5px; }
   .user .bubble { background: var(--bubble-me); color: var(--bubble-me-fg); border-bottom-right-radius: 5px; }
