@@ -8,10 +8,12 @@ import { registry } from '$kernel/registry/registry.svelte';
 import { openDB } from '$kernel/storage/db';
 import { theme } from '$kernel/theme/theme.svelte';
 import { scheduler } from '$kernel/scheduler/scheduler';
+import { nav } from '$kernel/nav/nav.svelte';
 import { llm } from '$kernel/llm/gateway.svelte';
 import { chat } from '$kernel/chat/engine.svelte';
 
 async function boot() {
+  nav.boot();
   for (const p of builtinPlugins) registry.register(p);
   openDB(builtinPlugins);
   await theme.boot();

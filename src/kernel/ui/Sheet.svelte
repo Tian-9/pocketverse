@@ -1,6 +1,17 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { nav } from '../nav/nav.svelte';
   let { open = $bindable(false), title, children, onclose }: { open?: boolean; title?: string; children: Snippet; onclose?: () => void } = $props();
+  let token: number | null = null;
+  // 打开时登记到导航栈，系统返回手势会先关弹窗；关闭时注销
+  $effect(() => {
+    if (open && token === null) {
+      token = nav.openOverlay(() => { token = null; open = false; onclose?.(); });
+    } else if (!open && token !== null) {
+      const t = token; token = null;
+      nav.closeOverlay(t);
+    }
+  });
   function close() { open = false; onclose?.(); }
 </script>
 

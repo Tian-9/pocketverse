@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NavBar, List, Cell, Field, SectionTitle, Button, Avatar, Sheet } from '$kernel/api';
+  import { NavBar, List, Cell, Field, SectionTitle, Button, Avatar, Sheet, Toggle } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import { repo } from '$kernel/data/repo';
@@ -12,16 +12,17 @@
   const c = live(() => db().characters.get(id), undefined);
   const loreCount = live(() => db().lore.filter((e) => e.kind !== 'style' && e.scope !== 'world' && !!e.characterIds?.includes(id)).count(), 0);
   let name = $state(''), core = $state(''), full = $state(''), firstMessage = $state('');
+  let useFirst = $state(false);
   let loaded = $state(false);
   let confirmDelete = $state(false);
   $effect(() => {
     const v = c.value;
-    if (v && !loaded) { name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; loaded = true; }
+    if (v && !loaded) { name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; loaded = true; }
   });
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => repo.updateCharacter(id, { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined }), 400);
+    saveTimer = setTimeout(() => repo.updateCharacter(id, { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst }), 400);
   }
   async function startChat() {
     const ch = await db().characters.get(id);
@@ -75,8 +76,9 @@
     <Cell title="专属设定" value={`${loreCount.value} 条`} chevron onclick={() => nav.push('characters', 'lore', { id })} />
   </List>
   <SectionTitle text="开场白" />
-  <List>
+  <List footer="酒馆卡的开场白多半是为酒馆场景写的，默认不自动发。写了适合手机聊天的再打开。">
     <Field multiline rows={3} bind:value={firstMessage} placeholder="新对话的第一句话" oninput={save} />
+    <Cell title="新对话自动发送">{#snippet right()}<Toggle bind:checked={useFirst} onchange={save} label="自动发送开场白" />{/snippet}</Cell>
   </List>
   <div class="actions">
     <Button onclick={startChat}>开始聊天</Button>

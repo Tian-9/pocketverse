@@ -6,7 +6,7 @@ beforeAll(() => { openDB([]); });
 
 describe('repo', () => {
   it('creates character in default world, one campaign and a direct conversation with first message', async () => {
-    const c = await repo.createCharacter({ name: '林晚秋', core: 'x', full: 'x', firstMessage: '你来了。' });
+    const c = await repo.createCharacter({ name: '林晚秋', core: 'x', full: 'x', firstMessage: '你来了。', useFirstMessage: true });
     expect((await db().worlds.count())).toBe(1);
     const conv1 = await repo.directConversation(c);
     const conv2 = await repo.directConversation(c);

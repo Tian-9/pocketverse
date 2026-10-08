@@ -13,7 +13,10 @@ export interface LoreEntry {
 }
 export interface Character {
   id: string; worldId: string; name: string; avatar?: Blob;
-  core: string; full: string; firstMessage?: string; voice?: Record<string, unknown>;
+  core: string; full: string; firstMessage?: string;
+  /** 新对话是否自动发开场白；酒馆卡的开场白多半不合小手机场景，默认不发 */
+  useFirstMessage?: boolean;
+  voice?: Record<string, unknown>;
 }
 export interface CampaignState {
   inWorldTime?: string; location?: string;

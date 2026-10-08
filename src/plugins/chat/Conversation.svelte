@@ -54,7 +54,7 @@
   async function clearAll() {
     for (const m of messages.value) await chat.deleteMessage(m.id);
     const ch = character.value;
-    if (ch?.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
+    if (ch?.useFirstMessage && ch.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
     menu = false;
   }
   interface Card { pluginId: string; tag: string; body: string; attrs: Record<string, string> }

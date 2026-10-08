@@ -60,7 +60,7 @@ export const repo = {
     if (found) return found;
     const conv: Conversation = { id: ulid(), campaignId: campaign.id, kind: 'direct', participantIds: [character.id], pluginId };
     await db().conversations.add(conv);
-    if (character.firstMessage?.trim()) await this.addMessage(conv.id, 'assistant', character.firstMessage.trim());
+    if (character.useFirstMessage && character.firstMessage?.trim()) await this.addMessage(conv.id, 'assistant', character.firstMessage.trim());
     return conv;
   },
 
