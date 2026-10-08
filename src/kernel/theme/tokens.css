@@ -1,0 +1,90 @@
+/* 设计 token：所有组件只读这些变量。iOS 17+ 语言。 */
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-rounded: -apple-system, "SF Pro Rounded", var(--font);
+
+  /* 背景层级 */
+  --bg-grouped: #f2f2f7;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #f2f2f7;
+  --bg-elevated: #ffffff;
+
+  /* 文字 */
+  --label: #000000;
+  --label-2: rgba(60, 60, 67, 0.6);
+  --label-3: rgba(60, 60, 67, 0.3);
+  --separator: rgba(60, 60, 67, 0.29);
+  --fill: rgba(120, 120, 128, 0.2);
+  --fill-2: rgba(120, 120, 128, 0.16);
+
+  /* 系统色 */
+  --tint: #007aff;
+  --tint-fg: #ffffff;
+  --green: #34c759;
+  --red: #ff3b30;
+  --orange: #ff9500;
+  --yellow: #ffcc00;
+  --purple: #af52de;
+  --pink: #ff2d55;
+  --teal: #30b0c7;
+  --indigo: #5856d6;
+
+  /* 气泡 */
+  --bubble-me: #007aff;
+  --bubble-me-fg: #ffffff;
+  --bubble-them: #e9e9eb;
+  --bubble-them-fg: #000000;
+
+  /* 壁纸 */
+  --wall: radial-gradient(120% 90% at 20% 10%, #ffd6e7 0%, transparent 55%),
+          radial-gradient(90% 80% at 85% 25%, #c9e4ff 0%, transparent 55%),
+          radial-gradient(100% 100% at 50% 100%, #d9c6ff 0%, transparent 60%),
+          linear-gradient(180deg, #eef2ff 0%, #fbe7f3 100%);
+  --wall-label: #1c1c1e;
+  --wall-label-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
+
+  /* 形状 */
+  --radius-cell: 10px;
+  --radius-card: 14px;
+  --radius-sheet: 22px;
+  --radius-icon: 22.5%;
+  --dock-bg: rgba(255, 255, 255, 0.45);
+  --glass-blur: 30px;
+  --shadow-icon: 0 1px 3px rgba(0, 0, 0, 0.12), 0 6px 14px rgba(0, 0, 0, 0.08);
+  --shadow-sheet: 0 -8px 30px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="dark"],
+:root:not([data-theme="light"]):is(.dark-system) {
+  color-scheme: dark;
+  --bg-grouped: #000000;
+  --bg-surface: #1c1c1e;
+  --bg-surface-2: #2c2c2e;
+  --bg-elevated: #2c2c2e;
+  --label: #ffffff;
+  --label-2: rgba(235, 235, 245, 0.6);
+  --label-3: rgba(235, 235, 245, 0.3);
+  --separator: rgba(84, 84, 88, 0.65);
+  --fill: rgba(120, 120, 128, 0.36);
+  --fill-2: rgba(120, 120, 128, 0.32);
+  --tint: #0a84ff;
+  --green: #30d158;
+  --red: #ff453a;
+  --orange: #ff9f0a;
+  --yellow: #ffd60a;
+  --purple: #bf5af2;
+  --pink: #ff375f;
+  --teal: #40c8e0;
+  --indigo: #5e5ce6;
+  --bubble-me: #0a84ff;
+  --bubble-them: #26252a;
+  --bubble-them-fg: #ffffff;
+  --wall: radial-gradient(120% 90% at 20% 10%, #3a1d4f 0%, transparent 55%),
+          radial-gradient(90% 80% at 85% 25%, #0f2a52 0%, transparent 55%),
+          radial-gradient(100% 100% at 50% 100%, #1b1140 0%, transparent 60%),
+          linear-gradient(180deg, #0b0b14 0%, #16101f 100%);
+  --wall-label: #ffffff;
+  --wall-label-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --dock-bg: rgba(255, 255, 255, 0.14);
+  --shadow-icon: 0 1px 3px rgba(0, 0, 0, 0.5), 0 6px 14px rgba(0, 0, 0, 0.35);
+}

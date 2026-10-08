@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "./kernel/theme/tokens.css";
+
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+html, body, #app { height: 100%; margin: 0; }
+body { font-family: var(--font); background: var(--bg-grouped); color: var(--label); overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+button:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+input, textarea { font: inherit; color: inherit; }
