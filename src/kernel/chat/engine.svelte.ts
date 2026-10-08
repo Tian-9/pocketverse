@@ -39,8 +39,17 @@ class ChatEngine {
 
   async send(conversationId: string, text: string) {
     if (this.live[conversationId]) return;
-    await repo.addMessage(conversationId, 'user', text);
+    await repo.addMessage(conversationId, 'user', text, await this.stamp(conversationId));
     await this.runTurn(conversationId);
+  }
+
+  /** 剧情时间模式下，消息带上当时的剧情时间，聊天界面按它显示分隔线 */
+  private async stamp(conversationId: string): Promise<Partial<Message>> {
+    const conv = await db().conversations.get(conversationId);
+    const ch = conv && (await repo.characterOfConversation(conv));
+    const cp = conv && (await db().campaigns.get(conv.campaignId));
+    if (ch?.timeMode === 'story' && cp?.state.inWorldTime) return { inWorldTs: cp.state.inWorldTime };
+    return {};
   }
 
   async regenerate(conversationId: string) {
@@ -62,7 +71,7 @@ class ChatEngine {
     const campaign = conv && (await db().campaigns.get(conv.campaignId));
     if (!conv || !campaign) return;
     await db().campaigns.update(campaign.id, { state: { ...campaign.state, inWorldTime: when } });
-    await repo.addMessage(conversationId, 'user', `（时间来到：${when}${note ? '。' + note : ''}）`, { meta: { narration: true } });
+    await repo.addMessage(conversationId, 'user', `（时间来到：${when}${note ? '。' + note : ''}）`, { meta: { narration: true }, inWorldTs: when });
     await this.runTurn(conversationId);
   }
 
@@ -127,7 +136,7 @@ class ChatEngine {
     try {
       const { result: r, toolsUsed } = await runToolLoop(
         (req, hooks) => llm.chat(req, hooks),
-        { system, messages, purpose: 'chat', conversationId },
+        { system, messages, purpose: 'chat', conversationId, names: { user: this.userName, assistant: character.name } },
         tools,
         { hooks: { signal: abort.signal, onStatus: setStatus, onText: (d) => { const l = this.live[conversationId]; if (l) { l.text += d; } } }, onToolUsed: () => { const l = this.live[conversationId]; if (l) l.text = ''; } },
       );
@@ -157,7 +166,7 @@ class ChatEngine {
             if (abort.signal.aborted) break;
           }
           const isLast = i === parts.length - 1;
-          await repo.addMessage(conversationId, 'assistant', parts[i]!, isLast && Object.keys(meta).length ? { meta } : {});
+          await repo.addMessage(conversationId, 'assistant', parts[i]!, { ...(await this.stamp(conversationId)), ...(isLast && Object.keys(meta).length ? { meta } : {}) });
         }
         if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }

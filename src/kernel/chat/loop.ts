@@ -10,7 +10,7 @@ export type ChatFn = (req: Omit<ChatRequest, 'model' | 'maxTokens' | 'effort'> &
  */
 export async function runToolLoop(
   chat: ChatFn,
-  base: { system: TextBlock[]; messages: ChatMessage[]; purpose: string; conversationId?: string },
+  base: { system: TextBlock[]; messages: ChatMessage[]; purpose: string; conversationId?: string; names?: { user: string; assistant: string } },
   tools: LoopTool[],
   opts: LoopOptions = {},
 ): Promise<{ result: ChatResult; toolsUsed: string[]; rounds: number }> {
@@ -22,7 +22,7 @@ export async function runToolLoop(
   let last: ChatResult;
   for (;;) {
     rounds++;
-    last = await chat({ system: base.system, messages, tools: specs, purpose: base.purpose, conversationId: base.conversationId }, opts.hooks);
+    last = await chat({ system: base.system, messages, tools: specs, purpose: base.purpose, conversationId: base.conversationId, names: base.names }, opts.hooks);
     const calls = last.content.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
     if (!calls.length || last.stopReason !== 'tool_use' || rounds > maxRounds) break;
     messages.push({ role: 'assistant', content: last.content });

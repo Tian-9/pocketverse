@@ -27,7 +27,7 @@ export function render(req: ChatRequest): string {
   req.system.forEach((b, i) => { out.push(`--- 块 ${i + 1}${b.cache ? '  ⟨缓存断点⟩' : ''} ---`, b.text); });
   out.push('', '════════ MESSAGES ════════');
   for (const m of req.messages) {
-    out.push(`--- ${m.role === 'user' ? '用户' : '角色'} ---`);
+    out.push(`--- ${m.role === 'user' ? (req.names?.user ?? '用户') : (req.names?.assistant ?? '角色')} ---`);
     for (const b of m.content) {
       if (b.type === 'text') out.push(b.text + (b.cache ? '\n⟨缓存断点⟩' : ''));
       else if (b.type === 'tool_use') out.push(`[调用工具 ${b.name}] ${JSON.stringify(b.input)}`);

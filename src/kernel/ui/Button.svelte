@@ -3,7 +3,7 @@
   let { children, onclick, kind = 'filled', disabled = false }: { children: Snippet; onclick?: () => void; kind?: 'filled' | 'tinted' | 'plain'; disabled?: boolean } = $props();
 </script>
 
-<button class="btn {kind}" {onclick} {disabled}>{@render children()}</button>
+<button class="btn {kind}" {onclick} {disabled} onpointerdown={(e) => e.preventDefault()}>{@render children()}</button>
 
 <style>
   .btn { font-size: 17px; font-weight: 600; border-radius: 12px; padding: 13px 20px; width: 100%; transition: opacity 0.15s; }

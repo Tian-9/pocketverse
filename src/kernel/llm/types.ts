@@ -29,6 +29,8 @@ export interface ChatRequest {
   /** 记账用途标签，如 'chat' | 'consolidate' */
   purpose: string;
   conversationId?: string;
+  /** 仅用于预览显示的名字，不发给模型 */
+  names?: { user: string; assistant: string };
 }
 
 export interface StreamHooks {

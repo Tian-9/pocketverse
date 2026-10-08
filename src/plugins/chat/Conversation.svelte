@@ -23,6 +23,12 @@
   let timeSheet = $state(false);
   let timeWhen = $state('');
   let timeNote = $state('');
+  function advance() {
+    const w = timeWhen.trim(); if (!w) return;
+    timeSheet = false;
+    chat.advanceTime(id, w, timeNote.trim() || undefined);
+    timeWhen = ''; timeNote = '';
+  }
   let picked = $state<Message | null>(null);
   let scroller: HTMLDivElement;
   let textarea: HTMLTextAreaElement;
@@ -73,7 +79,13 @@
     return parts.join(' · ');
   }
   function fmt(ts: number) { return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }); }
-  function showTime(i: number) { const m = messages.value[i], p = messages.value[i - 1]; return !p || m!.ts - p.ts > 10 * 60 * 1000; }
+  function showTime(i: number) {
+    const m = messages.value[i]!, p = messages.value[i - 1];
+    if (!p) return true;
+    if (m.inWorldTs || p.inWorldTs) return m.inWorldTs !== p.inWorldTs; // 剧情时间变了才显示
+    return m.ts - p.ts > 10 * 60 * 1000;
+  }
+  function timeLabel(m: Message) { return m.inWorldTs ?? fmt(m.ts); }
 </script>
 
 <div class="conv">
@@ -86,7 +98,7 @@
 
   <div class="msgs" bind:this={scroller}>
     {#each messages.value as m, i (m.id)}
-      {#if showTime(i)}<div class="time">{fmt(m.ts)}</div>{/if}
+      {#if showTime(i)}<div class="time">{timeLabel(m)}</div>{/if}
       {#if m.role === 'system' || m.meta?.narration}
         <div class="sys">{textOf(m)}</div>
       {:else}
@@ -131,11 +143,13 @@
   </List>
 </Sheet>
 <Sheet bind:open={timeSheet} title="推进时间">
-  <List footer="会在对话里插一条旁白，并把剧情时间更新成你写的。真实时间模式下也能用，只是下一轮角色仍会看到真实时钟。">
+  <div onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); advance(); } }} role="presentation">
+  <List footer="会在对话里插一条旁白，并把剧情时间更新成你写的。真实时间模式下也能用，只是下一轮角色仍会看到真实时钟；想完全按剧情走，去角色页打开「剧情时间模式」。">
     <Field label="来到" bind:value={timeWhen} placeholder="三天后的早上" />
     <Field multiline rows={2} bind:value={timeNote} placeholder="这段时间发生了什么，可选" />
   </List>
-  <div class="actions"><Button onclick={() => { const w = timeWhen.trim(); if (!w) return; timeSheet = false; chat.advanceTime(id, w, timeNote.trim() || undefined); timeWhen = ''; timeNote = ''; }}>推进</Button></div>
+  <div class="actions"><Button onclick={advance}>推进</Button></div>
+  </div>
 </Sheet>
 <Sheet open={!!picked} onclose={() => (picked = null)} title="这条消息">
   <List>
