@@ -12,7 +12,7 @@
   function drop() { draft.book.splice(index, 1); nav.pop(); }
 </script>
 
-<NavBar title={e?.title || '条目'} back="检查" />
+<NavBar title={e?.title || '条目'} back="世界书" />
 {#if e}
   <List>
     <Field label="标题" bind:value={e.title} />

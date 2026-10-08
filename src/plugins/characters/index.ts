@@ -5,6 +5,7 @@ import Memories from './Memories.svelte';
 import Inspect from './Inspect.svelte';
 import Findings from './Findings.svelte';
 import BookEntry from './BookEntry.svelte';
+import Book from './Book.svelte';
 
 export default definePlugin({
   id: 'characters',
@@ -13,5 +14,5 @@ export default definePlugin({
   core: true,
   description: '世界与角色管理，导入角色卡。',
   app: { screen: Characters, icon: { paths: icons.person, background: gradients.orange } },
-  screens: { detail: CharacterDetail, memories: Memories, inspect: Inspect, findings: Findings, bookEntry: BookEntry },
+  screens: { detail: CharacterDetail, memories: Memories, inspect: Inspect, findings: Findings, book: Book, bookEntry: BookEntry },
 });

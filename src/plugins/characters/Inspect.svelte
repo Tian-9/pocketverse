@@ -12,10 +12,12 @@
   import { draft } from './inspect.svelte';
 
   let { card, avatar, raw }: { card?: ParsedCard; avatar?: Blob; raw?: unknown } = $props();
-  // 从角色列表进来时带 card；从子页面返回时草稿已经在
+  // 从角色列表进来时带 card，总是新开草稿；子页面不带 card，共用草稿
   // svelte-ignore state_referenced_locally
-  if (card && !draft.active) draft.start(card, avatar, raw);
+  if (card && draft.card !== card) draft.start(card, avatar, raw);
   const f = draft.fields;
+  // 检查页卸载（左上角返回、导入、放弃）就清草稿，下次导入不会带上这次的
+  $effect(() => () => draft.reset());
 
   async function doImport() {
     const c0 = draft.card!;
@@ -26,7 +28,6 @@
       await db().lore.bulkAdd(book.map(({ include: _i, ...e }) => ({ ...e, id: ulid(), worldId: c.worldId, scope: 'character' as const, characterIds: [c.id] })));
     }
     bus.emit('notify', { title: `已导入 ${c.name}`, body: book.length ? `带 ${book.length} 条角色世界书` : undefined, pluginId: 'characters' });
-    draft.reset();
     nav.pop();
     nav.push('characters', 'detail', { id: c.id });
   }
@@ -37,7 +38,7 @@
     a.href = URL.createObjectURL(blob); a.download = `${f.name || 'card'}.skeleton.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  function abandon() { draft.reset(); nav.pop(); }
+  function abandon() { nav.pop(); }
   const n = $derived(draft.open.length);
   const ignoredN = $derived(draft.findings.length - draft.open.length);
 </script>
@@ -63,11 +64,9 @@
 <SectionTitle text="作者备注（不进上下文）" /><List><Field multiline rows={2} bind:value={f.creator_notes} /></List>
 
 {#if draft.book.length}
-  <SectionTitle text={`内嵌世界书 · ${draft.book.filter((e) => e.include).length}/${draft.book.length} 条将导入`} />
-  <List footer="作为这个角色专属的条目导入。点进去可以看正文、改触发词、决定要不要导。">
-    {#each draft.book as e, i (i)}
-      <Cell title={e.title} subtitle={(e.include ? '' : '不导入 · ') + (e.constant ? '常驻' : e.triggers.keywords.length ? '触发词：' + e.triggers.keywords.slice(0, 4).join('、') : '无触发词')} chevron onclick={() => nav.push('characters', 'bookEntry', { index: i })} />
-    {/each}
+  <SectionTitle text="内嵌世界书" />
+  <List footer="卡里自带的世界书，作为这个角色专属的条目导入。">
+    <Cell title="内嵌世界书" subtitle={`${draft.book.filter((e) => e.include).length} 条将导入 · ${draft.book.filter((e) => !e.include).length} 条不导入`} chevron onclick={() => nav.push('characters', 'book')} />
   </List>
 {/if}
 <div class="actions">
