@@ -2,11 +2,11 @@
  * 本地风险扫描：只在本机跑正则，不调任何接口。
  * 目的是把可能触发安全策略的片段标出来让用户自己删，不替用户决定。
  */
-export interface Finding { field: string; kind: '破限' | '成人内容' | '未成年' | '非自愿' | '极端暴力'; snippet: string; index: number; length: number }
+export interface Finding { field: string; kind: '破限' | '可疑内容' | '未成年' | '非自愿' | '极端暴力'; snippet: string; index: number; length: number }
 
 const RULES: { kind: Finding['kind']; re: RegExp }[] = [
   { kind: '破限', re: /ignore (all |any )?(previous|prior|above) (instructions|rules)|无视(所有|一切|之前的)?(限制|规则|指令|约束)|忽略(所有|一切|之前的)?(限制|规则|指令|约束)|不受.{0,8}(限制|约束)|jailbreak|破限|越狱|developer mode|开发者模式|没有任何(限制|道德|审查)|无(道德|审查|过滤)/i },
-  { kind: '成人内容', re: /\bNSFW\b|R-?18|18\+|成人内容|色情|性爱|做爱|性交|淫|高潮|阴茎|阴道|乳头|射精|自慰|口交|肛交|explicit sexual|sexual content|erotic|\bsex\b/i },
+  { kind: '可疑内容', re: /\bNSFW\b|R-?18|18\+|成人内容|色情|性爱|做爱|性交|淫荡|淫乱|淫秽|淫靡|意淫|淫水|淫叫|高潮|阴茎|阴道|乳头|射精|自慰|口交|肛交|explicit sexual|sexual content|erotic|\bsex\b/i },
   { kind: '未成年', re: /\bloli\b|\bshota\b|萝莉|正太|幼女|幼童|未成年|小学生|初中生|minor|underage|\b1[0-7]\s*(岁|years? old)|\b[1-9]\s*岁/i },
   { kind: '非自愿', re: /强奸|迷奸|轮奸|非自愿|强迫.{0,4}(发生|进行)|rape|non-?consensual|drugged/i },
   { kind: '极端暴力', re: /分尸|虐杀|酷刑|gore|torture porn|snuff/i },

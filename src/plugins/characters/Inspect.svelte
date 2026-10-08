@@ -46,7 +46,7 @@
 <SectionTitle text="扫描" />
 <List footer="扫描只在本机做，不调任何接口。它只是提醒，判断由你来做。">
   {#if draft.findings.length === 0}
-    <Cell title="没有发现可疑内容" subtitle="破限、成人、未成年、非自愿、极端暴力都没匹配到" />
+    <Cell title="没有发现可疑内容" subtitle="破限、擦边、未成年、非自愿、极端暴力都没匹配到" />
   {:else}
     <Cell title={n ? `${n} 处可疑内容待处理` : '可疑内容都处理完了'} subtitle={ignoredN ? `另有 ${ignoredN} 处已标记为没问题` : '点进去逐条编辑或标记'} chevron onclick={() => nav.push('characters', 'findings')} />
   {/if}

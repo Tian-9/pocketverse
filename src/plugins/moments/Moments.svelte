@@ -90,7 +90,7 @@
     {#if !chars.value.length}<Cell title="还没有角色" />{/if}
   </List>
 </Sheet>
-<Sheet open={!!commenting} title="评论">
+<Sheet open={!!commenting} onclose={() => (commenting = null)} title="评论">
   <div class="cbox">
     <textarea bind:value={draft} rows="3" placeholder="说点什么"></textarea>
     <button class="send" onclick={comment} disabled={!draft.trim()}>发送</button>

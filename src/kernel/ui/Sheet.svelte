@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  let { open = $bindable(false), title, children }: { open?: boolean; title?: string; children: Snippet } = $props();
+  let { open = $bindable(false), title, children, onclose }: { open?: boolean; title?: string; children: Snippet; onclose?: () => void } = $props();
+  function close() { open = false; onclose?.(); }
 </script>
 
 {#if open}
-  <div class="backdrop" onclick={() => (open = false)} role="presentation"></div>
+  <div class="backdrop" onclick={close} role="presentation"></div>
   <div class="sheet" role="dialog" aria-label={title}>
     <div class="grab"></div>
     {#if title}<h2>{title}</h2>{/if}

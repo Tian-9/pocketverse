@@ -126,7 +126,7 @@
     <Cell title="清空对话" onclick={clearAll} />
   </List>
 </Sheet>
-<Sheet open={!!picked} title="这条消息">
+<Sheet open={!!picked} onclose={() => (picked = null)} title="这条消息">
   <List>
     <Cell title="复制" onclick={copyPicked} />
     <Cell title="删除" onclick={deletePicked} />

@@ -73,7 +73,7 @@
 {/if}
 <div style="height:40px"></div>
 
-<Sheet open={!!pickedMem} title="这条记忆">
+<Sheet open={!!pickedMem} onclose={() => (pickedMem = null)} title="这条记忆">
   {#if pickedMem}
     <p class="body">{pickedMem.text}</p>
     <div class="actions">
@@ -82,7 +82,7 @@
     </div>
   {/if}
 </Sheet>
-<Sheet open={!!pickedFile} title={pickedFile?.path.replace('/memories/', '')}>
+<Sheet open={!!pickedFile} onclose={() => (pickedFile = null)} title={pickedFile?.path.replace('/memories/', '')}>
   {#if pickedFile}
     <pre class="file">{pickedFile.content}</pre>
     <div class="actions">

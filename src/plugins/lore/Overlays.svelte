@@ -40,7 +40,7 @@
 {/if}
 <div style="height:40px"></div>
 
-<Sheet open={!!open} title={open?.title}>
+<Sheet open={!!open} onclose={() => (open = null)} title={open?.title}>
   {#if open}
     <div class="body">
       <p class="meta">{open.who}{open.original ? ` · 改变了「${open.original}」` : ' · 新增事实'}{open.reason ? ` · 起因：${open.reason}` : ''}</p>
