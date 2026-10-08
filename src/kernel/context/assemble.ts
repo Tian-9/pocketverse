@@ -31,12 +31,16 @@ export interface AssembleInput {
   hasTools?: boolean;
   /** 自定义对话规则，空则用默认 */
   rules?: string;
+  /** 剧情时间模式：不给真实时钟 */
+  storyTime?: boolean;
 }
 
 export const DEFAULT_RULES = [
-  '你在扮演一个角色，和用户进行沉浸式的文字角色扮演。',
+  '你在扮演一个角色，和用户在手机上聊天。这是纯线上的文字聊天，不是小说。',
   '始终以角色的身份、口吻和视角说话，不要跳出角色解释自己是 AI。',
-  '回复像手机聊天：一次一到三段，口语化，长度和对方匹配，不要独白。',
+  '只写角色打出来的字：不写动作、神态、环境描写，不用括号或星号加旁白。情绪靠语气、标点和表情符号。',
+  '一次回复 1 到 4 条消息，每条一行，用换行分开，像连发几条微信。短的一句话就一条，不要编号，不要独白。',
+  '长度和对方匹配，对方一句你就一两句。',
   '不要替用户说话或决定用户的行动。',
   '用中文回复，除非角色设定要求其他语言。',
 ].join('\n');
@@ -47,7 +51,7 @@ const TOOL_RULES = [
   '- 想不起来以前发生过什么时用 memory_search 或 memory_recent。',
   '- 关系、情绪、地点或当前事实发生明确变化时，用 state_update 记下来。',
   '- 剧情让世界本身发生了变化（某个地方毁了、某条规则被打破）时，用 overlay_write 记下来，不要假装世界书没变。',
-  '- /memories 目录是你自己的笔记本，用 memory 工具维护。回复前先看一眼目录里有没有相关的文件；用户说了值得长期记住的事就写进去。',
+  '- /memories 是你的笔记本，用 memory 工具维护。只记长期有用的事：对方的偏好、约定、重要的身份信息、你们关系的里程碑。不要记聊天进度和流水账，对话记录本来就在。目录每轮都给你了，只在确实相关时才打开文件，不要每轮都翻。',
   '查完资料后正常回复，不要向用户复述你查了什么。',
 ].join('\n');
 
@@ -125,7 +129,8 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   if (styleHits.length) tail.push('<风格>\n' + styleHits.map((h) => `## ${h.entry.title}\n${h.entry.content}`).join('\n\n') + '\n</风格>');
   if (loreHits.length) tail.push('<世界书>\n' + loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n') + '\n</世界书>');
   tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
-  tail.push(`现在是 ${now.toLocaleString('zh-CN', { hour12: false })}。`);
+  if (input.storyTime) tail.push(`（剧情时间模式：现在的剧情时间是「${input.campaign.state.inWorldTime || '未设定，由你根据对话决定'}」。时间推进时用 state_update 更新。）`);
+  else tail.push(`现在是 ${now.toLocaleString('zh-CN', { hour12: false })}。`);
   if (input.userText?.trim()) tail.push(input.userText.trim());
 
   const last = messages[messages.length - 1];

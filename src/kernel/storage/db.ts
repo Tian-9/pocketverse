@@ -16,6 +16,8 @@ export interface Character {
   core: string; full: string; firstMessage?: string;
   /** 新对话是否自动发开场白；酒馆卡的开场白多半不合小手机场景，默认不发 */
   useFirstMessage?: boolean;
+  /** 时间模式：real 跟随真实时间（默认）；story 只用剧情时间，由角色和用户推进 */
+  timeMode?: 'real' | 'story';
   voice?: Record<string, unknown>;
 }
 export interface CampaignState {

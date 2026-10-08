@@ -7,9 +7,9 @@
 <div class="field" class:multiline>
   {#if label}<label for={id}>{label}</label>{/if}
   {#if multiline}
-    <textarea {id} bind:value {placeholder} {rows} oninput={() => oninput?.(value)}></textarea>
+    <textarea {id} bind:value {placeholder} {rows} oninput={(e) => oninput?.(e.currentTarget.value)}></textarea>
   {:else}
-    <input {id} {type} bind:value {placeholder} oninput={() => oninput?.(value)} autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <input {id} {type} bind:value {placeholder} oninput={(e) => oninput?.(e.currentTarget.value)} autocomplete="off" autocapitalize="off" spellcheck="false" />
   {/if}
 </div>
 

@@ -13,16 +13,17 @@
   const loreCount = live(() => db().lore.filter((e) => e.kind !== 'style' && e.scope !== 'world' && !!e.characterIds?.includes(id)).count(), 0);
   let name = $state(''), core = $state(''), full = $state(''), firstMessage = $state('');
   let useFirst = $state(false);
+  let storyTime = $state(false);
   let loaded = $state(false);
   let confirmDelete = $state(false);
   $effect(() => {
     const v = c.value;
-    if (v && !loaded) { name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; loaded = true; }
+    if (v && !loaded) { name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; storyTime = v.timeMode === 'story'; loaded = true; }
   });
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => repo.updateCharacter(id, { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst }), 400);
+    saveTimer = setTimeout(() => repo.updateCharacter(id, { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst, timeMode: storyTime ? 'story' : 'real' }), 400);
   }
   async function startChat() {
     const ch = await db().characters.get(id);
@@ -70,6 +71,10 @@
   <SectionTitle text="完整设定与示例对话" />
   <List>
     <Field multiline rows={6} bind:value={full} placeholder="示例对话、细节背景" oninput={save} />
+  </List>
+  <SectionTitle text="时间" />
+  <List footer="跟随真实时间：角色知道现在几点，适合日常陪聊。剧情时间：不给真实时钟，时间由角色和你用「推进时间」推进，适合推长线剧情。">
+    <Cell title="剧情时间模式" subtitle={storyTime ? '当前：剧情时间' : '当前：跟随真实时间'}>{#snippet right()}<Toggle bind:checked={storyTime} onchange={save} label="剧情时间" />{/snippet}</Cell>
   </List>
   <SectionTitle text="他的世界书" />
   <List footer="只属于这个角色的设定，和他聊时才进上下文。">

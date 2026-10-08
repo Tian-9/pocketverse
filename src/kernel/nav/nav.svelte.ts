@@ -56,29 +56,43 @@ class Nav {
   openOverlay(close: () => void): number {
     return this.record('overlay', close);
   }
-  /** 弹窗被程序关掉（点背景、保存）：从登记里移除，并回退对应的历史记录 */
+  /**
+   * 弹窗被程序关掉（点背景、保存）：从登记里移除。
+   * 不调 history.back()：它是异步的，和紧接着打开的下一个弹窗会打架。
+   * 改为把当前这条历史记录标记为"废弃"，下次 push 用 replaceState 复用它，用户按返回时自动跳过它。
+   */
   closeOverlay(token: number) {
     const i = this.entries.findIndex((e) => e.token === token);
     if (i < 0) return;
-    const above = this.entries.length - i;
+    const wasTop = i === this.entries.length - 1;
     this.entries.splice(i, 1);
-    // 只回退这一条；如果它不在最顶上（极少见），上面的条目保留
-    if (this.hasHistory && above === 1) history.back();
+    if (wasTop) this.deadTop = true;
   }
+  /** 当前历史记录是否已废弃（对应的弹窗已被程序关掉） */
+  private deadTop = false;
 
   private record(kind: HistoryEntry['kind'], close?: () => void): number {
     const token = ++this.token;
     this.entries.push({ token, kind, close });
-    if (this.hasHistory) history.pushState({ pv: token }, '');
+    if (this.hasHistory) {
+      if (this.deadTop) { history.replaceState({ pv: token }, ''); this.deadTop = false; }
+      else history.pushState({ pv: token }, '');
+    }
     return token;
   }
 
   private onPop(target: number) {
+    const wasDead = this.deadTop;
+    this.deadTop = false;
+    let popped = 0;
     while (this.entries.length && this.entries[this.entries.length - 1]!.token > target) {
       const en = this.entries.pop()!;
       if (en.kind === 'overlay') en.close?.();
       else this.popScreen();
+      popped++;
     }
+    // 这一步只是跨过了一条废弃记录，什么都没关：替用户再退一步（桌面上不退，免得退出 app）
+    if (wasDead && popped === 0 && this.entries.length && this.hasHistory) { history.back(); return; }
     const w = this.waiters.splice(0);
     for (const r of w) r();
   }

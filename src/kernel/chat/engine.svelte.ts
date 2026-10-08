@@ -55,6 +55,17 @@ class ChatEngine {
   async deleteMessage(id: string) { await db().messages.delete(id); }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
+  /** 推进剧情时间：写一条旁白，更新状态，然后让角色接着说 */
+  async advanceTime(conversationId: string, when: string, note?: string) {
+    if (this.live[conversationId]) return;
+    const conv = await db().conversations.get(conversationId);
+    const campaign = conv && (await db().campaigns.get(conv.campaignId));
+    if (!conv || !campaign) return;
+    await db().campaigns.update(campaign.id, { state: { ...campaign.state, inWorldTime: when } });
+    await repo.addMessage(conversationId, 'user', `（时间来到：${when}${note ? '。' + note : ''}）`, { meta: { narration: true } });
+    await this.runTurn(conversationId);
+  }
+
   /** 手动触发一次合并（设置或角色页用） */
   async consolidateNow(conversationId: string) { return consolidate(conversationId, { force: true }); }
 
@@ -101,7 +112,7 @@ class ChatEngine {
     const { system, messages, l1Hits } = assemble({
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
       lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
-      pluginStable, pluginVolatile, hasTools: tools.length > 0, rules: this.rules,
+      pluginStable, pluginVolatile, hasTools: tools.length > 0, rules: this.rules, storyTime: character.timeMode === 'story',
     });
 
     const abort = new AbortController();
@@ -137,7 +148,18 @@ class ChatEngine {
       if (r.refusal) {
         await repo.addMessage(conversationId, 'system', `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）`);
       } else if (text || cards.length) {
-        await repo.addMessage(conversationId, 'assistant', text, Object.keys(meta).length ? { meta } : {});
+        const parts = splitReply(text);
+        for (let i = 0; i < parts.length; i++) {
+          if (i > 0) {
+            // 后面的气泡慢慢冒出来，像在连发
+            const l = this.live[conversationId]; if (l) { l.text = ''; l.status = 'typing'; l.statusText = '正在输入…'; }
+            await sleep(Math.min(300 + parts[i]!.length * 35, 1500), abort.signal);
+            if (abort.signal.aborted) break;
+          }
+          const isLast = i === parts.length - 1;
+          await repo.addMessage(conversationId, 'assistant', parts[i]!, isLast && Object.keys(meta).length ? { meta } : {});
+        }
+        if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }
       bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });
       consolidate(conversationId).catch((e) => console.warn('[consolidate]', e));
@@ -155,6 +177,16 @@ class ChatEngine {
       delete this.live[conversationId];
     }
   }
+}
+
+/** 把一次回复按行拆成多条消息；空行丢掉，最多 6 条，超过的并进最后一条 */
+export function splitReply(text: string): string[] {
+  const lines = text.split(/\n+/).map((l) => l.replace(/^\s*[-•\d]+[.、)]\s*/, '').trim()).filter(Boolean);
+  if (lines.length <= 6) return lines;
+  return [...lines.slice(0, 5), lines.slice(5).join('\n')];
+}
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((r) => { const t = setTimeout(r, ms); signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 }
 
 export const chat = new ChatEngine();

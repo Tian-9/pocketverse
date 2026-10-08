@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NavBar, Sheet, List, Cell, Avatar, Glyph, icons } from '$kernel/api';
+  import { NavBar, Sheet, List, Cell, Avatar, Glyph, Field, Button, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
@@ -20,6 +20,9 @@
 
   let draft = $state('');
   let menu = $state(false);
+  let timeSheet = $state(false);
+  let timeWhen = $state('');
+  let timeNote = $state('');
   let picked = $state<Message | null>(null);
   let scroller: HTMLDivElement;
   let textarea: HTMLTextAreaElement;
@@ -84,7 +87,7 @@
   <div class="msgs" bind:this={scroller}>
     {#each messages.value as m, i (m.id)}
       {#if showTime(i)}<div class="time">{fmt(m.ts)}</div>{/if}
-      {#if m.role === 'system'}
+      {#if m.role === 'system' || m.meta?.narration}
         <div class="sys">{textOf(m)}</div>
       {:else}
         <div class="msg {m.role}" onpointerdown={() => pressStart(m)} onpointerup={pressEnd} onpointerleave={pressEnd} onpointercancel={pressEnd} oncontextmenu={(e) => { e.preventDefault(); picked = m; }} role="listitem">
@@ -121,10 +124,18 @@
 <Sheet bind:open={menu} title={character.value?.name}>
   <List>
     <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
+    <Cell title="推进时间…" subtitle="比如「三天后的早上」，角色会接着这个时间点说话" onclick={() => { menu = false; timeSheet = true; }} />
     <Cell title="编辑角色" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
     <Cell title="他记得什么" onclick={() => { menu = false; if (character.value) nav.push('characters', 'memories', { id: character.value.id }); }} />
     <Cell title="清空对话" onclick={clearAll} />
   </List>
+</Sheet>
+<Sheet bind:open={timeSheet} title="推进时间">
+  <List footer="会在对话里插一条旁白，并把剧情时间更新成你写的。真实时间模式下也能用，只是下一轮角色仍会看到真实时钟。">
+    <Field label="来到" bind:value={timeWhen} placeholder="三天后的早上" />
+    <Field multiline rows={2} bind:value={timeNote} placeholder="这段时间发生了什么，可选" />
+  </List>
+  <div class="actions"><Button onclick={() => { const w = timeWhen.trim(); if (!w) return; timeSheet = false; chat.advanceTime(id, w, timeNote.trim() || undefined); timeWhen = ''; timeNote = ''; }}>推进</Button></div>
 </Sheet>
 <Sheet open={!!picked} onclose={() => (picked = null)} title="这条消息">
   <List>
@@ -159,5 +170,6 @@
   .send { width: 34px; height: 34px; border-radius: 17px; background: var(--tint); display: grid; place-items: center; flex: 0 0 auto; margin-bottom: 1px; }
   .send:disabled { background: var(--fill); }
   .send.stop { background: var(--label); }
+  .actions { display: flex; flex-direction: column; margin: 12px 16px 0; }
   .send.stop span { width: 12px; height: 12px; border-radius: 2px; background: var(--bg-surface); }
 </style>
