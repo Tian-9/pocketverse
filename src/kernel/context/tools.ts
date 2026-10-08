@@ -5,6 +5,7 @@ import type { ToolSpec } from '../llm/types';
 import { search } from './search';
 import { runMemoryCommand, type MemCommand } from './memfs';
 import { bus } from '../bus/bus';
+import { registry } from '../registry/registry.svelte';
 
 export interface ToolContext { campaign: Campaign; characters: Character[]; lore: LoreEntry[]; overlays: LoreOverlay[] }
 export type ToolHandler = (input: any, ctx: ToolContext) => Promise<string>;
@@ -131,5 +132,11 @@ export const kernelTools: KernelTool[] = [
 ];
 
 export function toolLabel(name: string): string {
-  return kernelTools.find((t) => t.spec.name === name)?.label ?? name;
+  const k = kernelTools.find((t) => t.spec.name === name)?.label;
+  if (k) return k;
+  for (const p of registry.plugins) {
+    const t = p.tools?.find((x) => x.name === name);
+    if (t) return t.label ?? `${p.name}：${name.split('.').pop()}`;
+  }
+  return name;
 }

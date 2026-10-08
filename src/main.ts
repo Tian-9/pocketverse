@@ -15,7 +15,6 @@ async function boot() {
   await theme.boot();
   await llm.boot();
   await chat.boot();
-  scheduler.boot();
   await registry.boot({
     enabled: ['moments'],
     dock: [
@@ -25,6 +24,8 @@ async function boot() {
       { pluginId: 'settings', shortcutId: 'app' },
     ],
   });
+  // 插件都 setup 完再发 app.resumed，否则没人听
+  await scheduler.boot();
 }
 
 mount(App, { target: document.getElementById('app')! });

@@ -1,6 +1,8 @@
 import type { PluginManifest, Shortcut, PluginContext } from '../api/types';
 import { bus } from '../bus/bus';
-import { db } from '../storage/db';
+import { db, pluginTable } from '../storage/db';
+import { llm } from '../llm/gateway.svelte';
+import { CONSOLIDATE_MODEL } from '../memory/consolidate';
 import { nav } from '../nav/nav.svelte';
 
 export interface DockSlot { pluginId: string; shortcutId: string }
@@ -103,6 +105,29 @@ function makeContext(id: string): PluginContext {
     settings: {
       get: (key, fallback) => db().getKV(`plugin.${id}.${key}`, fallback),
       set: (key, value) => db().setKV(`plugin.${id}.${key}`, value),
+    },
+    table: (name) => db().table(pluginTable(id, name)),
+    llm: {
+      get configured() { return llm.configured; },
+      async chat(req) {
+        const r = await llm.chat({
+          system: [{ type: 'text', text: req.system }],
+          messages: [{ role: 'user', content: [{ type: 'text', text: req.user }] }],
+          purpose: `plugin:${id}`, maxTokens: req.maxTokens ?? 1024, effort: req.effort ?? 'low',
+          ...(req.cheap ? { model: CONSOLIDATE_MODEL } : {}),
+        });
+        return { text: r.text };
+      },
+    },
+    async activeCampaigns() {
+      const since = Date.now() - 7 * 24 * 3600 * 1000;
+      const cps = await db().campaigns.where('lastPlayedAt').aboveOrEqual(since).toArray();
+      const out = [];
+      for (const c of cps) {
+        const ch = c.characterIds[0] ? await db().characters.get(c.characterIds[0]) : undefined;
+        if (ch) out.push({ campaignId: c.id, characterId: ch.id, characterName: ch.name, lastPlayedAt: c.lastPlayedAt });
+      }
+      return out;
     },
   };
 }

@@ -1,4 +1,5 @@
 import type { Component } from 'svelte';
+import type { Table } from 'dexie';
 
 /** 插件清单：插件通过 definePlugin() 声明，内核据此收集贡献点。 */
 export interface PluginManifest {
@@ -71,6 +72,8 @@ export interface PromptContext {
 
 export interface ToolDef {
   name: string;
+  /** 聊天状态栏里显示的动作，如「发朋友圈」 */
+  label?: string;
   description: string;
   inputSchema: Record<string, unknown>;
   handler: (input: unknown, ctx: PromptContext) => Promise<unknown>;
@@ -120,4 +123,29 @@ export interface PluginContext {
     get<T>(key: string, fallback: T): Promise<T>;
     set<T>(key: string, value: T): Promise<void>;
   };
+  /** 本插件在 manifest.storage 里声明的表 */
+  table<T = unknown>(name: string): Table<T, any>;
+  /** 调模型，自动记账到本插件名下 */
+  llm: {
+    chat(req: PluginChatRequest): Promise<{ text: string }>;
+    configured: boolean;
+  };
+  /** 最近玩过的存档及其角色（最近 7 天） */
+  activeCampaigns(): Promise<ActiveCampaign[]>;
+}
+
+export interface PluginChatRequest {
+  system: string;
+  user: string;
+  maxTokens?: number;
+  effort?: 'low' | 'medium' | 'high';
+  /** 用便宜模型 */
+  cheap?: boolean;
+}
+
+export interface ActiveCampaign {
+  campaignId: string;
+  characterId: string;
+  characterName: string;
+  lastPlayedAt: number;
 }

@@ -6,6 +6,7 @@ import { kernelTools, toolLabel } from '../context/tools';
 import type { ToolContext } from '../context/tools';
 import { memoryIndex } from '../context/memfs';
 import { runToolLoop, type LoopTool } from './loop';
+import { extractTags } from './tags';
 import { llm } from '../llm/gateway.svelte';
 import { LlmError } from '../llm/types';
 import { bus } from '../bus/bus';
@@ -116,13 +117,23 @@ class ChatEngine {
         tools,
         { hooks: { signal: abort.signal, onStatus: setStatus, onText: (d) => { const l = this.live[conversationId]; if (l) { l.text += d; } } }, onToolUsed: () => { const l = this.live[conversationId]; if (l) l.text = ''; } },
       );
-      const text = r.text.trim();
+      // 插件注册的输出标签：抽出来交给插件处理，卡片记在 meta 里由聊天界面渲染
+      const handlers = plugins.flatMap((p) => (p.outputHandlers ?? []).map((h) => ({ pluginId: p.id, h })));
+      const { text, found } = extractTags(r.text.trim(), handlers.map((x) => x.h.tag));
+      const cards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = [];
+      for (const f of found) {
+        const owner = handlers.find((x) => x.h.tag === f.tag);
+        if (!owner) continue;
+        try { await owner.h.onParsed?.(f.body, f.attrs, pctx); } catch (e) { console.warn(`[output] ${owner.pluginId}/${f.tag}`, e); }
+        cards.push({ pluginId: owner.pluginId, tag: f.tag, body: f.body, attrs: f.attrs });
+      }
       const meta: Record<string, unknown> = {};
       if (toolsUsed.length) meta.tools = toolsUsed;
       if (l1Hits.length) meta.lore = l1Hits;
+      if (cards.length) meta.cards = cards;
       if (r.refusal) {
         await repo.addMessage(conversationId, 'system', `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）`);
-      } else if (text) {
+      } else if (text || cards.length) {
         await repo.addMessage(conversationId, 'assistant', text, Object.keys(meta).length ? { meta } : {});
       }
       bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });

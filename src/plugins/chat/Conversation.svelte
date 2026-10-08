@@ -9,6 +9,7 @@
   import { nav } from '$kernel/nav/nav.svelte';
   import { tick } from 'svelte';
   import { toolLabel } from '$kernel/context/tools';
+  import { registry } from '$kernel/registry/registry.svelte';
 
   let { id }: { id: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
@@ -56,6 +57,9 @@
     if (ch?.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
     menu = false;
   }
+  interface Card { pluginId: string; tag: string; body: string; attrs: Record<string, string> }
+  function cardsOf(m: Message): Card[] { return (m.meta?.cards as Card[] | undefined) ?? []; }
+  function cardComponent(c: Card) { return registry.get(c.pluginId)?.outputHandlers?.find((h) => h.tag === c.tag)?.component ?? null; }
   function caption(m: Message): string {
     const meta = m.meta ?? {};
     const parts: string[] = [];
@@ -86,7 +90,11 @@
         <div class="msg {m.role}" onpointerdown={() => pressStart(m)} onpointerup={pressEnd} onpointerleave={pressEnd} onpointercancel={pressEnd} oncontextmenu={(e) => { e.preventDefault(); picked = m; }} role="listitem">
           {#if m.role === 'assistant' && character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={30} />{/if}
           <div class="col">
-            <div class="bubble">{textOf(m)}</div>
+            {#if textOf(m)}<div class="bubble">{textOf(m)}</div>{/if}
+            {#each cardsOf(m) as c, i (i)}
+              {@const Card = cardComponent(c)}
+              {#if Card}<Card body={c.body} attrs={c.attrs} />{/if}
+            {/each}
             {#if caption(m)}<div class="caption">{caption(m)}</div>{/if}
           </div>
         </div>
