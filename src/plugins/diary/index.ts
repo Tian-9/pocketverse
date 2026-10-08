@@ -63,7 +63,7 @@ export default definePlugin({
     },
   }],
   tools: [{
-    name: 'diary.read',
+    name: 'diary_read',
     label: '翻日记',
     description: '翻自己以前的日记。不给日期就列出最近几篇的日期和开头，给日期（YYYY-MM-DD）就读那一篇。',
     inputSchema: { type: 'object', properties: { date: { type: 'string' } } },

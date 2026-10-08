@@ -30,6 +30,6 @@
 </List>
 <SectionTitle text="关于" />
 <List>
-  <Cell title="Pocketverse" value="0.0.4 · M3" />
+  <Cell title="Pocketverse" value="0.0.4 · M3" subtitle={`构建 ${__BUILD__}`} />
 </List>
 <div style="height:40px"></div>

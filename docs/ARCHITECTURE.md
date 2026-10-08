@@ -264,19 +264,19 @@ L2 工具（内核提供）：
 
 | 工具 | 说明 |
 |---|---|
-| `lore.search(query)` | BM25 搜当前存档作用域内的世界书 + 覆盖，返回 title/summary/id 列表 |
-| `lore.read(id)` | 读正文，覆盖优先 |
-| `memory.search(query, characterId?)` | 搜情节记忆 |
-| `memory.recent(n)` | 最近 n 条情节记忆 |
-| `character.read(id)` | 读角色 full 人设 |
-| `state.update(patch)` | 更新 CampaignState（关系、情绪、地点、事实） |
-| `overlay.write(entry)` | 写一条世界覆盖 |
+| `lore_search(query)` | BM25 搜当前存档作用域内的世界书 + 覆盖，返回 title/summary/id 列表 |
+| `lore_read(id)` | 读正文，覆盖优先 |
+| `memory_search(query, characterId?)` | 搜情节记忆 |
+| `memory_recent(n)` | 最近 n 条情节记忆 |
+| `character_read(id)` | 读角色 full 人设 |
+| `state_update(patch)` | 更新 CampaignState（关系、情绪、地点、事实） |
+| `overlay_write(entry)` | 写一条世界覆盖 |
 
 工具描述里明确告诉模型：目录里有的东西需要细节时才查，不要每轮都查。
 
 写回（消息驱动 + 定时）：
 
-- 每轮结束：若模型调过 `state.update` / `overlay.write` / memory 工具，直接落库。
+- 每轮结束：若模型调过 `state_update` / `overlay_write` / memory 工具，直接落库。
 - 每 N 轮（默认 12）或切出 App 时：用 `claude-haiku-5-5` 跑一次合并，输入是上次合并后的消息，输出结构化 JSON：新增情节记忆（带 importance）、状态变化、世界覆盖候选。覆盖候选默认需要用户确认（通知条一键采纳），避免模型瞎改世界。
 - 情节记忆超过 200 条时，对 importance=1 的做二次合并（十条并一条）。
 

@@ -5,8 +5,12 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 import { fileURLToPath, URL } from 'node:url';
 
+const sha = (process.env.GITHUB_SHA ?? '').slice(0, 7) || 'dev';
+const built = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
 export default defineConfig({
   base: './',
+  define: { __BUILD__: JSON.stringify(`${sha} · ${built} UTC`) },
   resolve: {
     alias: {
       $kernel: fileURLToPath(new URL('./src/kernel', import.meta.url)),

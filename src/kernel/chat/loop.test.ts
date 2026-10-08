@@ -10,13 +10,13 @@ describe('runToolLoop', () => {
     const chat = vi.fn<(req: any) => Promise<ChatResult>>()
       .mockResolvedValueOnce({ text: '', model: 'm', stopReason: 'tool_use', usage, content: [
         { type: 'opaque', provider: 'claude', block: { type: 'thinking', thinking: '' } },
-        { type: 'tool_use', id: 't1', name: 'lore.read', input: { id: 'x' } },
+        { type: 'tool_use', id: 't1', name: 'lore_read', input: { id: 'x' } },
       ] })
       .mockResolvedValueOnce({ text: '答', model: 'm', stopReason: 'end_turn', usage, content: [{ type: 'text', text: '答' }] });
     const run = vi.fn(async () => '正文');
-    const r = await runToolLoop(chat as any, base, [{ spec: { name: 'lore.read' }, run }]);
+    const r = await runToolLoop(chat as any, base, [{ spec: { name: 'lore_read' }, run }]);
     expect(r.result.text).toBe('答');
-    expect(r.toolsUsed).toEqual(['lore.read']);
+    expect(r.toolsUsed).toEqual(['lore_read']);
     expect(r.rounds).toBe(2);
     const second = chat.mock.calls[1]![0];
     expect(second.messages).toHaveLength(3);

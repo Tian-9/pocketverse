@@ -18,7 +18,7 @@ const str = (v: unknown, max = 2000) => (typeof v === 'string' ? v.slice(0, max)
 export const kernelTools: KernelTool[] = [
   {
     label: '翻世界书',
-    spec: { name: 'lore.search', description: '按关键词搜索世界书和本局的世界变化，返回条目 id、标题和摘要。要读正文用 lore.read。', inputSchema: { type: 'object', properties: { query: { type: 'string', description: '搜索词，可以是几个关键词' } }, required: ['query'] } },
+    spec: { name: 'lore_search', description: '按关键词搜索世界书和本局的世界变化，返回条目 id、标题和摘要。要读正文用 lore_read。', inputSchema: { type: 'object', properties: { query: { type: 'string', description: '搜索词，可以是几个关键词' } }, required: ['query'] } },
     async handler(input, ctx) {
       const active = ctx.overlays.filter((o) => !o.pending);
       const docs = [
@@ -35,7 +35,7 @@ export const kernelTools: KernelTool[] = [
   },
   {
     label: '读世界书',
-    spec: { name: 'lore.read', description: '读一条世界书条目的正文。若本局对它有变化，返回变化后的版本并注明原文。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+    spec: { name: 'lore_read', description: '读一条世界书条目的正文。若本局对它有变化，返回变化后的版本并注明原文。', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
     async handler(input, ctx) {
       const id = str(input?.id, 64);
       const ov = ctx.overlays.find((o) => !o.pending && (o.id === id || o.loreEntryId === id));
@@ -48,7 +48,7 @@ export const kernelTools: KernelTool[] = [
   },
   {
     label: '回忆',
-    spec: { name: 'memory.search', description: '搜索以前发生过的事（情节记忆）。', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+    spec: { name: 'memory_search', description: '搜索以前发生过的事（情节记忆）。', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
     async handler(input, ctx) {
       const mems = await db().memories.where('campaignId').equals(ctx.campaign.id).toArray();
       const hits = search(mems.map((m) => ({ id: m.id, kind: 'mem', title: m.when, text: m.text })), str(input?.query, 200), 10);
@@ -58,7 +58,7 @@ export const kernelTools: KernelTool[] = [
   },
   {
     label: '回忆',
-    spec: { name: 'memory.recent', description: '最近发生的事，按时间倒序。', inputSchema: { type: 'object', properties: { n: { type: 'integer', minimum: 1, maximum: 30 } } } },
+    spec: { name: 'memory_recent', description: '最近发生的事，按时间倒序。', inputSchema: { type: 'object', properties: { n: { type: 'integer', minimum: 1, maximum: 30 } } } },
     async handler(input, ctx) {
       const n = Math.min(30, Math.max(1, Number(input?.n) || 10));
       const mems = await db().memories.where('campaignId').equals(ctx.campaign.id).reverse().sortBy('createdAt');
@@ -68,7 +68,7 @@ export const kernelTools: KernelTool[] = [
   },
   {
     label: '看角色设定',
-    spec: { name: 'character.read', description: '读在场角色的完整设定和示例对话。', inputSchema: { type: 'object', properties: { name: { type: 'string' } } } },
+    spec: { name: 'character_read', description: '读在场角色的完整设定和示例对话。', inputSchema: { type: 'object', properties: { name: { type: 'string' } } } },
     async handler(input, ctx) {
       const name = str(input?.name, 50);
       const c = ctx.characters.find((x) => x.name === name) ?? ctx.characters[0];
@@ -78,7 +78,7 @@ export const kernelTools: KernelTool[] = [
   {
     label: '记下变化',
     spec: {
-      name: 'state.update',
+      name: 'state_update',
       description: '更新当前状态：剧情时间、地点、角色与用户的关系、角色情绪、当前事实。只在有明确变化时调用。facts 是替换而不是追加，传完整列表（最多 20 条）。',
       inputSchema: { type: 'object', properties: {
         inWorldTime: { type: 'string' }, location: { type: 'string' },
@@ -104,7 +104,7 @@ export const kernelTools: KernelTool[] = [
   {
     label: '记下世界变化',
     spec: {
-      name: 'overlay.write',
+      name: 'overlay_write',
       description: '记录剧情导致的世界变化。loreEntryId 指向被改变的世界书条目；没有对应条目就留空表示新增事实。',
       inputSchema: { type: 'object', properties: {
         loreEntryId: { type: 'string' }, title: { type: 'string' }, summary: { type: 'string', description: '一句话' }, content: { type: 'string' }, reason: { type: 'string', description: '是什么剧情导致的' },
@@ -143,7 +143,7 @@ export function toolLabel(name: string): string {
   if (k) return k;
   for (const p of registry.plugins) {
     const t = p.tools?.find((x) => x.name === name);
-    if (t) return t.label ?? `${p.name}：${name.split('.').pop()}`;
+    if (t) return t.label ?? `${p.name}：${name.split('_').pop()}`;
   }
   return name;
 }

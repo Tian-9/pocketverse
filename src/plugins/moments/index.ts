@@ -17,7 +17,7 @@ export const momentsApi = {
   async add(post: Omit<Post, 'id' | 'liked' | 'comments'>) {
     const p: Post = { ...post, id: ulid(), liked: false, comments: [] };
     await ctx.table<Post>('posts').add(p);
-    ctx.emit('moments.posted', { postId: p.id, characterId: p.characterId });
+    ctx.emit('moments_posted', { postId: p.id, characterId: p.characterId });
     return p;
   },
   /** 让角色基于最近的记忆发一条动态 */
@@ -57,7 +57,7 @@ export default definePlugin({
     },
   }],
   tools: [{
-    name: 'moments.post',
+    name: 'moments_post',
     label: '发朋友圈',
     description: '发一条朋友圈动态。只在角色真的想发的时候用，比如聊到一件值得记录的事，或者想让用户在朋友圈看到什么。一轮最多一条。',
     inputSchema: { type: 'object', properties: { text: { type: 'string', description: '动态正文，一两句话' } }, required: ['text'] },

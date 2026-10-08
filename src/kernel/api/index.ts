@@ -6,6 +6,9 @@ export function definePlugin(manifest: PluginManifest): PluginManifest {
   if (!/^[a-z][a-z0-9-]*$/.test(manifest.id)) {
     throw new Error(`插件 id 只能用小写字母、数字和连字符: ${manifest.id}`);
   }
+  for (const t of manifest.tools ?? []) {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(t.name)) throw new Error(`插件 ${manifest.id} 的工具名不合法（只能字母数字下划线连字符）: ${t.name}`);
+  }
   if (manifest.storage) {
     for (const t of Object.keys(manifest.storage.tables)) {
       if (!/^[a-z][a-z0-9_]*$/.test(t)) throw new Error(`插件 ${manifest.id} 的表名不合法: ${t}`);

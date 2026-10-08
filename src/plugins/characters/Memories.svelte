@@ -76,7 +76,7 @@
 {#if campaign.value}
   {@const s = campaign.value.state}
   <SectionTitle text="当前状态" />
-  <List footer="角色在对话中用 state.update 更新，记忆整理也会更新。点任意一行手改。">
+  <List footer="角色在对话中用 state_update 更新，记忆整理也会更新。点任意一行手改。">
     <Cell title="剧情时间" value={s.inWorldTime || '—'} onclick={openState} />
     <Cell title="地点" value={s.location || '—'} onclick={openState} />
     <Cell title="关系" subtitle={s.relations[id] || '—'} onclick={openState} />
