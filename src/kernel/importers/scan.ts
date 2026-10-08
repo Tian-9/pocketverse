@@ -2,7 +2,7 @@
  * 本地风险扫描：只在本机跑正则，不调任何接口。
  * 目的是把可能触发安全策略的片段标出来让用户自己删，不替用户决定。
  */
-export interface Finding { field: string; kind: '破限' | '成人内容' | '未成年' | '非自愿' | '极端暴力'; snippet: string; index: number }
+export interface Finding { field: string; kind: '破限' | '成人内容' | '未成年' | '非自愿' | '极端暴力'; snippet: string; index: number; length: number }
 
 const RULES: { kind: Finding['kind']; re: RegExp }[] = [
   { kind: '破限', re: /ignore (all |any )?(previous|prior|above) (instructions|rules)|无视(所有|一切|之前的)?(限制|规则|指令|约束)|忽略(所有|一切|之前的)?(限制|规则|指令|约束)|不受.{0,8}(限制|约束)|jailbreak|破限|越狱|developer mode|开发者模式|没有任何(限制|道德|审查)|无(道德|审查|过滤)/i },
@@ -21,7 +21,7 @@ export function scanText(field: string, text: string): Finding[] {
     let n = 0;
     while ((m = re.exec(text)) && n++ < 5) {
       const i = m.index;
-      out.push({ field, kind: r.kind, index: i, snippet: text.slice(Math.max(0, i - 20), Math.min(text.length, i + m[0].length + 20)).replace(/\s+/g, ' ') });
+      out.push({ field, kind: r.kind, index: i, length: m[0].length, snippet: text.slice(Math.max(0, i - 20), Math.min(text.length, i + m[0].length + 20)).replace(/\s+/g, ' ') });
       if (m[0].length === 0) re.lastIndex++;
     }
   }
