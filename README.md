@@ -3,7 +3,7 @@
 跑在浏览器里的插件化"小手机"，用于 AI 角色扮演。无服务器，纯 PWA。
 
 - 设计基线：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- 状态：M0 骨架完成（内核模块、插件注册表、Shell、Dock、主题明暗）。M1 接 Claude。
+- 状态：M1 完成。能导入角色卡、配置 Claude API、流式聊天、看用量和缓存命中率。M2 做三层记忆。
 
 ## 开发
 

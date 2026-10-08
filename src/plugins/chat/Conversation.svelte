@@ -1,0 +1,139 @@
+<script lang="ts">
+  import { NavBar, Sheet, List, Cell, Avatar, Glyph, icons } from '$kernel/api';
+  import { live } from '$kernel/storage/live.svelte';
+  import { db } from '$kernel/storage/db';
+  import type { Message } from '$kernel/storage/db';
+  import { repo, textOf } from '$kernel/data/repo';
+  import { chat } from '$kernel/chat/engine.svelte';
+  import { llm } from '$kernel/llm/gateway.svelte';
+  import { nav } from '$kernel/nav/nav.svelte';
+  import { tick } from 'svelte';
+
+  let { id }: { id: string } = $props();
+  const conv = live(() => db().conversations.get(id), undefined);
+  const character = live(async () => { const c = await db().conversations.get(id); return c ? repo.characterOfConversation(c) : undefined; }, undefined);
+  const messages = live(() => repo.messagesOf(id), [] as Message[]);
+  const liveTurn = $derived(chat.live[id]);
+  const status = $derived(liveTurn?.status ?? 'idle');
+
+  let draft = $state('');
+  let menu = $state(false);
+  let picked = $state<Message | null>(null);
+  let scroller: HTMLDivElement;
+  let textarea: HTMLTextAreaElement;
+
+  $effect(() => {
+    // 任何消息或流式文本变化都滚到底
+    void messages.value.length; void liveTurn?.text;
+    tick().then(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
+  });
+
+  async function send() {
+    const t = draft.trim();
+    if (!t || status !== 'idle') return;
+    if (!llm.configured) { nav.push('settings', 'api'); return; }
+    draft = '';
+    textarea.style.height = 'auto';
+    await chat.send(id, t);
+  }
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  }
+  function grow() { textarea.style.height = 'auto'; textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px'; }
+
+  let pressTimer: ReturnType<typeof setTimeout> | undefined;
+  function pressStart(m: Message) { pressTimer = setTimeout(() => (picked = m), 450); }
+  function pressEnd() { clearTimeout(pressTimer); }
+  async function copyPicked() {
+    if (picked) try { await navigator.clipboard.writeText(textOf(picked)); } catch { /* ignore */ }
+    picked = null;
+  }
+  async function deletePicked() { if (picked) await chat.deleteMessage(picked.id); picked = null; }
+  async function clearAll() {
+    for (const m of messages.value) await chat.deleteMessage(m.id);
+    const ch = character.value;
+    if (ch?.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
+    menu = false;
+  }
+  function fmt(ts: number) { return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }); }
+  function showTime(i: number) { const m = messages.value[i], p = messages.value[i - 1]; return !p || m!.ts - p.ts > 10 * 60 * 1000; }
+</script>
+
+<div class="conv">
+  <NavBar title={character.value?.name ?? '…'} back="信息">
+    {#snippet right()}
+      <button class="iconbtn" onclick={() => (menu = true)} aria-label="更多"><Glyph paths={['M5 12h.01M12 12h.01M19 12h.01']} size={22} color="var(--tint)" width={3} /></button>
+    {/snippet}
+  </NavBar>
+  <div class="status">{status === 'thinking' ? '正在思考…' : status === 'typing' ? '正在输入…' : ' '}</div>
+
+  <div class="msgs" bind:this={scroller}>
+    {#each messages.value as m, i (m.id)}
+      {#if showTime(i)}<div class="time">{fmt(m.ts)}</div>{/if}
+      {#if m.role === 'system'}
+        <div class="sys">{textOf(m)}</div>
+      {:else}
+        <div class="msg {m.role}" onpointerdown={() => pressStart(m)} onpointerup={pressEnd} onpointerleave={pressEnd} onpointercancel={pressEnd} oncontextmenu={(e) => { e.preventDefault(); picked = m; }} role="listitem">
+          {#if m.role === 'assistant' && character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={30} />{/if}
+          <div class="bubble">{textOf(m)}</div>
+        </div>
+      {/if}
+    {/each}
+    {#if liveTurn}
+      <div class="msg assistant">
+        {#if character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={30} />{/if}
+        {#if liveTurn.text}<div class="bubble">{liveTurn.text}</div>{:else}<div class="bubble dots"><i></i><i></i><i></i></div>{/if}
+      </div>
+    {/if}
+  </div>
+
+  <div class="composer">
+    <textarea bind:this={textarea} bind:value={draft} placeholder="信息" rows="1" oninput={grow} onkeydown={onKey} enterkeyhint="send"></textarea>
+    {#if status !== 'idle'}
+      <button class="send stop" onclick={() => chat.stop(id)} aria-label="停止"><span></span></button>
+    {:else}
+      <button class="send" onclick={send} disabled={!draft.trim()} aria-label="发送"><Glyph paths={['M12 19V5', 'm5 12 7-7 7 7']} size={20} color="#fff" width={2.6} /></button>
+    {/if}
+  </div>
+</div>
+
+<Sheet bind:open={menu} title={character.value?.name}>
+  <List>
+    <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
+    <Cell title="编辑角色" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
+    <Cell title="清空对话" onclick={clearAll} />
+  </List>
+</Sheet>
+<Sheet open={!!picked} title="这条消息">
+  <List>
+    <Cell title="复制" onclick={copyPicked} />
+    <Cell title="删除" onclick={deletePicked} />
+    <Cell title="取消" onclick={() => (picked = null)} />
+  </List>
+</Sheet>
+
+<style>
+  .conv { display: flex; flex-direction: column; height: 100%; }
+  .conv :global(.nav) { background: var(--bg-surface); border-bottom: 0; }
+  .status { font-size: 12px; color: var(--label-2); text-align: center; height: 16px; line-height: 16px; background: var(--bg-surface); border-bottom: 0.5px solid var(--separator); }
+  .iconbtn { padding: 8px; display: inline-flex; }
+  .msgs { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; background: var(--bg-surface); }
+  .time { align-self: center; font-size: 11px; color: var(--label-2); margin: 10px 0 4px; }
+  .sys { align-self: center; font-size: 12px; color: var(--label-2); background: var(--fill-2); padding: 3px 10px; border-radius: 999px; margin: 4px 0; max-width: 90%; text-align: center; }
+  .msg { display: flex; align-items: flex-end; gap: 6px; max-width: 80%; }
+  .msg.user { align-self: flex-end; }
+  .msg.assistant { align-self: flex-start; }
+  .bubble { padding: 8px 13px; border-radius: 18px; font-size: 17px; line-height: 1.35; white-space: pre-wrap; word-break: break-word; min-width: 0; }
+  .assistant .bubble { background: var(--bubble-them); color: var(--bubble-them-fg); border-bottom-left-radius: 5px; }
+  .user .bubble { background: var(--bubble-me); color: var(--bubble-me-fg); border-bottom-right-radius: 5px; }
+  .dots { display: flex; gap: 4px; padding: 12px 14px; }
+  .dots i { width: 8px; height: 8px; border-radius: 4px; background: var(--label-2); opacity: 0.4; animation: blink 1.2s infinite; }
+  .dots i:nth-child(2) { animation-delay: 0.2s; } .dots i:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: 0.25 } 40% { opacity: 0.9 } }
+  .composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 12px calc(var(--safe-bottom) + 8px); background: var(--bg-grouped); border-top: 0.5px solid var(--separator); }
+  textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--separator); border-radius: 18px; background: var(--bg-surface); padding: 8px 14px; font-size: 17px; line-height: 1.3; max-height: 140px; outline: 0; }
+  .send { width: 34px; height: 34px; border-radius: 17px; background: var(--tint); display: grid; place-items: center; flex: 0 0 auto; margin-bottom: 1px; }
+  .send:disabled { background: var(--fill); }
+  .send.stop { background: var(--label); }
+  .send.stop span { width: 12px; height: 12px; border-radius: 2px; background: var(--bg-surface); }
+</style>

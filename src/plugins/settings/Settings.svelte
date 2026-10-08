@@ -4,14 +4,17 @@
   import { nav } from '$kernel/nav/nav.svelte';
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
+  import { llm } from '$kernel/llm/gateway.svelte';
+  import { MODELS } from '$kernel/llm/pricing';
+  const modelLabel = $derived(MODELS.find((m) => m.id === llm.settings.model)?.label ?? llm.settings.model);
   const modeLabel = $derived({ system: '跟随系统', light: '浅色', dark: '深色' }[theme.mode]);
   const enabledCount = $derived(registry.plugins.filter((p) => !p.core && registry.isEnabled(p.id)).length);
 </script>
 
 <NavBar title="设置" large back="桌面" />
 <SectionTitle text="模型" />
-<List footer="M1 接入 Claude 后在这里填 API Key，并能看到本月用量和缓存命中率。">
-  <Cell title="API 与模型" subtitle="尚未配置" icon={{ paths: icons.sparkle, background: gradients.purple }} chevron />
+<List footer={llm.configured ? `本月 $${llm.stats.monthUsd.toFixed(2)} · 缓存命中 ${llm.stats.requests ? Math.round(llm.stats.hitRate * 100) + '%' : '—'}` : '还没有配置 API Key，聊天前先填。'}>
+  <Cell title="API 与模型" value={llm.configured ? modelLabel : '未配置'} icon={{ paths: icons.sparkle, background: gradients.purple }} chevron onclick={() => nav.push('settings', 'api')} />
 </List>
 <SectionTitle text="外观" />
 <List>
@@ -23,6 +26,6 @@
 </List>
 <SectionTitle text="关于" />
 <List>
-  <Cell title="Pocketverse" value="0.0.1 · M0" />
+  <Cell title="Pocketverse" value="0.0.2 · M1" />
 </List>
 <div style="height:40px"></div>

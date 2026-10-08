@@ -24,4 +24,7 @@ export { default as Button } from '../ui/Button.svelte';
 export { default as Icon } from '../ui/Icon.svelte';
 export { default as SectionTitle } from '../ui/SectionTitle.svelte';
 export { default as Placeholder } from '../ui/Placeholder.svelte';
-export { icons } from '../ui/icons';
+export { default as Field } from '../ui/Field.svelte';
+export { default as Avatar } from '../ui/Avatar.svelte';
+export { default as Glyph } from '../ui/Glyph.svelte';
+export { icons, gradients } from '../ui/icons';

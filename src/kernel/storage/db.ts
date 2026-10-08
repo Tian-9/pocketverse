@@ -35,6 +35,10 @@ export interface LoreOverlay {
   content: string; reason: string; createdAt: number;
 }
 export interface KV { key: string; value: unknown }
+export interface UsageRecord {
+  id: string; ts: number; model: string; conversationId?: string; purpose: string;
+  input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number;
+}
 
 const KERNEL_SCHEMA: Record<string, string> = {
   worlds: 'id, name, updatedAt',
@@ -46,7 +50,11 @@ const KERNEL_SCHEMA: Record<string, string> = {
   memories: 'id, campaignId, characterId, importance, createdAt',
   overlays: 'id, campaignId, loreEntryId, createdAt',
   kv: 'key',
+  usage: 'id, ts, conversationId',
 };
+
+/** 内核表结构改动时递增 */
+const KERNEL_VERSION = 2;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -58,6 +66,7 @@ export class PocketDB extends Dexie {
   memories!: Table<EpisodicMemory, string>;
   overlays!: Table<LoreOverlay, string>;
   kv!: Table<KV, string>;
+  usage!: Table<UsageRecord, string>;
 
   constructor(name = 'pocketverse', plugins: PluginManifest[] = []) {
     super(name);
@@ -65,8 +74,9 @@ export class PocketDB extends Dexie {
     for (const p of plugins) {
       for (const [t, s] of Object.entries(p.storage?.tables ?? {})) schema[pluginTable(p.id, t)] = s;
     }
-    // 版本号 = 内核版本 + 插件表数量：加插件表会触发升级，Dexie 会补建新表。
-    this.version(1 + Object.keys(schema).length - Object.keys(KERNEL_SCHEMA).length).stores(schema);
+    // 版本号 = 内核版本 * 100 + 插件表数量：内核改表或加插件表都会触发升级，Dexie 会补建新表。
+    const pluginTables = Object.keys(schema).length - Object.keys(KERNEL_SCHEMA).length;
+    this.version(KERNEL_VERSION * 100 + pluginTables).stores(schema);
   }
 
   async getKV<T>(key: string, fallback: T): Promise<T> {

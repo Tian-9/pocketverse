@@ -26,6 +26,7 @@
 
 <style>
   .screen { position: absolute; inset: 0; background: var(--bg-grouped); color: var(--label); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; animation: push 0.32s cubic-bezier(0.2, 0.9, 0.3, 1); overscroll-behavior: contain; }
+  .screen > :global(*) { flex-shrink: 0; }
   @keyframes push { from { transform: translateX(100%) } }
   @media (prefers-reduced-motion: reduce) { .screen { animation: none } }
 </style>
