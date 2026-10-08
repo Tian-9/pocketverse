@@ -35,10 +35,15 @@
   </List>
   <SectionTitle text="正文" />
   <List><Field multiline rows={8} bind:value={content} placeholder="触发或被查询时才进上下文" oninput={save} /></List>
-  <SectionTitle text="类型" />
-  <List footer="世界设定进目录、可检索、可被本局变化覆盖。风格指令像规则一样插入，不进目录。切换后条目会出现在另一个 App 里。">
-    <Cell title="这是风格指令" subtitle={style ? '当前：风格指令' : '当前：世界设定'}>{#snippet right()}<Toggle bind:checked={style} onchange={save} label="风格指令" />{/snippet}</Cell>
-  </List>
+  {#if e.value.scope === 'world'}
+    <SectionTitle text="类型" />
+    <List footer="世界设定进目录、可检索、可被本局变化覆盖。风格指令像规则一样插入，不进目录。切换后条目会出现在另一个 App 里。">
+      <Cell title="这是风格指令" subtitle={style ? '当前：风格指令' : '当前：世界设定'}>{#snippet right()}<Toggle bind:checked={style} onchange={save} label="风格指令" />{/snippet}</Cell>
+    </List>
+  {:else if e.value.kind !== 'style'}
+    <SectionTitle text="归属" />
+    <List footer="这条只属于某个角色，和他聊时才生效。"><Cell title="角色专属设定" /></List>
+  {/if}
   <SectionTitle text="触发" />
   <List footer="最近几条消息里出现任一触发词就插入正文。常驻条目每轮都在，别多。">
     <Field label="触发词" bind:value={keywords} placeholder="逗号分隔" oninput={save} />

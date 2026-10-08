@@ -2,7 +2,6 @@
   import { NavBar, List, Cell, Toggle, SectionTitle, Placeholder, Glyph, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
-  import { repo } from '$kernel/data/repo';
   import { nav } from '$kernel/nav/nav.svelte';
   import { parseLorebook } from '$kernel/importers/lorebook';
   import { bus } from '$kernel/bus/bus';
@@ -14,12 +13,11 @@
   async function onFiles(e: Event) {
     const files = [...((e.target as HTMLInputElement).files ?? [])];
     (e.target as HTMLInputElement).value = '';
-    const w = await repo.ensureDefaultWorld();
     try {
       let n = 0;
       for (const f of files) {
         const parsed = parseLorebook(JSON.parse(await f.text()), 'style');
-        await db().lore.bulkAdd(parsed.map((p) => ({ ...p, id: ulid(), worldId: w.id })));
+        await db().lore.bulkAdd(parsed.map((p) => ({ ...p, id: ulid(), worldId: 'global' })));
         n += parsed.length;
       }
       bus.emit('notify', { title: `已导入 ${n} 条风格指令`, pluginId: 'style' });
@@ -28,9 +26,8 @@
     }
   }
   async function create() {
-    const w = await repo.ensureDefaultWorld();
     const id = ulid();
-    await db().lore.add({ id, worldId: w.id, title: '新指令', summary: '', content: '', scope: 'world', kind: 'style', triggers: { keywords: [] }, constant: true, order: (entries.value.at(-1)?.order ?? 0) + 1, enabled: true });
+    await db().lore.add({ id, worldId: 'global', title: '新指令', summary: '', content: '', scope: 'world', kind: 'style', triggers: { keywords: [] }, constant: true, order: (entries.value.at(-1)?.order ?? 0) + 1, enabled: true });
     nav.push('lore', 'entry', { id, back: '风格' });
   }
   const trig = (e: (typeof entries.value)[number]) => e.constant ? '常驻，每轮生效' : e.triggers.keywords.length ? '触发词：' + e.triggers.keywords.slice(0, 4).join('、') : '没有触发词也不常驻，不会生效';

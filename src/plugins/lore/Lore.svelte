@@ -11,7 +11,7 @@
   let worldId = $state<string | null>(null);
   $effect(() => { repo.ensureDefaultWorld().then((w) => (worldId = w.id)); });
   const world = live(() => (worldId ? db().worlds.get(worldId) : Promise.resolve(undefined)), undefined, () => [worldId]);
-  const entries = live(() => db().lore.orderBy('order').filter((e) => e.kind !== 'style').toArray(), []);
+  const entries = live(() => db().lore.orderBy('order').filter((e) => e.kind !== 'style' && e.scope === 'world').toArray(), []);
   const pendingCount = live(() => db().overlays.filter((o) => o.pending === true).count(), 0);
   let fileInput: HTMLInputElement;
   async function onFiles(e: Event) {
@@ -49,7 +49,7 @@
 
 {#if world.value}
   <SectionTitle text={world.value.name} />
-  <List footer="这里放世界设定：地点、人物、规则、历史。模型每轮只看到目录，正文在触发词命中或模型主动查询时才进上下文。怎么说话、什么文风，放到「风格」里。">
+  <List footer="这里只放世界级设定：地点、规则、历史，这个世界里所有角色共享。某个角色专属的设定在角色页的「他的世界书」里。怎么说话、什么文风，放到「风格」里。">
     <Cell title="本局变化" subtitle="剧情改变世界书的地方，不动原文" value={pendingCount.value ? `${pendingCount.value} 条待确认` : undefined} chevron onclick={() => nav.push('lore', 'overlays')} />
   </List>
 {/if}

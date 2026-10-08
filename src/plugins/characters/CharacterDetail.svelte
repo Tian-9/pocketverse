@@ -10,6 +10,7 @@
 
   let { id }: { id: string } = $props();
   const c = live(() => db().characters.get(id), undefined);
+  const loreCount = live(() => db().lore.filter((e) => e.kind !== 'style' && e.scope !== 'world' && !!e.characterIds?.includes(id)).count(), 0);
   let name = $state(''), core = $state(''), full = $state(''), firstMessage = $state('');
   let loaded = $state(false);
   let confirmDelete = $state(false);
@@ -68,6 +69,10 @@
   <SectionTitle text="完整设定与示例对话" />
   <List>
     <Field multiline rows={6} bind:value={full} placeholder="示例对话、细节背景" oninput={save} />
+  </List>
+  <SectionTitle text="他的世界书" />
+  <List footer="只属于这个角色的设定，和他聊时才进上下文。">
+    <Cell title="专属设定" value={`${loreCount.value} 条`} chevron onclick={() => nav.push('characters', 'lore', { id })} />
   </List>
   <SectionTitle text="开场白" />
   <List>

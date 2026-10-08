@@ -82,11 +82,12 @@ interface World {
 
 // 世界书条目：正典，导入后只读，用户手动编辑除外
 interface LoreEntry {
-  id: string; worldId: string;
+  id: string; worldId: string;                 // 风格指令是全局的，worldId 为 'global'
   title: string; summary: string;              // title+summary 组成 L0 目录
   content: string;                             // 正文，L1 命中或 L2 拉取时才进上下文
   scope: 'world' | 'character' | 'relation';   // 作用域
   characterIds?: string[];                     // scope 为 character/relation 时绑定
+  kind?: 'lore' | 'style';                     // 设定 or 风格指令
   triggers: { keywords: string[]; regex?: string; recursive?: boolean };
   constant: boolean;                           // 常驻（慎用，直接进 L0）
   order: number; enabled: boolean;
@@ -161,6 +162,13 @@ interface LoreOverlay {
 // 用户画像：跨存档，唯一一份
 interface UserProfile { facts: string[]; preferences: string[] }
 ```
+
+界面归属（课题分离，2026-10 定）：
+
+- 「世界书」App 只管 `scope: world` 的设定，按世界分。
+- 角色专属条目（`scope: character`，含角色卡内嵌的世界书）只在角色详情页的「他的世界书」里管，不出现在「世界书」App。
+- 「风格」App 管 `kind: style`，全局，不属于任何世界。
+- 拼上下文时取：所在世界的 world 条目 + 在场角色的 character 条目 + 全局 style 条目 + 本局覆盖层。
 
 检索规则：**覆盖优先于正典**。查世界书时，若某条正典有覆盖，返回覆盖版并标注"本局已变化：原文 → 现状"。L0 目录里同样标注。正典永远不被程序修改。
 

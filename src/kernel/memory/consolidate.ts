@@ -88,7 +88,7 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
   if (!opts.force && replies < CONSOLIDATE_EVERY) return false;
   if (replies === 0) return false;
 
-  const lore = await db().lore.where('worldId').equals(campaign.worldId).filter((e) => e.enabled).toArray();
+  const lore = await db().lore.where('worldId').equals(campaign.worldId).filter((e) => e.enabled && e.kind !== 'style' && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id))).toArray();
   const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
   const prompt = buildPrompt(campaign, character, lore, msgs, existing);
   const r = await llm.chat({

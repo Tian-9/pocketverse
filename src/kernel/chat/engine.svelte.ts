@@ -72,7 +72,7 @@ class ChatEngine {
 
     const [history, lore, overlays, memories, memIndex] = await Promise.all([
       repo.messagesOf(conversationId),
-      db().lore.where('worldId').equals(world.id).filter((e) => e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id)).toArray(),
+      db().lore.filter((e) => e.kind === 'style' || (e.worldId === world.id && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id)))).toArray(),
       db().overlays.where('campaignId').equals(campaign.id).toArray(),
       db().memories.where('campaignId').equals(campaign.id).filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
       memoryIndex(campaign.id),
