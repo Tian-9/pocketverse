@@ -55,8 +55,12 @@
   <Cell title="显示思考摘要">{#snippet right()}<Toggle checked={!!llm.settings.showThinking} label="思考摘要" onchange={(v) => llm.save({ showThinking: v })} />{/snippet}</Cell>
 </List>
 <SectionTitle text="记忆与工具" />
-<List footer="开着时角色可以翻世界书、回忆、记状态、维护自己的笔记。关掉只靠常驻设定和触发词，更快更省。">
+<List footer="开着时角色可以翻世界书、回忆、记状态、维护自己的笔记、分享歌曲。关掉只靠常驻设定和触发词，更快更省。">
   <Cell title="允许角色用工具">{#snippet right()}<Toggle checked={llm.settings.tools !== false} label="工具" onchange={(v) => llm.save({ tools: v })} />{/snippet}</Cell>
+</List>
+<SectionTitle text="联网" />
+<List footer="开着时角色可以用 Anthropic 的联网搜索和读网页，由 Anthropic 服务端执行。搜索按次计费：每次 $0.01，另加搜到内容占的 token，已计入下面的用量。每轮最多搜 3 次。关着时角色只靠本地资料，分享歌曲查不到就不引歌词。需要先开「允许角色用工具」。">
+  <Cell title="允许角色上网" subtitle={llm.stats.webSearches ? `本月搜了 ${llm.stats.webSearches} 次，约 $${(llm.stats.webSearches * 0.01).toFixed(2)}` : '每次搜索 $0.01'}>{#snippet right()}<Toggle checked={!!llm.settings.web} label="上网" onchange={(v) => llm.save({ web: v })} />{/snippet}</Cell>
 </List>
 
 <SectionTitle text="你" />

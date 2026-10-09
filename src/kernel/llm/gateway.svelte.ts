@@ -18,6 +18,8 @@ export interface LlmSettings {
   preview?: boolean;
   /** 显示思考摘要 */
   showThinking?: boolean;
+  /** 允许角色上网：服务端 web_search / web_fetch，按次计费 */
+  web?: boolean;
 }
 
 const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4096, tools: true };
@@ -25,12 +27,13 @@ const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'm
 export interface UsageStats {
   todayUsd: number; monthUsd: number; requests: number;
   hitRate: number; // 最近 50 次请求的缓存命中率
+  webSearches: number; // 本月联网搜索次数
 }
 
 /** 模型网关：持有设置、构造适配器、统一记账。插件通过 ctx.llm 间接调用。 */
 class Gateway {
   settings = $state<LlmSettings>({ ...DEFAULTS });
-  stats = $state<UsageStats>({ todayUsd: 0, monthUsd: 0, requests: 0, hitRate: 0 });
+  stats = $state<UsageStats>({ todayUsd: 0, monthUsd: 0, requests: 0, hitRate: 0, webSearches: 0 });
   private provider: LlmProvider | null = null;
 
   async boot() {
@@ -60,6 +63,7 @@ class Gateway {
       maxTokens: req.maxTokens ?? this.settings.maxTokens,
       effort: req.effort ?? this.settings.effort,
       showThinking: req.purpose === 'chat' ? !!this.settings.showThinking : false,
+      web: req.purpose === 'chat' && !!this.settings.web && this.settings.tools !== false,
       ...req,
     };
     if (this.settings.preview) {
@@ -104,6 +108,7 @@ class Gateway {
       monthUsd: month.reduce((a, r) => a + r.costUsd, 0),
       requests: month.length,
       hitRate: total === 0 ? 0 : sum.cacheRead / total,
+      webSearches: month.reduce((a, r) => a + (r.webSearches ?? 0), 0),
     };
   }
 }

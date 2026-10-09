@@ -11,6 +11,7 @@ import { LlmError } from './types';
  * - 工具：自定义工具走 JSON schema；memory 走内置 memory_20250818。
  * - fallback：服务端自动回退，安全分类器拒答时换模型重跑。
  * - 上下文编辑：自动清旧工具结果。
+ * - 联网：req.web 开着时挂服务端 web_search / web_fetch，由 Anthropic 执行，结果块原样回传。
  */
 export class ClaudeProvider implements LlmProvider {
   id = 'claude';
@@ -26,11 +27,14 @@ export class ClaudeProvider implements LlmProvider {
       type: 'text', text: b.text, ...(b.cache ? { cache_control: { type: 'ephemeral' } } : {}),
     }));
     const messages: BetaMessageParam[] = req.messages.map((m) => ({ role: m.role, content: m.content.map(toParam) }));
-    const tools: BetaToolUnion[] | undefined = req.tools?.length
-      ? req.tools.map((t) => t.builtin === 'memory'
-        ? { type: 'memory_20250818', name: 'memory' }
-        : { name: t.name, description: t.description, input_schema: (t.inputSchema ?? { type: 'object', properties: {} }) as BetaTool['input_schema'] })
-      : undefined;
+    const custom: BetaToolUnion[] = (req.tools ?? []).map((t) => t.builtin === 'memory'
+      ? { type: 'memory_20250818', name: 'memory' }
+      : { name: t.name, description: t.description, input_schema: (t.inputSchema ?? { type: 'object', properties: {} }) as BetaTool['input_schema'] });
+    const server: BetaToolUnion[] = req.web
+      ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }, { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3, max_content_tokens: 8000 }]
+      : [];
+    const all = [...custom, ...server];
+    const tools = all.length ? all : undefined;
 
     try {
       hooks.onStatus?.('thinking');
@@ -62,23 +66,26 @@ export class ClaudeProvider implements LlmProvider {
           if (text === '') hooks.onStatus?.('typing');
           text += ev.delta.text;
           hooks.onText?.(ev.delta.text);
-        } else if (ev.type === 'content_block_start' && ev.content_block.type === 'tool_use') {
+        } else if (ev.type === 'content_block_start' && (ev.content_block.type === 'tool_use' || ev.content_block.type === 'server_tool_use')) {
           hooks.onStatus?.('tool:' + ev.content_block.name);
         }
       }
       const final = await stream.finalMessage();
       const u = final.usage;
+      const serverTools = final.content.filter((b) => b.type === 'server_tool_use').map((b) => b.name);
       const result: ChatResult = {
         text,
         ...(thinking.trim() ? { thinking: thinking.trim() } : {}),
         content: final.content.map(fromBlock),
         model: final.model,
         stopReason: final.stop_reason ?? 'end_turn',
+        ...(serverTools.length ? { serverTools } : {}),
         usage: {
           input: u.input_tokens,
           output: u.output_tokens,
           cacheRead: u.cache_read_input_tokens ?? 0,
           cacheWrite: u.cache_creation_input_tokens ?? 0,
+          ...(u.server_tool_use?.web_search_requests ? { webSearches: u.server_tool_use.web_search_requests } : {}),
         },
       };
       if (final.stop_reason === 'refusal') {

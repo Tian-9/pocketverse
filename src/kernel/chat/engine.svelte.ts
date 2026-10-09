@@ -2,7 +2,7 @@ import { db } from '../storage/db';
 import type { Message } from '../storage/db';
 import { repo } from '../data/repo';
 import { assemble } from '../context/assemble';
-import { kernelTools, toolLabel } from '../context/tools';
+import { kernelTools, shareTool, toolLabel } from '../context/tools';
 import type { ToolContext } from '../context/tools';
 import { memoryIndex } from '../context/memfs';
 import { runToolLoop, type LoopTool } from './loop';
@@ -108,10 +108,12 @@ class ChatEngine {
       } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); }
     }
 
-    const tctx: ToolContext = { campaign, characters: [character], lore, overlays };
+    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [] };
     const useTools = llm.settings.tools !== false;
+    const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
+    const hasWeb = useTools && !!llm.settings.web;
     const tools: LoopTool[] = useTools ? [
-      ...kernelTools.map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
+      ...[...kernelTools, ...(share ? [share] : [])].map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
       ...plugins.flatMap((p) => (p.tools ?? []).map((t) => ({
         spec: { name: t.name, description: t.description, inputSchema: t.inputSchema },
         run: async (input: unknown) => { const r = await t.handler(input, pctx); return typeof r === 'string' ? r : JSON.stringify(r ?? null); },
@@ -121,7 +123,7 @@ class ChatEngine {
     const { system, messages, l1Hits } = assemble({
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
       lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
-      pluginStable, pluginVolatile, hasTools: tools.length > 0, rules: this.rules, storyTime: character.timeMode === 'story',
+      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasWeb, rules: this.rules, storyTime: character.timeMode === 'story',
     });
 
     const abort = new AbortController();
@@ -143,7 +145,8 @@ class ChatEngine {
       // 插件注册的输出标签：抽出来交给插件处理，卡片记在 meta 里由聊天界面渲染
       const handlers = plugins.flatMap((p) => (p.outputHandlers ?? []).map((h) => ({ pluginId: p.id, h })));
       const { text, found } = extractTags(r.text.trim(), handlers.map((x) => x.h.tag));
-      const cards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = [];
+      // 工具产生的分享卡在前（它们先发生），标签卡在后
+      const cards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = tctx.cards.map((c) => ({ pluginId: 'kernel', tag: 'share', body: JSON.stringify(c), attrs: {} }));
       for (const f of found) {
         const owner = handlers.find((x) => x.h.tag === f.tag);
         if (!owner) continue;
@@ -166,8 +169,11 @@ class ChatEngine {
             await sleep(Math.min(300 + parts[i]!.length * 35, 1500), abort.signal);
             if (abort.signal.aborted) break;
           }
-          const isLast = i === parts.length - 1;
-          await repo.addMessage(conversationId, 'assistant', parts[i]!, { ...(await this.stamp(conversationId)), ...(isLast && Object.keys(meta).length ? { meta } : {}) });
+          // 卡片挂在第一条（先分享再评论），其余 meta（工具、思考）挂在最后一条
+          const isFirst = i === 0, isLast = i === parts.length - 1;
+          const { cards: metaCards, ...rest } = meta;
+          const mine: Record<string, unknown> = { ...(isFirst && metaCards ? { cards: metaCards } : {}), ...(isLast ? rest : {}) };
+          await repo.addMessage(conversationId, 'assistant', parts[i]!, { ...(await this.stamp(conversationId)), ...(Object.keys(mine).length ? { meta: mine } : {}) });
         }
         if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }

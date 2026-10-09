@@ -31,6 +31,8 @@ export interface ChatRequest {
   conversationId?: string;
   /** 要求返回思考摘要（Anthropic 官方的 summarized 展示，不是原始思维链） */
   showThinking?: boolean;
+  /** 允许服务端联网工具（web_search / web_fetch） */
+  web?: boolean;
   /** 仅用于预览显示的名字，不发给模型 */
   names?: { user: string; assistant: string };
 }
@@ -41,7 +43,7 @@ export interface StreamHooks {
   signal?: AbortSignal;
 }
 
-export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number }
+export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; /** 服务端联网搜索次数，按次计费 */ webSearches?: number }
 
 export interface ChatResult {
   text: string;
@@ -52,6 +54,8 @@ export interface ChatResult {
   usage: Usage;
   stopReason: string;
   model: string;
+  /** 这次响应里用过的服务端工具名（web_search 等），它们不走本地工具循环 */
+  serverTools?: string[];
   refusal?: { category: string | null; explanation?: string | null };
 }
 

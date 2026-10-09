@@ -22,6 +22,7 @@ export function render(req: ChatRequest): string {
   const out: string[] = [];
   out.push(`模型：${req.model}　用途：${req.purpose}　effort：${req.effort ?? '默认'}　max_tokens：${req.maxTokens}`);
   if (req.tools?.length) out.push(`工具：${req.tools.map((t) => t.name).join('、')}`);
+  if (req.web) out.push('联网：web_search、web_fetch（Anthropic 服务端执行，每次搜索 $0.01）');
   if (req.jsonSchema) out.push('输出：按 JSON schema 结构化');
   out.push('', '════════ SYSTEM ════════');
   req.system.forEach((b, i) => { out.push(`--- 块 ${i + 1}${b.cache ? '  ⟨缓存断点⟩' : ''} ---`, b.text); });
@@ -32,10 +33,20 @@ export function render(req: ChatRequest): string {
       if (b.type === 'text') out.push(b.text + (b.cache ? '\n⟨缓存断点⟩' : ''));
       else if (b.type === 'tool_use') out.push(`[调用工具 ${b.name}] ${JSON.stringify(b.input)}`);
       else if (b.type === 'tool_result') out.push(`[工具结果${b.isError ? '（出错）' : ''}]\n${b.content}`);
+      else if (b.type === 'opaque' && isServerBlock(b.block)) out.push(`[${serverBlockLabel(b.block)}，原样回传]`);
       else out.push('[思考块，原样回传]');
     }
   }
   return out.join('\n');
+}
+
+function isServerBlock(b: unknown): b is { type: string; name?: string } {
+  const t = (b as { type?: string })?.type ?? '';
+  return t === 'server_tool_use' || t.endsWith('_tool_result');
+}
+function serverBlockLabel(b: { type: string; name?: string }): string {
+  if (b.type === 'server_tool_use') return `服务端工具 ${b.name ?? ''}`;
+  return '服务端工具结果';
 }
 
 export const gate = new PromptGate();

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NavBar, Sheet, List, Cell, Avatar, Glyph, Field, Button, icons } from '$kernel/api';
+  import { NavBar, Sheet, List, Cell, Avatar, Glyph, Field, Button, ShareCardView, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
@@ -68,7 +68,10 @@
   }
   interface Card { pluginId: string; tag: string; body: string; attrs: Record<string, string> }
   function cardsOf(m: Message): Card[] { return (m.meta?.cards as Card[] | undefined) ?? []; }
-  function cardComponent(c: Card) { return registry.get(c.pluginId)?.outputHandlers?.find((h) => h.tag === c.tag)?.component ?? null; }
+  function cardComponent(c: Card) {
+    if (c.pluginId === 'kernel' && c.tag === 'share') return ShareCardView;
+    return registry.get(c.pluginId)?.outputHandlers?.find((h) => h.tag === c.tag)?.component ?? null;
+  }
   let openThinking = $state<Record<string, boolean>>({});
   function caption(m: Message): string {
     const meta = m.meta ?? {};

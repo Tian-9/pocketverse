@@ -29,6 +29,10 @@ export interface AssembleInput {
   /** 扫描最近几条消息做 L1 触发 */
   scanDepth?: number;
   hasTools?: boolean;
+  /** 有 share 工具（至少一个分享解析器） */
+  hasShare?: boolean;
+  /** 挂了服务端联网工具 */
+  hasWeb?: boolean;
   /** 自定义对话规则，空则用默认 */
   rules?: string;
   /** 剧情时间模式：不给真实时钟 */
@@ -54,6 +58,16 @@ const TOOL_RULES = [
   '- /memories 是你的笔记本，用 memory 工具维护。只记长期有用的事：对方的偏好、约定、重要的身份信息、你们关系的里程碑。不要记聊天进度和流水账，对话记录本来就在。目录每轮都给你了，只在确实相关时才打开文件，不要每轮都翻。',
   '查完资料后正常回复，不要向用户复述你查了什么。',
 ].join('\n');
+const SHARE_RULE = '- 想给对方分享一首歌、一部电影之类的东西时用 share 工具，它会查真实资料返回给你，并把卡片发给对方。引用歌词或台词只能引工具返回的原句，查不到就不引，不要编。';
+const WEB_RULE = '- 你可以上网（web_search 查、web_fetch 读网页）。只在确实需要外部信息时用：对方问起最近的事、要核实一个事实、或者分享的东西本地没查到。闲聊不要搜。';
+
+function toolRules(input: AssembleInput): string {
+  if (!input.hasTools) return '';
+  const extra = [input.hasShare ? SHARE_RULE : '', input.hasWeb ? WEB_RULE : ''].filter(Boolean);
+  const lines = TOOL_RULES.split('\n');
+  // 「查完资料后…」收尾句保持在最后
+  return [...lines.slice(0, -1), ...extra, lines[lines.length - 1]!].join('\n');
+}
 
 function section(title: string, body: string | undefined): TextBlock | null {
   const b = body?.trim();
@@ -94,7 +108,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const constantStyle = input.lore.filter((e) => isStyle(e) && e.enabled && e.constant).sort((a, b) => a.order - b.order);
 
   const system = [
-    section('规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + TOOL_RULES : '')),
+    section('规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + toolRules(input) : '')),
     constantStyle.length ? section('写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
     section('用户', `用户的名字是「${input.userName}」。${input.userProfile ? '\n' + input.userProfile : ''}`),
     section(`世界：${input.world.name}`, input.world.summary),

@@ -8,8 +8,13 @@ import { bus } from '../bus/bus';
 import { expandMacros } from './macros';
 import { chat } from '../chat/engine.svelte';
 import { registry } from '../registry/registry.svelte';
+import type { ShareCard, ShareResolver } from '../share/types';
 
-export interface ToolContext { campaign: Campaign; characters: Character[]; lore: LoreEntry[]; overlays: LoreOverlay[] }
+export interface ToolContext {
+  campaign: Campaign; characters: Character[]; lore: LoreEntry[]; overlays: LoreOverlay[];
+  /** 本轮工具产生的分享卡，引擎收完写进消息 meta */
+  cards: ShareCard[];
+}
 export type ToolHandler = (input: any, ctx: ToolContext) => Promise<string>;
 export interface KernelTool { spec: ToolSpec; handler: ToolHandler; /** UI 状态文案 */ label: string }
 
@@ -133,13 +138,47 @@ export const kernelTools: KernelTool[] = [
   },
 ];
 
+/**
+ * share 工具：按已启用插件的分享解析器动态生成（type 枚举随插件变），所以不在 kernelTools 里。
+ * 没有任何解析器就不给模型这个工具。
+ */
+export function shareTool(resolvers: ShareResolver[]): KernelTool | null {
+  if (!resolvers.length) return null;
+  const types = resolvers.map((r) => r.type);
+  return {
+    label: '分享',
+    spec: {
+      name: 'share',
+      description: '在聊天里分享一样东西给对方，像微信里转发一首歌。插件会去查真实资料返回给你，并把卡片直接发给对方（你不用再描述卡片）。只在聊天里自然想分享时用，一轮最多一次。\n' + resolvers.map((r) => `- ${r.hint}`).join('\n'),
+      inputSchema: { type: 'object', properties: {
+        type: { type: 'string', enum: types },
+        title: { type: 'string', description: '名字，如歌名' },
+        subtitle: { type: 'string', description: '歌手 / 作者 / 来源，知道就填' },
+        quote: { type: 'string', description: '想引用的一句原文（如一句歌词），可不填。会在查到的原文里校验，没有的会被去掉' },
+      }, required: ['type', 'title'] },
+    },
+    async handler(input, ctx) {
+      const type = str(input?.type, 32);
+      const r = resolvers.find((x) => x.type === type);
+      if (!r) return `没有「${type}」这种分享类型，可选：${types.join('、')}`;
+      const title = str(input?.title, 120).trim();
+      if (!title) return 'title 不能为空';
+      const res = await r.resolve({ type, title, subtitle: str(input?.subtitle, 120).trim() || undefined, quote: str(input?.quote, 200).trim() || undefined });
+      ctx.cards.push(res.card);
+      return expandForModel(res.forModel, ctx);
+    },
+  };
+}
+
 /** 工具返回给模型的文本也要替换占位符 */
 export function expandForModel(text: string, ctx: ToolContext): string {
   return expandMacros(text, { user: chat.userName, char: ctx.characters[0]?.name ?? '角色' });
 }
 
+const EXTRA_LABELS: Record<string, string> = { share: '分享', web_search: '上网搜', web_fetch: '看网页' };
+
 export function toolLabel(name: string): string {
-  const k = kernelTools.find((t) => t.spec.name === name)?.label;
+  const k = kernelTools.find((t) => t.spec.name === name)?.label ?? EXTRA_LABELS[name];
   if (k) return k;
   for (const p of registry.plugins) {
     const t = p.tools?.find((x) => x.name === name);

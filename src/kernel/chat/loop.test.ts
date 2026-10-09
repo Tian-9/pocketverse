@@ -33,3 +33,15 @@ describe('runToolLoop', () => {
     expect(req.messages.at(-1).content[0]).toMatchObject({ isError: true, content: '炸' });
   });
 });
+
+describe('server-side tools', () => {
+  it('records server tool names in toolsUsed without running a local tool', async () => {
+    const chat = vi.fn<(req: any) => Promise<ChatResult>>().mockResolvedValueOnce({ text: '查到了', model: 'm', stopReason: 'end_turn', usage: { ...usage, webSearches: 1 }, serverTools: ['web_search'], content: [
+      { type: 'opaque', provider: 'claude', block: { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'x' } } },
+      { type: 'text', text: '查到了' },
+    ] });
+    const r = await runToolLoop(chat as any, base, []);
+    expect(r.toolsUsed).toEqual(['web_search']);
+    expect(r.rounds).toBe(1);
+  });
+});

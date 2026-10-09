@@ -13,3 +13,10 @@ describe('pricing', () => {
     expect(cacheHitRate({ input: 1000, output: 0, cacheRead: 9000, cacheWrite: 0 })).toBeCloseTo(0.9);
   });
 });
+
+describe('web search pricing', () => {
+  it('adds $0.01 per server-side search, even for unknown models', () => {
+    expect(costUsd('claude-haiku-5-5', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, webSearches: 3 })).toBeCloseTo(0.03, 6);
+    expect(costUsd('nope', { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, webSearches: 2 })).toBeCloseTo(0.02, 6);
+  });
+});

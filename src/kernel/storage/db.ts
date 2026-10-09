@@ -52,6 +52,7 @@ export interface KV { key: string; value: unknown }
 export interface UsageRecord {
   id: string; ts: number; model: string; conversationId?: string; purpose: string;
   input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number;
+  webSearches?: number;
 }
 
 const KERNEL_SCHEMA: Record<string, string> = {

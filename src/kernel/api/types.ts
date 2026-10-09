@@ -1,5 +1,8 @@
 import type { Component } from 'svelte';
 import type { Table } from 'dexie';
+import type { ShareResolver } from '../share/types';
+
+export type { ShareCard, ShareQuery, ShareResult, ShareResolver } from '../share/types';
 
 /** 插件清单：插件通过 definePlugin() 声明，内核据此收集贡献点。 */
 export interface PluginManifest {
@@ -21,6 +24,8 @@ export interface PluginManifest {
   tools?: ToolDef[];
   /** 解析模型输出里的标签（M1 起生效） */
   outputHandlers?: OutputHandler[];
+  /** 分享解析器：内核的 share 工具按 type 分发到这里 */
+  shares?: ShareResolver[];
   /** 自有数据表：表名 -> Dexie schema 字符串，内核会加 p_<id>_ 前缀 */
   storage?: { tables: Record<string, string> };
   /** 事件订阅 */

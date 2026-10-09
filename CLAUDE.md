@@ -15,6 +15,7 @@
 - 屏幕是叠着渲染的，Playwright 选择器要用 `p.locator('.screen').last()` 限定到最上层。
 - 提示词里易变内容（时间、L1 命中、插件动态）只能进最后一条用户消息，system 必须稳定，否则缓存全废。
 - 工具名只能是字母、数字、下划线、连字符（API 校验 `^[a-zA-Z0-9_-]{1,128}$`），不能带点。假接口不校验这个，真接口会 400；`definePlugin` 和 tools.test.ts 已加校验。
+- 角色分享东西（歌、电影、新闻）一律走内核 `share` 工具 + 插件 `shares` 解析器，卡片用通用 `ShareCard`，不要为每种类型新加输出标签和卡片组件。引用原文必须经解析器校验。
 - 插件只能 import `$kernel/api`，不能 import 内核内部模块或其他插件；跨插件跳转走 `nav.push(pluginId, screen, params)`。
 
 ## 文案

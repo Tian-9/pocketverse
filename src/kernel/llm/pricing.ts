@@ -18,10 +18,14 @@ export const MODELS: { id: string; label: string; note: string }[] = [
   { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: '最强。$10 / $50' },
 ];
 
+/** 服务端联网搜索：每次 $0.01（$10 / 1000 次），另加搜到内容占的 token */
+export const WEB_SEARCH_USD = 0.01;
+
 export function costUsd(model: string, u: Usage): number {
   const p = PRICES[model];
-  if (!p) return 0;
-  return (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / 1_000_000;
+  const web = (u.webSearches ?? 0) * WEB_SEARCH_USD;
+  if (!p) return web;
+  return (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + u.cacheWrite * p.cacheWrite) / 1_000_000 + web;
 }
 
 /** 缓存命中率：缓存读 / 全部输入。 */

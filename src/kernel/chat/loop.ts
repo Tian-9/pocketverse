@@ -25,6 +25,7 @@ export async function runToolLoop(
     rounds++;
     last = await chat({ system: base.system, messages, tools: specs, purpose: base.purpose, conversationId: base.conversationId, names: base.names }, opts.hooks);
     if (last.thinking) thinkings.push(last.thinking);
+    if (last.serverTools?.length) toolsUsed.push(...last.serverTools);
     const calls = last.content.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
     if (!calls.length || last.stopReason !== 'tool_use' || rounds > maxRounds) break;
     messages.push({ role: 'assistant', content: last.content });

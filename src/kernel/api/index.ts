@@ -9,6 +9,9 @@ export function definePlugin(manifest: PluginManifest): PluginManifest {
   for (const t of manifest.tools ?? []) {
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(t.name)) throw new Error(`插件 ${manifest.id} 的工具名不合法（只能字母数字下划线连字符）: ${t.name}`);
   }
+  for (const r of manifest.shares ?? []) {
+    if (!/^[a-z][a-z0-9_-]*$/.test(r.type)) throw new Error(`插件 ${manifest.id} 的分享类型不合法: ${r.type}`);
+  }
   if (manifest.storage) {
     for (const t of Object.keys(manifest.storage.tables)) {
       if (!/^[a-z][a-z0-9_]*$/.test(t)) throw new Error(`插件 ${manifest.id} 的表名不合法: ${t}`);
@@ -30,4 +33,5 @@ export { default as Placeholder } from '../ui/Placeholder.svelte';
 export { default as Field } from '../ui/Field.svelte';
 export { default as Avatar } from '../ui/Avatar.svelte';
 export { default as Glyph } from '../ui/Glyph.svelte';
+export { default as ShareCardView } from '../ui/ShareCard.svelte';
 export { icons, gradients } from '../ui/icons';
