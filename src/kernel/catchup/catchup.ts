@@ -27,6 +27,7 @@ export function covers(reached: Exclude<CatchupTier, 'attach'>, wanted: CatchupT
 }
 
 export function elapsedText(ms: number): string {
+  if (ms < H) return '不到一小时';
   if (ms >= 2 * D) return `${Math.floor(ms / D)} 天`;
   if (ms >= D) return '一天多';
   return `大约 ${Math.round(ms / H)} 小时`;
@@ -47,6 +48,26 @@ class Catchup {
 
   contributors(): { pluginId: string; c: CatchupContributor }[] {
     return registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.catchup ?? []).map((c) => ({ pluginId: p.id, c })));
+  }
+
+  /** 有没有依附档的登记（决定聊天要不要挂 handle_attached 工具；工具表要稳定，所以只看登记不看有没有事） */
+  hasAttach(): boolean {
+    return this.contributors().some((x) => x.c.tier === 'attach');
+  }
+
+  /** 聊天回复前收集依附的事：挂在这一轮上处理 */
+  async collectAttached(cp: Campaign, ch: Character, now = Date.now()): Promise<{ key: string; item: CatchupItem; ctx: CatchupContext }[]> {
+    const elapsedMs = Math.max(0, now - cp.lastPlayedAt);
+    const ctx: CatchupContext = { campaignId: cp.id, characterId: ch.id, characterName: ch.name, elapsedMs, days: Math.floor(elapsedMs / D), tier: 'chat', elapsedText: elapsedText(elapsedMs) };
+    const out: { key: string; item: CatchupItem; ctx: CatchupContext }[] = [];
+    for (const { pluginId, c } of this.contributors()) {
+      if (c.tier !== 'attach') continue;
+      try {
+        const item = await c.collect(ctx);
+        if (item) out.push({ key: `${pluginId}_${c.id}`, item, ctx });
+      } catch (e) { log.warn('catchup', `${pluginId}/${c.id} 收集失败：${e instanceof Error ? e.message : String(e)}`); }
+    }
+    return out;
   }
 
   async run(now = Date.now()) {

@@ -2,7 +2,8 @@ import { db } from '../storage/db';
 import type { Message } from '../storage/db';
 import { repo } from '../data/repo';
 import { assemble } from '../context/assemble';
-import { kernelTools, shareTool, toolLabel } from '../context/tools';
+import { kernelTools, shareTool, attachedTool, attachedPrompt, toolLabel } from '../context/tools';
+import { catchup } from '../catchup/catchup';
 import type { ToolContext } from '../context/tools';
 import { memoryIndex } from '../context/memfs';
 import { runToolLoop, type LoopTool } from './loop';
@@ -110,12 +111,15 @@ class ChatEngine {
       } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); }
     }
 
-    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [] };
     const useTools = llm.settings.tools !== false;
+    // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
+    const attached = useTools && catchup.hasAttach() ? await catchup.collectAttached(campaign, character) : [];
+    if (attached.length) pluginVolatile.push(attachedPrompt(attached));
+    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
     const tools: LoopTool[] = useTools ? [
-      ...[...kernelTools, ...(share ? [share] : [])].map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
+      ...[...kernelTools, ...(share ? [share] : []), ...(catchup.hasAttach() ? [attachedTool] : [])].map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
       ...plugins.flatMap((p) => (p.tools ?? []).map((t) => ({
         spec: { name: t.name, description: t.description, inputSchema: t.inputSchema },
         run: async (input: unknown) => { const r = await t.handler(input, pctx); return typeof r === 'string' ? r : JSON.stringify(r ?? null); },

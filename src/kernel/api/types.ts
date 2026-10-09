@@ -95,7 +95,7 @@ export interface OutputHandler {
   onParsed?: (body: string, attrs: Record<string, string>, ctx: PromptContext) => void | Promise<void>;
 }
 
-/** 补发档位：h6 ≥ 6 小时，d1 ≥ 24 小时，days ≥ 2 天；attach 不触发，有补发就带上 */
+/** 补发档位：h6 ≥ 6 小时，d1 ≥ 24 小时，days ≥ 2 天；attach 不触发，挂在这个角色下一次模型调用上（聊天回复或补发） */
 export type CatchupTier = 'h6' | 'd1' | 'days' | 'attach';
 
 export interface CatchupContext {
@@ -106,8 +106,8 @@ export interface CatchupContext {
   elapsedMs: number;
   /** 整天数，days 档才有意义 */
   days: number;
-  /** 这次达到的档位 */
-  tier: Exclude<CatchupTier, 'attach'>;
+  /** 这次达到的档位；chat 表示挂在一次聊天回复上 */
+  tier: Exclude<CatchupTier, 'attach'> | 'chat';
   /** 给模型看的时长，如「大约 8 小时」「3 天」 */
   elapsedText: string;
 }

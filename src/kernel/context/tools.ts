@@ -9,11 +9,16 @@ import { expandMacros } from './macros';
 import { chat } from '../chat/engine.svelte';
 import { registry } from '../registry/registry.svelte';
 import type { ShareCard, ShareResolver } from '../share/types';
+import type { CatchupContext, CatchupItem } from '../api/types';
+import { log } from '../log/log';
 
+export interface AttachedTask { key: string; item: CatchupItem; ctx: CatchupContext }
 export interface ToolContext {
   campaign: Campaign; characters: Character[]; lore: LoreEntry[]; overlays: LoreOverlay[];
   /** 本轮工具产生的分享卡，引擎收完写进消息 meta */
   cards: ShareCard[];
+  /** 挂在这一轮上顺手处理的事（如回朋友圈评论），材料在最后一条用户消息里 */
+  attached: AttachedTask[];
 }
 export type ToolHandler = (input: any, ctx: ToolContext) => Promise<string>;
 export interface KernelTool { spec: ToolSpec; handler: ToolHandler; /** UI 状态文案 */ label: string }
@@ -170,12 +175,42 @@ export function shareTool(resolvers: ShareResolver[]): KernelTool | null {
   };
 }
 
+/**
+ * handle_attached：处理"挂在这一轮上"的事。工具表要稳定（缓存前缀），所以有依附登记就一直挂着，
+ * 每一轮具体有没有事、按什么结构提交，写在最后一条用户消息里。
+ */
+export const attachedTool: KernelTool = {
+  label: '顺手处理',
+  spec: {
+    name: 'handle_attached',
+    description: '处理最后一条消息里「顺手处理的事」。每件事有一个 key 和要求的结构，按结构把结果放在 output 里提交，一件事调一次。没有列出来的事不要调。',
+    inputSchema: { type: 'object', properties: { key: { type: 'string' }, output: { type: 'object', additionalProperties: true } }, required: ['key', 'output'] },
+  },
+  async handler(input, ctx) {
+    const key = str(input?.key, 64);
+    const t = ctx.attached.find((x) => x.key === key);
+    if (!t) return `这一轮没有 key 为「${key}」的事。`;
+    await t.item.apply(input?.output, t.ctx);
+    ctx.attached = ctx.attached.filter((x) => x !== t);
+    log.info('catchup', `聊天里顺手处理了 ${t.item.label}`, { campaignId: t.ctx.campaignId, key });
+    return `${t.item.label} 已处理。`;
+  },
+};
+
+/** 给最后一条用户消息的材料：每件事的说明和提交结构 */
+export function attachedPrompt(tasks: AttachedTask[]): string {
+  if (!tasks.length) return '';
+  return '<顺手处理的事>\n你在回消息，顺便把这些也处理了。每件事用 handle_attached 工具提交，key 和结构如下；处理完再正常回复消息，不要在消息里复述。\n\n'
+    + tasks.map((t) => `## ${t.item.label}（key：${t.key}）\n${t.item.prompt}\n提交结构（output）：${JSON.stringify(t.item.schema)}`).join('\n\n')
+    + '\n</顺手处理的事>';
+}
+
 /** 工具返回给模型的文本也要替换占位符 */
 export function expandForModel(text: string, ctx: ToolContext): string {
   return expandMacros(text, { user: chat.userName, char: ctx.characters[0]?.name ?? '角色' });
 }
 
-const EXTRA_LABELS: Record<string, string> = { share: '分享', web_search: '上网搜', web_fetch: '看网页' };
+const EXTRA_LABELS: Record<string, string> = { share: '分享', handle_attached: '顺手处理', web_search: '上网搜', web_fetch: '看网页' };
 
 export function toolLabel(name: string): string {
   const k = kernelTools.find((t) => t.spec.name === name)?.label ?? EXTRA_LABELS[name];
