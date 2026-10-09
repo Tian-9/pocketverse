@@ -308,6 +308,8 @@ L2 工具（内核提供）：
 - 查找顺序固定：用户手动维护的本地库（最高优先，可以没有）→ 插件在浏览器里直接请求免费接口（不经过模型，不花 token）→ 都没有时告诉模型"没查到，不要编"，模型若被允许上网可再用 `web_search`。
 - `quote` 是防幻觉点：模型想引用的那句必须在解析器查到的原文里出现，否则丢掉并告诉模型。歌词、台词、新闻原话都走这条规则。
 - 音乐解析器（`plugins/music`）：iTunes Search 拿封面、试听、链接；LRCLIB 拿歌词。两个都免费、无 Key、允许跨域。
+- **用户这边**：聊天输入框「+」面板，项由插件 `composerActions` 登记（歌曲、红包…）。面板组件产出一条 `OutgoingMessage`：`text` 给模型看（如「[分享了一首歌：《晴天》- 周杰伦] 歌词开头…」），`cards` 给人看，`cardOnly` 时不显示文字气泡。插件工具也能通过 `ctx.addCard(tag, body)` 往回复里放卡片，由本插件 `outputHandlers` 同名 tag 的组件渲染。
+- 聊天页样式在外观里切：iOS 信息 / 微信（绿白气泡、灰底、两边头像）。只是样式，功能一样。
 
 联网：设置里的"允许角色上网"开关对应 Anthropic 服务端的 `web_search` / `web_fetch` 工具。搜索由 Anthropic 执行，按次计费（每次搜索 $0.01，另加搜到内容占的 token），计入用量。默认关。每轮各最多 3 次。
 
@@ -348,6 +350,7 @@ export default definePlugin({
   outputHandlers?: OutputHandler[],           // 解析 <moment>…</moment> 并渲染卡片
   shares?: ShareResolver[],                   // 分享解析器：share 工具按 type 分发到这里
   catchup?: CatchupContributor[],             // 补发登记：离开一段时间回来，内核按档位统一调模型
+  composerActions?: ComposerAction[],         // 聊天输入框「+」面板里的项：用户主动发东西（歌、红包…）
   // 数据与事件
   storage?: { tables: Record<string, string> },
   onEvent?: Partial<EventHandlers>,

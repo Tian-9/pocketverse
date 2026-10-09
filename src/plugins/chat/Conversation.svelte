@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NavBar, Sheet, List, Cell, Avatar, Glyph, Field, Button, ShareCardView, icons } from '$kernel/api';
+  import { NavBar, Sheet, List, Cell, Avatar, Glyph, Icon, Field, Button, ShareCardView, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
@@ -10,6 +10,8 @@
   import { tick } from 'svelte';
   import { toolLabel } from '$kernel/context/tools';
   import { registry } from '$kernel/registry/registry.svelte';
+  import { theme } from '$kernel/theme/theme.svelte';
+  import type { ComposerAction, OutgoingMessage } from '$kernel/api';
 
   let { id }: { id: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
@@ -20,6 +22,20 @@
 
   let draft = $state('');
   let menu = $state(false);
+  // 「+」面板：插件登记的动作（歌曲、红包…）
+  let panel = $state(false);
+  type Action = ComposerAction & { pluginId: string };
+  const actions = $derived<Action[]>(registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.composerActions ?? []).map((a) => ({ ...a, pluginId: p.id }))));
+  let active = $state<Action | null>(null);
+  async function sendOutgoing(a: Action, msg: OutgoingMessage) {
+    active = null; panel = false;
+    if (!llm.configured) { nav.push('settings', 'api'); return; }
+    const meta: Record<string, unknown> = {};
+    if (msg.cards?.length) meta.cards = msg.cards.map((c) => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {} }));
+    if (msg.cardOnly) meta.cardOnly = true;
+    await chat.send(id, msg.text, Object.keys(meta).length ? { meta } : {});
+  }
+  const wechat = $derived(theme.chatStyle === 'wechat');
   let timeSheet = $state(false);
   let timeWhen = $state('');
   let timeNote = $state('');
@@ -69,7 +85,7 @@
   interface Card { pluginId: string; tag: string; body: string; attrs: Record<string, string> }
   function cardsOf(m: Message): Card[] { return (m.meta?.cards as Card[] | undefined) ?? []; }
   function cardComponent(c: Card) {
-    if (c.pluginId === 'kernel' && c.tag === 'share') return ShareCardView;
+    if (c.tag === 'share') return ShareCardView;
     return registry.get(c.pluginId)?.outputHandlers?.find((h) => h.tag === c.tag)?.component ?? null;
   }
   let openThinking = $state<Record<string, boolean>>({});
@@ -92,7 +108,7 @@
   function timeLabel(m: Message) { return m.inWorldTs ?? fmt(m.ts); }
 </script>
 
-<div class="conv">
+<div class="conv" class:wechat>
   <NavBar title={character.value?.name ?? '…'} back="信息">
     {#snippet right()}
       <button class="iconbtn" onclick={() => (menu = true)} aria-label="更多"><Glyph paths={['M5 12h.01M12 12h.01M19 12h.01']} size={22} color="var(--tint)" width={3} /></button>
@@ -107,9 +123,9 @@
         <div class="sys">{textOf(m)}</div>
       {:else}
         <div class="msg {m.role}" onpointerdown={() => pressStart(m)} onpointerup={pressEnd} onpointerleave={pressEnd} onpointercancel={pressEnd} oncontextmenu={(e) => { e.preventDefault(); picked = m; }} role="listitem">
-          {#if m.role === 'assistant' && character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={30} />{/if}
+          {#if m.role === 'assistant' && character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={wechat ? 36 : 30} />{/if}
           <div class="col">
-            {#if textOf(m)}<div class="bubble">{textOf(m)}</div>{/if}
+            {#if textOf(m) && !m.meta?.cardOnly}<div class="bubble">{textOf(m)}</div>{/if}
             {#each cardsOf(m) as c, i (i)}
               {@const Card = cardComponent(c)}
               {#if Card}<Card body={c.body} attrs={c.attrs} />{/if}
@@ -120,26 +136,48 @@
               {#if openThinking[m.id]}<div class="think">{m.meta.thinking}</div>{/if}
             {/if}
           </div>
+          {#if m.role === 'user' && wechat}<Avatar name={chat.userName} size={36} />{/if}
         </div>
       {/if}
     {/each}
     {#if liveTurn}
       <div class="msg assistant">
-        {#if character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={30} />{/if}
+        {#if character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={wechat ? 36 : 30} />{/if}
         {#if liveTurn.text}<div class="bubble">{liveTurn.text}</div>{:else}<div class="bubble dots"><i></i><i></i><i></i></div>{/if}
       </div>
     {/if}
   </div>
 
   <div class="composer">
-    <textarea bind:this={textarea} bind:value={draft} placeholder="信息" rows="1" oninput={grow} onkeydown={onKey} enterkeyhint="send"></textarea>
+    {#if actions.length}
+      <button class="plus" class:open={panel} onclick={() => (panel = !panel)} aria-label="更多功能"><Glyph paths={icons.plus} size={22} color={wechat ? 'var(--label)' : 'var(--tint)'} width={2.2} /></button>
+    {/if}
+    <textarea bind:this={textarea} bind:value={draft} placeholder={wechat ? '' : '信息'} rows="1" oninput={grow} onkeydown={onKey} onfocus={() => (panel = false)} enterkeyhint="send"></textarea>
     {#if status !== 'idle'}
       <button class="send stop" onclick={() => chat.stop(id)} aria-label="停止"><span></span></button>
     {:else}
       <button class="send" onclick={send} disabled={!draft.trim()} aria-label="发送"><Glyph paths={['M12 19V5', 'm5 12 7-7 7 7']} size={20} color="#fff" width={2.6} /></button>
     {/if}
   </div>
+  {#if panel && actions.length}
+    <div class="panel">
+      {#each actions as a (a.pluginId + '/' + a.id)}
+        <button class="act" onclick={() => { active = a; }}>
+          <Icon spec={a.icon} size={54} radius="14px" shadow={false} />
+          <span>{a.label}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 </div>
+
+<Sheet open={!!active} onclose={() => (active = null)} title={active?.label}>
+  {#if active && conv.value && character.value}
+    {@const Comp = active.component}
+    {@const a = active}
+    <Comp conversationId={id} campaignId={conv.value.campaignId} characterId={character.value.id} onsend={(m: OutgoingMessage) => sendOutgoing(a, m)} onclose={() => (active = null)} />
+  {/if}
+</Sheet>
 
 <Sheet bind:open={menu} title={character.value?.name}>
   <List>
@@ -196,4 +234,24 @@
   .send.stop { background: var(--label); }
   .actions { display: flex; flex-direction: column; margin: 12px 16px 0; }
   .send.stop span { width: 12px; height: 12px; border-radius: 2px; background: var(--bg-surface); }
+  .plus { width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; flex: 0 0 auto; margin-bottom: 1px; transition: transform 0.2s; }
+  .plus.open { transform: rotate(45deg); }
+  .panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 8px; padding: 14px 16px calc(var(--safe-bottom) + 14px); background: var(--bg-grouped); border-top: 0.5px solid var(--separator); }
+  .act { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: var(--label-2); }
+
+  /* 微信样式：灰底、绿白气泡、两边头像、方一点的角 */
+  .conv.wechat { --wx-bg: #ededed; --wx-bar: #f7f7f7; }
+  :global([data-theme="dark"]) .conv.wechat, :global(.dark-system:not([data-theme="light"])) .conv.wechat { --wx-bg: #111111; --wx-bar: #1e1e1e; }
+  .conv.wechat :global(.nav), .conv.wechat .status { background: var(--wx-bar); }
+  .conv.wechat .msgs { background: var(--wx-bg); gap: 10px; }
+  .conv.wechat .msg { max-width: 85%; align-items: flex-start; gap: 8px; }
+  .conv.wechat .bubble { border-radius: 6px; font-size: 16px; padding: 9px 12px; }
+  .conv.wechat .assistant .bubble { background: #ffffff; color: #111; }
+  .conv.wechat .user .bubble { background: #95ec69; color: #111; }
+  :global([data-theme="dark"]) .conv.wechat .assistant .bubble, :global(.dark-system:not([data-theme="light"])) .conv.wechat .assistant .bubble { background: #2c2c2c; color: #eee; }
+  :global([data-theme="dark"]) .conv.wechat .user .bubble, :global(.dark-system:not([data-theme="light"])) .conv.wechat .user .bubble { background: #3eb575; color: #fff; }
+  .conv.wechat .composer, .conv.wechat .panel { background: var(--wx-bar); }
+  .conv.wechat textarea { border-radius: 6px; border: 0; }
+  .conv.wechat .send { border-radius: 6px; background: #07c160; }
+  .conv.wechat .time, .conv.wechat .sys { color: var(--label-2); }
 </style>

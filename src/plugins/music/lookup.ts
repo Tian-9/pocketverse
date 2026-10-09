@@ -93,6 +93,7 @@ export async function lookupSong(qr: ShareQuery, f: Fetch = fetch): Promise<Shar
       { label: '网易云搜索', url: `https://music.163.com/#/search/m/?type=1&s=${encodeURIComponent([title, who].filter(Boolean).join(' '))}` },
     ],
     source: [meta ? 'itunes' : '', lyrics ? 'lrclib' : ''].filter(Boolean).join('+') || 'none',
+    ...(lyrics ? { extra: { lyricsHead: lyrics.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 6).join('\n') } } : {}),
   };
   const out: string[] = [];
   out.push(`已分享《${title}》${who ? ' - ' + who : ''}${meta?.album ? `（专辑：${meta.album}）` : ''}。卡片已经发给对方${meta ? '，带封面和 30 秒试听' : ''}，不用再描述它。`);

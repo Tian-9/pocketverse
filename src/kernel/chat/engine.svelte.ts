@@ -39,9 +39,9 @@ class ChatEngine {
 
   statusOf(conversationId: string): TurnStatus { return this.live[conversationId]?.status ?? 'idle'; }
 
-  async send(conversationId: string, text: string) {
+  async send(conversationId: string, text: string, extra: Partial<Message> = {}) {
     if (this.live[conversationId]) return;
-    await repo.addMessage(conversationId, 'user', text, await this.stamp(conversationId));
+    await repo.addMessage(conversationId, 'user', text, { ...(await this.stamp(conversationId)), ...extra });
     await this.runTurn(conversationId);
   }
 
@@ -118,11 +118,16 @@ class ChatEngine {
     const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
+    const pluginCards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = [];
     const tools: LoopTool[] = useTools ? [
       ...[...kernelTools, ...(share ? [share] : []), ...(catchup.hasAttach() ? [attachedTool] : [])].map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
       ...plugins.flatMap((p) => (p.tools ?? []).map((t) => ({
         spec: { name: t.name, description: t.description, inputSchema: t.inputSchema },
-        run: async (input: unknown) => { const r = await t.handler(input, pctx); return typeof r === 'string' ? r : JSON.stringify(r ?? null); },
+        run: async (input: unknown) => {
+          const ctx: PromptContext = { ...pctx, addCard: (tag, body, attrs = {}) => pluginCards.push({ pluginId: p.id, tag, body, attrs }) };
+          const r = await t.handler(input, ctx);
+          return typeof r === 'string' ? r : JSON.stringify(r ?? null);
+        },
       }))),
     ] : [];
 
@@ -152,7 +157,10 @@ class ChatEngine {
       const handlers = plugins.flatMap((p) => (p.outputHandlers ?? []).map((h) => ({ pluginId: p.id, h })));
       const { text, found } = extractTags(r.text.trim(), handlers.map((x) => x.h.tag));
       // 工具产生的分享卡在前（它们先发生），标签卡在后
-      const cards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = tctx.cards.map((c) => ({ pluginId: 'kernel', tag: 'share', body: JSON.stringify(c), attrs: {} }));
+      const cards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = [
+        ...tctx.cards.map((c) => ({ pluginId: 'kernel', tag: 'share', body: JSON.stringify(c), attrs: {} })),
+        ...pluginCards,
+      ];
       for (const f of found) {
         const owner = handlers.find((x) => x.h.tag === f.tag);
         if (!owner) continue;

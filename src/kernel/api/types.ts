@@ -28,6 +28,8 @@ export interface PluginManifest {
   shares?: ShareResolver[];
   /** 补发登记：离开一段时间回来，内核按档位把各插件的事拼成一次调用 */
   catchup?: CatchupContributor[];
+  /** 聊天输入框「+」面板里的项：用户主动发东西（分享歌、红包…） */
+  composerActions?: ComposerAction[];
   /** 自有数据表：表名 -> Dexie schema 字符串，内核会加 p_<id>_ 前缀 */
   storage?: { tables: Record<string, string> };
   /** 事件订阅 */
@@ -75,6 +77,32 @@ export interface PromptContext {
   campaignId: string;
   conversationId: string;
   characterIds: string[];
+  /** 工具处理时可用：往这一轮回复里加一张卡片，由本插件 outputHandlers 里同名 tag 的组件渲染 */
+  addCard?(tag: string, body: string, attrs?: Record<string, string>): void;
+}
+
+/** 用户从「+」面板发出去的消息：text 给模型看，cards 给人看 */
+export interface OutgoingMessage {
+  text: string;
+  cards?: { tag: string; body: string; attrs?: Record<string, string> }[];
+  /** 只显示卡片，不显示 text 气泡 */
+  cardOnly?: boolean;
+}
+
+export interface ComposerActionProps {
+  conversationId: string;
+  campaignId: string;
+  characterId: string;
+  onsend(msg: OutgoingMessage): void;
+  onclose(): void;
+}
+
+export interface ComposerAction {
+  id: string;
+  label: string;
+  icon: IconSpec;
+  /** 在弹窗里渲染的组件，接收 ComposerActionProps */
+  component: Component<any>;
 }
 
 export interface ToolDef {

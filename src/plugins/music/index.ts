@@ -1,5 +1,6 @@
-import { definePlugin } from '$kernel/api';
+import { definePlugin, icons, gradients } from '$kernel/api';
 import { lookupSong } from './lookup';
+import SharePicker from './SharePicker.svelte';
 
 /**
  * 音乐：角色能在聊天里分享歌。走内核的 share 工具，这里只提供 music 类型的解析器。
@@ -10,6 +11,7 @@ export default definePlugin({
   name: '音乐',
   version: '0.1.0',
   description: '角色能分享歌：自动查封面、试听和真实歌词，引用的歌词必须是原句，查不到就不引。',
+  composerActions: [{ id: 'song', label: '歌曲', icon: { paths: icons.music, background: gradients.pink }, component: SharePicker }],
   shares: [{
     type: 'music',
     label: '歌',
