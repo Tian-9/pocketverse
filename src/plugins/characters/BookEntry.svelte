@@ -1,7 +1,7 @@
 <script lang="ts">
   /** 内嵌世界书的单条：导入前查看、修改、决定是否导入 */
   import { NavBar, List, Field, Cell, Toggle, SectionTitle, Button } from '$kernel/api';
-  import { draft } from './inspect.svelte';
+  import { draft } from './draft.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
   let { index }: { index: number } = $props();
   const e = $derived(draft.book[index]);

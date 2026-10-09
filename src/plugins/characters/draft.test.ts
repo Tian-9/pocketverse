@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sentenceRange } from './inspect.svelte';
+import { sentenceRange } from './draft.svelte';
 
 describe('sentenceRange', () => {
   it('covers the sentence around the match including its terminal punctuation', () => {

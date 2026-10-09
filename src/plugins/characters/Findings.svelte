@@ -1,7 +1,7 @@
 <script lang="ts">
   /** 可疑内容列表 → 每条点开编辑：命中那句话高亮展示，文本框里选中命中词，可删词、删句、手改、标记没问题。 */
   import { NavBar, List, Cell, SectionTitle, Placeholder, Sheet, Button, icons } from '$kernel/api';
-  import { draft, sentenceRange } from './inspect.svelte';
+  import { draft, sentenceRange } from './draft.svelte';
   import { tick } from 'svelte';
 
   type F = (typeof draft.findings)[number];
