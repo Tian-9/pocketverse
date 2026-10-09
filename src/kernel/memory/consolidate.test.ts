@@ -48,13 +48,19 @@ describe('consolidate guards', () => {
     chat.mockResolvedValueOnce({ text: 'not json', stopReason: 'max_tokens', usage: {}, content: [], model: 'm' });
     expect(await consolidate('cv2')).toBe(false);
     expect(chat).toHaveBeenCalledTimes(1);
-    // 同一批消息：不再自动重试
+    // 同一批消息：不再自动重试，标记在库里（刷新页面也不重来）
+    expect((await db().campaigns.get('cp2'))!.consolidateFailedAt).toBe(1023);
+    expect(await consolidate('cv2')).toBe(false);
+    expect(chat).toHaveBeenCalledTimes(1);
+    // 失败点之后只有几条新回复：还是不试
+    await db().messages.bulkAdd([{ id: 'f0', conversationId: 'cv2', role: 'user', content: [{ type: 'text', text: '…' }], ts: 1500 }, { id: 'f1', conversationId: 'cv2', role: 'assistant', content: [{ type: 'text', text: '…' }], ts: 1501 }]);
     expect(await consolidate('cv2')).toBe(false);
     expect(chat).toHaveBeenCalledTimes(1);
     // 手动触发不受限制
     chat.mockResolvedValueOnce({ text: JSON.stringify({ memories: [], state: {}, overlays: [] }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
     expect(await consolidate('cv2', { force: true })).toBe(true);
-    expect((await db().campaigns.get('cp2'))!.consolidatedUpTo).toBe(1023);
+    expect((await db().campaigns.get('cp2'))!.consolidatedUpTo).toBe(1501);
+    expect((await db().campaigns.get('cp2'))!.consolidateFailedAt).toBeUndefined();
     // 新来 12 条回复：正常再跑
     await db().messages.bulkAdd(Array.from({ length: 24 }, (_, i) => ({ id: 'n' + i, conversationId: 'cv2', role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: [{ type: 'text', text: '…' }], ts: 2000 + i })));
     chat.mockResolvedValueOnce({ text: JSON.stringify({ memories: [{ text: 'x', when: '', importance: 1 }], state: {}, overlays: [] }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });

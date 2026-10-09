@@ -33,6 +33,8 @@ export interface AssembleInput {
   hasShare?: boolean;
   /** 挂了服务端联网工具 */
   hasWeb?: boolean;
+  /** 有 handle_attached 工具（有插件登记了依附的事） */
+  hasAttach?: boolean;
   /** 自定义对话规则，空则用默认 */
   rules?: string;
   /** 剧情时间模式：不给真实时钟 */
@@ -59,11 +61,12 @@ const TOOL_RULES = [
   '查完资料后正常回复，不要向用户复述你查了什么。',
 ].join('\n');
 const SHARE_RULE = '- 想给对方分享一首歌、一部电影之类的东西时用 share 工具，它会查真实资料返回给你，并把卡片发给对方。引用歌词或台词只能引工具返回的原句，查不到就不引，不要编。';
+const ATTACH_RULE = '- 最后一条消息里如果有「顺手处理的事」（比如对方评论了你的朋友圈），先用 handle_attached 按它给的 key 和结构提交，再回消息。像真人一样顺手就做了，不要在消息里复述。';
 const WEB_RULE = '- 你可以上网（web_search 查、web_fetch 读网页）。只在确实需要外部信息时用：对方问起最近的事、要核实一个事实、或者分享的东西本地没查到。闲聊不要搜。';
 
 function toolRules(input: AssembleInput): string {
   if (!input.hasTools) return '';
-  const extra = [input.hasShare ? SHARE_RULE : '', input.hasWeb ? WEB_RULE : ''].filter(Boolean);
+  const extra = [input.hasShare ? SHARE_RULE : '', input.hasAttach ? ATTACH_RULE : '', input.hasWeb ? WEB_RULE : ''].filter(Boolean);
   const lines = TOOL_RULES.split('\n');
   // 「查完资料后…」收尾句保持在最后
   return [...lines.slice(0, -1), ...extra, lines[lines.length - 1]!].join('\n');

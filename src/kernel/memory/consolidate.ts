@@ -78,8 +78,6 @@ export async function applyOutput(campaign: Campaign, character: Character, lore
 }
 
 const inflight = new Set<string>();
-/** 上次失败时处理到的最后一条消息 ts：同样的消息不自动重试，等有新消息再说 */
-const failedAt = new Map<string, number>();
 
 /** 对一个会话做一次合并：处理 consolidatedUpTo 之后的消息。 */
 export async function consolidate(conversationId: string, opts: { force?: boolean; reason?: string } = {}): Promise<boolean> {
@@ -95,7 +93,12 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
   if (!opts.force && replies < CONSOLIDATE_EVERY) return false;
   if (replies === 0) return false;
   const lastTs = msgs[msgs.length - 1]!.ts;
-  if (!opts.force && failedAt.get(conversationId) === lastTs) { log.info('consolidate', '跳过：上次失败后没有新消息', { conversationId }); return false; }
+  // 上次失败（出错、或你在预览里取消了）的那批不立刻重试：等失败点之后再攒够一批回复。刷新页面也不会重来，这个标记存在库里。
+  const failedAt = campaign.consolidateFailedAt ?? 0;
+  if (!opts.force && failedAt) {
+    const sinceFail = msgs.filter((m) => m.ts > failedAt && m.role === 'assistant').length;
+    if (sinceFail < CONSOLIDATE_EVERY) { log.info('consolidate', `跳过：上次失败后只有 ${sinceFail} 条新回复，攒够 ${CONSOLIDATE_EVERY} 条再试`, { conversationId }); return false; }
+  }
 
   inflight.add(conversationId);
   const t0 = Date.now();
@@ -114,19 +117,18 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
     let out: ConsolidateOutput;
     try { out = JSON.parse(r.text) as ConsolidateOutput; }
     catch {
-      failedAt.set(conversationId, lastTs);
+      await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs });
       log.error('consolidate', '模型没有返回合法 JSON，这批消息不再自动重试', { conversationId, stopReason: r.stopReason, head: r.text.slice(0, 120) });
       return false;
     }
     const { mems, state, overlays } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id));
-    await db().campaigns.update(campaign.id, { state, consolidatedUpTo: lastTs });
-    failedAt.delete(conversationId);
+    await db().campaigns.update(campaign.id, { state, consolidatedUpTo: lastTs, consolidateFailedAt: undefined });
     log.info('consolidate', `完成：${mems.length} 条记忆，${overlays.length} 条变化，${Date.now() - t0} ms`, { conversationId });
     bus.emit('memory.consolidated', { campaignId: campaign.id, memories: mems.length, overlays: overlays.length });
     if (overlays.length) bus.emit('notify', { title: `${character.name} 的世界有 ${overlays.length} 处变化待确认`, body: overlays[0]!.title, pluginId: 'lore', screen: 'overlays' });
     return true;
   } catch (e) {
-    failedAt.set(conversationId, lastTs);
+    await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs });
     log.error('consolidate', `失败：${e instanceof Error ? e.message : String(e)}，这批消息不再自动重试`, { conversationId });
     throw e;
   } finally {

@@ -77,7 +77,7 @@ async function collectReplies(c: CatchupContext) {
   });
   return {
     label: '朋友圈评论',
-    prompt: `对方在你的朋友圈下留了评论：\n${lines.join('\n')}\n像真人回评论：想回就回一句，短一点，口语；不想回的 reply 留空，以后不会再提醒你。按编号 n 回。`,
+    prompt: `对方在你的朋友圈下留了评论：\n${lines.join('\n')}\n像真人回评论：一般都会回一句，短一点，口语，接对方的话茬；确实没什么可说的才把 reply 留空，留空以后不会再提醒你。按编号 n 回，每条都要有一项。`,
     schema: { type: 'object', additionalProperties: false, required: ['replies'], properties: { replies: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'reply'], properties: { n: { type: 'integer' }, reply: { type: 'string', description: '回复内容，不回留空' } } } } } },
     async apply(out: unknown, cc: CatchupContext) {
       const replies = ((out as { replies?: { n?: number; reply?: string }[] } | undefined)?.replies ?? []);
@@ -106,7 +106,7 @@ export default definePlugin({
     async volatile(p: PromptContext) {
       const posts = await ctx.table<Post>('posts').where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt');
       if (!posts.length) return '';
-      const lines = posts.slice(0, 3).map((x) => `- ${fmtTime(x.createdAt)}：${x.text}${x.liked ? '（用户点了赞）' : ''}${x.comments.length ? '；评论：' + x.comments.map((c) => (c.by === 'user' ? '用户' : '你') + '「' + c.text + '」').join('，') : ''}`);
+      const lines = posts.slice(0, 3).map((x) => `- ${fmtTime(x.createdAt)}：${x.text}${x.liked ? '（用户点了赞）' : ''}${x.comments.length ? '；评论：' + x.comments.map((c) => (c.by === 'user' ? '用户' : '你') + '「' + c.text + '」').join('，') : ''}${x.pendingReply ? '（用户的评论你还没回，见「顺手处理的事」）' : ''}`);
       return `<你最近发的朋友圈>\n${lines.join('\n')}\n</你最近发的朋友圈>`;
     },
   }],

@@ -31,6 +31,8 @@ export interface Campaign {
   consolidatedUpTo?: number;
   /** 上次补发的时间，和 lastPlayedAt 一起决定下次补发的档位 */
   catchupAt?: number;
+  /** 上次整理失败（出错或预览里取消）时处理到的消息 ts；之后再攒够一批回复才会再试 */
+  consolidateFailedAt?: number;
 }
 export interface Conversation { id: string; campaignId: string; kind: string; participantIds: string[]; pluginId: string }
 export interface Message {

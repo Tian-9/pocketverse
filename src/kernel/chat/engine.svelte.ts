@@ -134,7 +134,7 @@ class ChatEngine {
     const { system, messages, l1Hits } = assemble({
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
       lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
-      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasWeb, rules: this.rules, storyTime: character.timeMode === 'story',
+      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules, storyTime: character.timeMode === 'story',
     });
 
     const abort = new AbortController();
@@ -192,6 +192,7 @@ class ChatEngine {
         if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }
       bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });
+      if (tctx.attached.length) log.warn('chat', `模型没处理顺手的事：${tctx.attached.map((t) => t.item.label).join('、')}，下一轮再给他`, { conversationId });
       log.info('chat', `回复完成：${toolsUsed.length} 次工具，${cards.length} 张卡片`, { conversationId, model: r.model, stopReason: r.stopReason });
       consolidate(conversationId, { reason: '回复后检查' }).catch(() => { /* 已记日志 */ });
     } catch (e) {
