@@ -30,7 +30,7 @@
   async function like(p: Row) { await momentsApi.posts().update(p.id, { liked: !p.liked }); }
   async function comment() {
     const t = draft.trim(); if (!t || !commenting) return;
-    await momentsApi.posts().update(commenting.id, { comments: [...commenting.comments, { by: 'user', text: t, ts: Date.now() }] });
+    await momentsApi.comment(commenting, t);
     draft = ''; commenting = null;
   }
   async function generateFor(characterId: string) {
@@ -54,7 +54,7 @@
 </NavBar>
 
 {#if rows.value.length === 0}
-  <Placeholder title="还没有动态" body="角色聊到想记录的事会自己发；你离开几小时再回来，他也会发。右上角 + 可以现在让他发一条。" paths={icons.clock} />
+  <Placeholder title="还没有动态" body="角色聊到想记录的事会自己发；你离开几小时再回来，他也会发，也会回你的评论。右上角 + 可以现在让他发一条。" paths={icons.clock} />
 {:else}
   <div class="feed">
     {#each rows.value as p (p.id)}
@@ -75,6 +75,7 @@
             <div class="replies">
               {#if p.liked}<div class="likes">♥ 你</div>{/if}
               {#each p.comments as c, i (i)}<div class="c"><b>{c.by === 'user' ? '你' : p.name}</b>：{c.text}</div>{/each}
+              {#if p.pendingReply}<div class="pending">他还没看到</div>{/if}
             </div>
           {/if}
         </div>
@@ -112,6 +113,7 @@
   .replies { margin-top: 8px; background: var(--bg-grouped); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
   .likes { color: var(--indigo); }
   .c b { color: var(--indigo); font-weight: 600; }
+  .pending { font-size: 12px; color: var(--label-3); margin-top: 2px; }
   .cbox { display: flex; flex-direction: column; gap: 10px; padding: 0 16px; }
   textarea { border: 1px solid var(--separator); border-radius: 12px; padding: 10px; background: var(--bg-surface); font-size: 16px; resize: none; outline: 0; }
   .send { background: var(--tint); color: var(--tint-fg); border-radius: 12px; padding: 12px; font-weight: 600; }

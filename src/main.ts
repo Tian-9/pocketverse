@@ -12,6 +12,7 @@ import { nav } from '$kernel/nav/nav.svelte';
 import { llm } from '$kernel/llm/gateway.svelte';
 import { chat } from '$kernel/chat/engine.svelte';
 import { log } from '$kernel/log/log';
+import { catchup } from '$kernel/catchup/catchup';
 
 async function boot() {
   nav.boot();
@@ -30,6 +31,7 @@ async function boot() {
       { pluginId: 'settings', shortcutId: 'app' },
     ],
   });
+  catchup.boot();
   // 插件都 setup 完再发 app.resumed，否则没人听
   await scheduler.boot();
 }

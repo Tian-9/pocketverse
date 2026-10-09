@@ -311,6 +311,18 @@ L2 工具（内核提供）：
 
 联网：设置里的"允许角色上网"开关对应 Anthropic 服务端的 `web_search` / `web_fetch` 工具。搜索由 Anthropic 执行，按次计费（每次搜索 $0.01，另加搜到内容占的 token），计入用量。默认关。每轮各最多 3 次。
 
+### 5.11 补发（离开一段时间回来，角色"拿起手机"）
+
+插件不再各自监听 `app.resumed` 调模型。内核统一做：
+
+- **按角色计时**：每个存档的 `lastPlayedAt`（上次和他互动）和 `catchupAt`（上次补发）取大者，到现在的间隔决定档位。你天天聊 A、三天没碰 B，回来时只有 B 是三天没见的反应。
+- **三个档位**：`h6`（≥ 6 小时）、`d1`（≥ 24 小时）、`days`（≥ 2 天，把天数传过去）。高档包含低档。阈值先写死，见 TODO。
+- **依附档 `attach`**：本身不触发，只要这个角色这次有补发，就一起带上。回评论挂在这里："拿到手机看到了会回"。
+- **插件登记**：`catchup: [{ id, tier, collect(ctx) }]`。`collect` 返回要处理的事：给模型看的材料和任务（`label` + `prompt`）、这一段的 JSON schema、模型答完怎么落库（`apply`）。返回 null 表示这次没事。
+- **一个角色一次调用**：内核把该角色所有插件的事拼成一次请求（角色设定 + 近期记忆 + 各段任务），要求按 JSON 分段返回，再把每段交回对应插件的 `apply`。主模型、effort 低，走预览开关。
+- **模型可以说"不用"**：每段 schema 自己定义"不做"的表达（不发、回复留空）。回评论被跳过的那条打标记，以后不再拿出来。
+- **预算**：一次回来最多处理 3 个角色，按最近玩过的排序。
+
 ## 6. 聊天插件（内核级）
 
 它是第一个插件，也是插件接口的试金石。做到这些：
@@ -335,6 +347,7 @@ export default definePlugin({
   tools?: ToolDef[],                          // L2 工具，带 handler
   outputHandlers?: OutputHandler[],           // 解析 <moment>…</moment> 并渲染卡片
   shares?: ShareResolver[],                   // 分享解析器：share 工具按 type 分发到这里
+  catchup?: CatchupContributor[],             // 补发登记：离开一段时间回来，内核按档位统一调模型
   // 数据与事件
   storage?: { tables: Record<string, string> },
   onEvent?: Partial<EventHandlers>,

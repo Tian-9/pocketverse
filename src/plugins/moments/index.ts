@@ -1,5 +1,5 @@
 import { definePlugin, icons, gradients } from '$kernel/api';
-import type { PluginContext, PromptContext } from '$kernel/api';
+import type { PluginContext, PromptContext, CatchupContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Moments from './Moments.svelte';
 import MomentCard from './MomentCard.svelte';
@@ -9,9 +9,13 @@ export interface Post {
   createdAt: number; liked: boolean; comments: { by: 'user' | 'char'; text: string; ts: number }[];
   /** 来源：对话里发的 / 补发的 / 手动生成 */
   source: 'chat' | 'catchup' | 'manual';
+  /** 用户评论了、角色还没看到；补发时一起处理，处理过（回了或决定不回）就清掉 */
+  pendingReply?: boolean;
 }
 
 let ctx: PluginContext;
+const fmtTime = (ts: number) => new Date(ts).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
 export const momentsApi = {
   posts: () => ctx.table<Post>('posts'),
   async add(post: Omit<Post, 'id' | 'liked' | 'comments'>) {
@@ -20,7 +24,11 @@ export const momentsApi = {
     ctx.emit('moments_posted', { postId: p.id, characterId: p.characterId });
     return p;
   },
-  /** 让角色基于最近的记忆发一条动态 */
+  /** 用户评论：挂起等角色下次"拿起手机"时处理 */
+  async comment(post: Post, text: string) {
+    await ctx.table<Post>('posts').update(post.id, { comments: [...post.comments, { by: 'user', text, ts: Date.now() }], pendingReply: true });
+  },
+  /** 手动：让角色现在发一条（补发走内核 catchup，不经这里） */
   async generate(campaignId: string, characterId: string, hint: string, source: Post['source']) {
     if (!ctx.llm.configured) return null;
     const { db } = await import('$kernel/storage/db');
@@ -40,11 +48,57 @@ export const momentsApi = {
   },
 };
 
+/** 补发 · 发一条：离开 ≥ 6 小时，这段时间他自己过了什么 */
+async function collectPost(c: CatchupContext) {
+  const recent = await ctx.table<Post>('posts').where('campaignId').equals(c.campaignId).reverse().sortBy('createdAt');
+  if (recent[0] && Date.now() - recent[0].createdAt < 6 * 3600_000) return null; // 刚发过
+  return {
+    label: '朋友圈',
+    prompt: `这${c.elapsedText}你自己过了些什么？想发就发一条朋友圈：一两句话，口语，可以只是一件小事，不要话题标签。没什么想说的就不发（post 填 false，text 留空）。\n你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}`,
+    schema: { type: 'object', additionalProperties: false, required: ['post', 'text'], properties: { post: { type: 'boolean', description: '发不发' }, text: { type: 'string', description: '动态正文，不发留空' } } },
+    async apply(out: unknown, cc: CatchupContext) {
+      const o = out as { post?: boolean; text?: string } | undefined;
+      const text = String(o?.text ?? '').trim().replace(/^["“「]|["”」]$/g, '').slice(0, 500);
+      if (!o?.post || !text) return;
+      await momentsApi.add({ campaignId: cc.campaignId, characterId: cc.characterId, text, createdAt: Date.now(), source: 'catchup' });
+      ctx.notify(`${cc.characterName} 发了一条朋友圈`, text, 'app');
+    },
+  };
+}
+
+/** 补发 · 回评论：依附档，有补发就一起看看谁评论了；不回的也标记掉，以后不再拿出来 */
+async function collectReplies(c: CatchupContext) {
+  const pending = (await ctx.table<Post>('posts').where('campaignId').equals(c.campaignId).filter((p) => !!p.pendingReply).sortBy('createdAt')).slice(-5);
+  if (!pending.length) return null;
+  const lines = pending.map((p, i) => {
+    const lastChar = p.comments.map((x, j) => (x.by === 'char' ? j : -1)).reduce((a, b) => Math.max(a, b), -1);
+    const fresh = p.comments.slice(lastChar + 1).filter((x) => x.by === 'user');
+    return `${i + 1}. 你 ${fmtTime(p.createdAt)} 发的「${p.text}」${p.liked ? '（对方点了赞）' : ''}\n   对方评论：${fresh.map((x) => '「' + x.text + '」').join(' ')}`;
+  });
+  return {
+    label: '朋友圈评论',
+    prompt: `对方在你的朋友圈下留了评论：\n${lines.join('\n')}\n像真人回评论：想回就回一句，短一点，口语；不想回的 reply 留空，以后不会再提醒你。按编号 n 回。`,
+    schema: { type: 'object', additionalProperties: false, required: ['replies'], properties: { replies: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'reply'], properties: { n: { type: 'integer' }, reply: { type: 'string', description: '回复内容，不回留空' } } } } } },
+    async apply(out: unknown, cc: CatchupContext) {
+      const replies = ((out as { replies?: { n?: number; reply?: string }[] } | undefined)?.replies ?? []);
+      let replied = 0;
+      for (let i = 0; i < pending.length; i++) {
+        const p = pending[i]!;
+        const r = String(replies.find((x) => x.n === i + 1)?.reply ?? '').trim().slice(0, 300);
+        const patch: Partial<Post> = { pendingReply: false };
+        if (r) { patch.comments = [...p.comments, { by: 'char', text: r, ts: Date.now() }]; replied++; }
+        await ctx.table<Post>('posts').update(p.id, patch);
+      }
+      if (replied) ctx.notify(`${cc.characterName} 回复了你的评论`, replied > 1 ? `${replied} 条` : undefined, 'app');
+    },
+  };
+}
+
 export default definePlugin({
   id: 'moments',
   name: '朋友圈',
-  version: '0.3.0',
-  description: '角色会发动态；离开一段时间回来会补发；可以点赞评论，内容注入提示词。',
+  version: '0.4.0',
+  description: '角色会发动态；离开一段时间回来会补发、回评论；你的点赞评论他聊天时也知道。',
   app: { screen: Moments, icon: { paths: icons.clock, background: gradients.yellow } },
   storage: { tables: { posts: 'id, campaignId, characterId, createdAt' } },
   promptContributors: [{
@@ -52,7 +106,7 @@ export default definePlugin({
     async volatile(p: PromptContext) {
       const posts = await ctx.table<Post>('posts').where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt');
       if (!posts.length) return '';
-      const lines = posts.slice(0, 3).map((x) => `- ${new Date(x.createdAt).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}：${x.text}${x.liked ? '（用户点了赞）' : ''}${x.comments.length ? '；评论：' + x.comments.map((c) => (c.by === 'user' ? '用户' : '你') + '「' + c.text + '」').join('，') : ''}`);
+      const lines = posts.slice(0, 3).map((x) => `- ${fmtTime(x.createdAt)}：${x.text}${x.liked ? '（用户点了赞）' : ''}${x.comments.length ? '；评论：' + x.comments.map((c) => (c.by === 'user' ? '用户' : '你') + '「' + c.text + '」').join('，') : ''}`);
       return `<你最近发的朋友圈>\n${lines.join('\n')}\n</你最近发的朋友圈>`;
     },
   }],
@@ -77,21 +131,9 @@ export default definePlugin({
       await momentsApi.add({ campaignId: p.campaignId, characterId: p.characterIds[0]!, text: body.trim().slice(0, 500), createdAt: Date.now(), source: 'chat' });
     },
   }],
-  onEvent: {
-    async 'app.resumed'({ elapsedMs }) {
-      const minGap = await ctx.settings.get('catchupHours', 3);
-      if (elapsedMs < minGap * 3600 * 1000) return;
-      const campaigns = await ctx.activeCampaigns();
-      let budget = 3;
-      for (const c of campaigns.sort((a, b) => b.lastPlayedAt - a.lastPlayedAt)) {
-        if (budget-- <= 0) break;
-        const last = await ctx.table<Post>('posts').where('campaignId').equals(c.campaignId).reverse().sortBy('createdAt');
-        if (last[0] && Date.now() - last[0].createdAt < minGap * 3600 * 1000) continue;
-        const hours = Math.round(elapsedMs / 3600000);
-        const post = await momentsApi.generate(c.campaignId, c.characterId, `用户离开了大约 ${hours} 小时。这段时间你自己过了些什么，发一条。`, 'catchup').catch((e) => { console.warn('[moments] catchup', e); return null; });
-        if (post) ctx.notify(`${c.characterName} 发了一条朋友圈`, post.text, 'app');
-      }
-    },
-  },
+  catchup: [
+    { id: 'post', tier: 'h6', collect: collectPost },
+    { id: 'replies', tier: 'attach', collect: collectReplies },
+  ],
   setup(c) { ctx = c; },
 });

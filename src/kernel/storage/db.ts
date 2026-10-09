@@ -29,6 +29,8 @@ export interface Campaign {
   createdAt: number; lastPlayedAt: number; state: CampaignState;
   /** 上次合并处理到的消息 ts */
   consolidatedUpTo?: number;
+  /** 上次补发的时间，和 lastPlayedAt 一起决定下次补发的档位 */
+  catchupAt?: number;
 }
 export interface Conversation { id: string; campaignId: string; kind: string; participantIds: string[]; pluginId: string }
 export interface Message {

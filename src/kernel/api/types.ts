@@ -26,6 +26,8 @@ export interface PluginManifest {
   outputHandlers?: OutputHandler[];
   /** 分享解析器：内核的 share 工具按 type 分发到这里 */
   shares?: ShareResolver[];
+  /** 补发登记：离开一段时间回来，内核按档位把各插件的事拼成一次调用 */
+  catchup?: CatchupContributor[];
   /** 自有数据表：表名 -> Dexie schema 字符串，内核会加 p_<id>_ 前缀 */
   storage?: { tables: Record<string, string> };
   /** 事件订阅 */
@@ -93,6 +95,41 @@ export interface OutputHandler {
   onParsed?: (body: string, attrs: Record<string, string>, ctx: PromptContext) => void | Promise<void>;
 }
 
+/** 补发档位：h6 ≥ 6 小时，d1 ≥ 24 小时，days ≥ 2 天；attach 不触发，有补发就带上 */
+export type CatchupTier = 'h6' | 'd1' | 'days' | 'attach';
+
+export interface CatchupContext {
+  campaignId: string;
+  characterId: string;
+  characterName: string;
+  /** 距上次和这个角色互动（或上次补发）的时长 */
+  elapsedMs: number;
+  /** 整天数，days 档才有意义 */
+  days: number;
+  /** 这次达到的档位 */
+  tier: Exclude<CatchupTier, 'attach'>;
+  /** 给模型看的时长，如「大约 8 小时」「3 天」 */
+  elapsedText: string;
+}
+
+export interface CatchupItem {
+  /** 这一段的标题，如「朋友圈」 */
+  label: string;
+  /** 材料和任务说明 */
+  prompt: string;
+  /** 这一段的 JSON schema，内核挂到总 schema 的一个属性下 */
+  schema: Record<string, unknown>;
+  /** 模型答完，这一段的结果 */
+  apply(output: unknown, ctx: CatchupContext): Promise<void>;
+}
+
+export interface CatchupContributor {
+  id: string;
+  tier: CatchupTier;
+  /** 收集这次要处理的事；null 表示没事 */
+  collect(ctx: CatchupContext): Promise<CatchupItem | null>;
+}
+
 /** 内核事件表。插件自定义事件用 `<pluginId>.<name>` 命名。 */
 export interface KernelEvents {
   'app.opened': { pluginId: string };
@@ -107,6 +144,7 @@ export interface KernelEvents {
   'llm.turn.error': { conversationId: string; message: string };
   'memory.written': { kind: 'state' | 'overlay' | 'episodic' | 'memfs'; id: string };
   'memory.consolidated': { campaignId: string; memories: number; overlays: number };
+  'catchup.done': { campaignId: string; tier: string; keys: string[] };
 }
 export type EventName = keyof KernelEvents | (string & {});
 export type EventHandlers = {

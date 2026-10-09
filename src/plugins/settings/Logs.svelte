@@ -5,7 +5,7 @@
   import { db } from '$kernel/storage/db';
   import { log, fmt } from '$kernel/log/log';
   const rows = live(() => db().logs.orderBy('ts').reverse().limit(300).toArray(), []);
-  let filter = $state<'all' | 'warn' | 'consolidate' | 'llm'>('all');
+  let filter = $state<'all' | 'warn' | 'consolidate' | 'catchup' | 'llm'>('all');
   const shown = $derived(rows.value.filter((r) => filter === 'all' ? true : filter === 'warn' ? r.level !== 'info' : r.tag === filter));
   let open = $state<Record<string, boolean>>({});
   let copied = $state('');
@@ -19,7 +19,7 @@
 
 <NavBar title="日志" back="设置" />
 <div class="seg">
-  {#each [['all', '全部'], ['warn', '问题'], ['consolidate', '记忆整理'], ['llm', '请求']] as [id, label] (id)}
+  {#each [['all', '全部'], ['warn', '问题'], ['consolidate', '整理'], ['catchup', '补发'], ['llm', '请求']] as [id, label] (id)}
     <button class:on={filter === id} onclick={() => (filter = id as typeof filter)}>{label}</button>
   {/each}
 </div>
