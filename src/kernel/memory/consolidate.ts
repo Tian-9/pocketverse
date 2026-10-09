@@ -5,6 +5,7 @@ import { textOf } from '../data/repo';
 import { llm } from '../llm/gateway.svelte';
 import { bus } from '../bus/bus';
 import { expandMacros } from '../context/macros';
+import { log } from '../log/log';
 
 export const CONSOLIDATE_EVERY = 12; // 每多少条新的角色回复合并一次
 export const CONSOLIDATE_MODEL = 'claude-haiku-5-5';
@@ -76,8 +77,13 @@ export async function applyOutput(campaign: Campaign, character: Character, lore
   return { mems, state, overlays };
 }
 
+const inflight = new Set<string>();
+/** 上次失败时处理到的最后一条消息 ts：同样的消息不自动重试，等有新消息再说 */
+const failedAt = new Map<string, number>();
+
 /** 对一个会话做一次合并：处理 consolidatedUpTo 之后的消息。 */
 export async function consolidate(conversationId: string, opts: { force?: boolean } = {}): Promise<boolean> {
+  if (inflight.has(conversationId)) { log.info('consolidate', '跳过：上一次还在进行', { conversationId }); return false; }
   const conv = await db().conversations.get(conversationId);
   if (!conv) return false;
   const campaign = await db().campaigns.get(conv.campaignId);
@@ -88,22 +94,42 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
   const replies = msgs.filter((m) => m.role === 'assistant').length;
   if (!opts.force && replies < CONSOLIDATE_EVERY) return false;
   if (replies === 0) return false;
+  const lastTs = msgs[msgs.length - 1]!.ts;
+  if (!opts.force && failedAt.get(conversationId) === lastTs) { log.info('consolidate', '跳过：上次失败后没有新消息', { conversationId }); return false; }
 
-  const lore = await db().lore.where('worldId').equals(campaign.worldId).filter((e) => e.enabled && e.kind !== 'style' && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id))).toArray();
-  const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
-  const prompt0 = buildPrompt(campaign, character, lore, msgs, existing);
-  const userName = await db().getKV('kernel.userName', '我');
-  const prompt = { system: prompt0.system, user: expandMacros(prompt0.user, { user: userName, char: character.name }) };
-  const r = await llm.chat({
-    model: CONSOLIDATE_MODEL, effort: 'low', maxTokens: 4000, purpose: 'consolidate', conversationId,
-    system: [{ type: 'text', text: prompt.system }], messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
-    jsonSchema: SCHEMA,
-  });
-  let out: ConsolidateOutput;
-  try { out = JSON.parse(r.text) as ConsolidateOutput; } catch { return false; }
-  const { mems, state, overlays } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id));
-  await db().campaigns.update(campaign.id, { state, consolidatedUpTo: msgs[msgs.length - 1]!.ts });
-  bus.emit('memory.consolidated', { campaignId: campaign.id, memories: mems.length, overlays: overlays.length });
-  if (overlays.length) bus.emit('notify', { title: `${character.name} 的世界有 ${overlays.length} 处变化待确认`, body: overlays[0]!.title, pluginId: 'lore', screen: 'overlays' });
-  return true;
+  inflight.add(conversationId);
+  const t0 = Date.now();
+  log.info('consolidate', `开始：${character.name}，${msgs.length} 条消息（${replies} 条回复）${opts.force ? '，手动' : ''}`, { conversationId, since });
+  try {
+    const lore = await db().lore.where('worldId').equals(campaign.worldId).filter((e) => e.enabled && e.kind !== 'style' && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id))).toArray();
+    const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
+    const prompt0 = buildPrompt(campaign, character, lore, msgs, existing);
+    const userName = await db().getKV('kernel.userName', '我');
+    const prompt = { system: prompt0.system, user: expandMacros(prompt0.user, { user: userName, char: character.name }) };
+    const r = await llm.chat({
+      model: CONSOLIDATE_MODEL, effort: 'low', maxTokens: 4000, purpose: 'consolidate', conversationId,
+      system: [{ type: 'text', text: prompt.system }], messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
+      jsonSchema: SCHEMA,
+    });
+    let out: ConsolidateOutput;
+    try { out = JSON.parse(r.text) as ConsolidateOutput; }
+    catch {
+      failedAt.set(conversationId, lastTs);
+      log.error('consolidate', '模型没有返回合法 JSON，这批消息不再自动重试', { conversationId, stopReason: r.stopReason, head: r.text.slice(0, 120) });
+      return false;
+    }
+    const { mems, state, overlays } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id));
+    await db().campaigns.update(campaign.id, { state, consolidatedUpTo: lastTs });
+    failedAt.delete(conversationId);
+    log.info('consolidate', `完成：${mems.length} 条记忆，${overlays.length} 条变化，${Date.now() - t0} ms`, { conversationId });
+    bus.emit('memory.consolidated', { campaignId: campaign.id, memories: mems.length, overlays: overlays.length });
+    if (overlays.length) bus.emit('notify', { title: `${character.name} 的世界有 ${overlays.length} 处变化待确认`, body: overlays[0]!.title, pluginId: 'lore', screen: 'overlays' });
+    return true;
+  } catch (e) {
+    failedAt.set(conversationId, lastTs);
+    log.error('consolidate', `失败：${e instanceof Error ? e.message : String(e)}，这批消息不再自动重试`, { conversationId });
+    throw e;
+  } finally {
+    inflight.delete(conversationId);
+  }
 }

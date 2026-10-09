@@ -6,6 +6,7 @@ import { costUsd } from './pricing';
 import type { ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
 import { LlmError } from './types';
 import { gate } from './gate.svelte';
+import { log } from '../log/log';
 
 export interface LlmSettings {
   apiKey: string;
@@ -68,11 +69,23 @@ class Gateway {
     };
     if (this.settings.preview) {
       const ok = await gate.confirm(full);
-      if (!ok) throw new LlmError('你取消了发送', 'aborted');
+      if (!ok) { log.warn('llm', `预览里取消了 ${full.purpose} 请求`, { conversationId: full.conversationId }); throw new LlmError('你取消了发送', 'aborted'); }
     }
-    const result = await this.p.chat(full, hooks);
-    await this.record(full, result);
-    return result;
+    const t0 = Date.now();
+    try {
+      const result = await this.p.chat(full, hooks);
+      await this.record(full, result);
+      const u = result.usage;
+      log.info('llm', `${full.purpose} 完成：${result.model}，${Date.now() - t0} ms，停止原因 ${result.stopReason}`, {
+        conversationId: full.conversationId, input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite,
+        ...(u.webSearches ? { webSearches: u.webSearches } : {}), costUsd: Number(costUsd(result.model || full.model, u).toFixed(5)), ...(result.serverTools?.length ? { serverTools: result.serverTools } : {}),
+      });
+      return result;
+    } catch (e) {
+      const err = e instanceof LlmError ? e : new LlmError(e instanceof Error ? e.message : String(e), 'unknown');
+      if (err.kind !== 'aborted') log.error('llm', `${full.purpose} 失败（${err.kind}）：${err.message}`, { conversationId: full.conversationId, model: full.model, ms: Date.now() - t0 });
+      throw e;
+    }
   }
 
   /** 连通性测试：最小请求 */

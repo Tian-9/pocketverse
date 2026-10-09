@@ -49,6 +49,7 @@ export interface LoreOverlay {
 }
 export interface MemFile { campaignId: string; path: string; content: string; updatedAt: number }
 export interface KV { key: string; value: unknown }
+export interface LogRecord { id: string; ts: number; level: 'info' | 'warn' | 'error'; tag: string; message: string; data?: Record<string, unknown> }
 export interface UsageRecord {
   id: string; ts: number; model: string; conversationId?: string; purpose: string;
   input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number;
@@ -67,10 +68,11 @@ const KERNEL_SCHEMA: Record<string, string> = {
   kv: 'key',
   usage: 'id, ts, conversationId',
   memfs: '[campaignId+path], campaignId',
+  logs: 'id, ts, level, tag',
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 3;
+const KERNEL_VERSION = 4;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -84,6 +86,7 @@ export class PocketDB extends Dexie {
   kv!: Table<KV, string>;
   usage!: Table<UsageRecord, string>;
   memfs!: Table<MemFile, [string, string]>;
+  logs!: Table<LogRecord, string>;
 
   constructor(name = 'pocketverse', plugins: PluginManifest[] = []) {
     super(name);

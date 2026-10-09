@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { openDB, db } from '../storage/db';
 import { applyOutput, buildPrompt } from './consolidate';
 import type { Campaign, Character } from '../storage/db';
@@ -28,5 +28,51 @@ describe('consolidate', () => {
     expect(r.overlays[0]!.pending).toBe(true);
     expect(await db().memories.count()).toBe(1);
     expect(await db().overlays.count()).toBe(1);
+  });
+});
+
+vi.mock('../llm/gateway.svelte', () => ({ llm: { configured: true, chat: vi.fn(), settings: {} } }));
+
+describe('consolidate guards', () => {
+  it('does not retry the same messages after a failure, and runs again once new messages arrive', async () => {
+    const { llm } = await import('../llm/gateway.svelte');
+    const { consolidate } = await import('./consolidate');
+    const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
+    await db().worlds.add({ id: 'w2', name: 'w', summary: '', createdAt: 0, updatedAt: 0 });
+    await db().characters.add({ ...character, id: 'c2', worldId: 'w2' });
+    await db().campaigns.add({ ...campaign, id: 'cp2', worldId: 'w2', characterIds: ['c2'] });
+    await db().conversations.add({ id: 'cv2', campaignId: 'cp2', kind: 'chat', participantIds: ['c2'], pluginId: 'chat' });
+    const msgs = Array.from({ length: 24 }, (_, i) => ({ id: 'm' + i, conversationId: 'cv2', role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: [{ type: 'text', text: '…' }], ts: 1000 + i }));
+    await db().messages.bulkAdd(msgs);
+
+    chat.mockResolvedValueOnce({ text: 'not json', stopReason: 'max_tokens', usage: {}, content: [], model: 'm' });
+    expect(await consolidate('cv2')).toBe(false);
+    expect(chat).toHaveBeenCalledTimes(1);
+    // 同一批消息：不再自动重试
+    expect(await consolidate('cv2')).toBe(false);
+    expect(chat).toHaveBeenCalledTimes(1);
+    // 手动触发不受限制
+    chat.mockResolvedValueOnce({ text: JSON.stringify({ memories: [], state: {}, overlays: [] }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    expect(await consolidate('cv2', { force: true })).toBe(true);
+    expect((await db().campaigns.get('cp2'))!.consolidatedUpTo).toBe(1023);
+    // 新来 12 条回复：正常再跑
+    await db().messages.bulkAdd(Array.from({ length: 24 }, (_, i) => ({ id: 'n' + i, conversationId: 'cv2', role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: [{ type: 'text', text: '…' }], ts: 2000 + i })));
+    chat.mockResolvedValueOnce({ text: JSON.stringify({ memories: [{ text: 'x', when: '', importance: 1 }], state: {}, overlays: [] }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    expect(await consolidate('cv2')).toBe(true);
+    expect(chat).toHaveBeenCalledTimes(3);
+  });
+
+  it('skips while a consolidation for the same conversation is in flight', async () => {
+    const { llm } = await import('../llm/gateway.svelte');
+    const { consolidate } = await import('./consolidate');
+    const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
+    await db().messages.bulkAdd([{ id: 'p0', conversationId: 'cv2', role: 'user', content: [{ type: 'text', text: '…' }], ts: 3000 }, { id: 'p1', conversationId: 'cv2', role: 'assistant', content: [{ type: 'text', text: '…' }], ts: 3001 }]);
+    let release!: (v: unknown) => void;
+    chat.mockReturnValueOnce(new Promise((r) => (release = r)));
+    const first = consolidate('cv2', { force: true });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await consolidate('cv2', { force: true })).toBe(false);
+    release({ text: JSON.stringify({ memories: [], state: {}, overlays: [] }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    expect(await first).toBe(true);
   });
 });

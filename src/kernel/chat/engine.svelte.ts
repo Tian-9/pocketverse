@@ -13,6 +13,7 @@ import { bus } from '../bus/bus';
 import { registry } from '../registry/registry.svelte';
 import { consolidate } from '../memory/consolidate';
 import type { PromptContext } from '../api/types';
+import { log } from '../log/log';
 
 export type TurnStatus = 'idle' | 'thinking' | 'typing' | 'tool';
 
@@ -80,7 +81,8 @@ class ChatEngine {
 
   private async consolidateAll() {
     const convs = await db().conversations.toArray();
-    for (const c of convs) consolidate(c.id).catch((e) => console.warn('[consolidate]', e));
+    log.info('consolidate', `回到桌面，检查 ${convs.length} 个会话`);
+    for (const c of convs) consolidate(c.id).catch(() => { /* 已记日志 */ });
   }
 
   private async runTurn(conversationId: string) {
@@ -140,7 +142,7 @@ class ChatEngine {
         (req, hooks) => llm.chat(req, hooks),
         { system, messages, purpose: 'chat', conversationId, names: { user: this.userName, assistant: character.name } },
         tools,
-        { hooks: { signal: abort.signal, onStatus: setStatus, onText: (d) => { const l = this.live[conversationId]; if (l) { l.text += d; } } }, onToolUsed: () => { const l = this.live[conversationId]; if (l) l.text = ''; } },
+        { hooks: { signal: abort.signal, onStatus: setStatus, onText: (d) => { const l = this.live[conversationId]; if (l) { l.text += d; } } }, onToolUsed: (name) => { log.info('chat', `调用工具 ${name}`, { conversationId }); const l = this.live[conversationId]; if (l) l.text = ''; } },
       );
       // 插件注册的输出标签：抽出来交给插件处理，卡片记在 meta 里由聊天界面渲染
       const handlers = plugins.flatMap((p) => (p.outputHandlers ?? []).map((h) => ({ pluginId: p.id, h })));
@@ -178,7 +180,8 @@ class ChatEngine {
         if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }
       bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });
-      consolidate(conversationId).catch((e) => console.warn('[consolidate]', e));
+      log.info('chat', `回复完成：${toolsUsed.length} 次工具，${cards.length} 张卡片`, { conversationId, model: r.model, stopReason: r.stopReason });
+      consolidate(conversationId).catch(() => { /* 已记日志 */ });
     } catch (e) {
       const partial = this.live[conversationId]?.text.trim();
       if (e instanceof LlmError && e.kind === 'aborted') {

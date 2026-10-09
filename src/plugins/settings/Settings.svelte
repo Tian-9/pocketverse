@@ -29,7 +29,8 @@
   <Cell title="插件" value={`${enabledCount} 个已开启`} icon={{ paths: icons.plug, background: gradients.black }} chevron onclick={() => nav.push('settings', 'plugins')} />
 </List>
 <SectionTitle text="关于" />
-<List>
-  <Cell title="Pocketverse" value="0.0.4 · M3" subtitle={`构建 ${__BUILD__}`} />
+<List footer="日志只存在本机，记的是决策和结果（为什么合并、请求花了多少、哪里出错），不记聊天正文。出问题时复制发给开发者。">
+  <Cell title="Pocketverse" value="0.0.5 · M3" subtitle={`构建 ${__BUILD__}`} />
+  <Cell title="日志" icon={{ paths: icons.diary, background: gradients.gray }} chevron onclick={() => nav.push('settings', 'logs')} />
 </List>
 <div style="height:40px"></div>
