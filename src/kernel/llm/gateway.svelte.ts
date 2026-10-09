@@ -68,6 +68,7 @@ class Gateway {
       ...req,
     };
     if (this.settings.preview) {
+      log.info('llm', `预览：${full.purpose} 请求等你确认（${full.model}）`, { conversationId: full.conversationId });
       const ok = await gate.confirm(full);
       if (!ok) { log.warn('llm', `预览里取消了 ${full.purpose} 请求`, { conversationId: full.conversationId }); throw new LlmError('你取消了发送', 'aborted'); }
     }

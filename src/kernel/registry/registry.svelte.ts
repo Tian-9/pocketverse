@@ -52,7 +52,12 @@ class Registry {
   async boot(defaults: { enabled: string[]; dock: (DockSlot | null)[] }) {
     const savedEnabled = await db().getKV<Record<string, boolean> | null>('kernel.enabled', null);
     const savedDock = await db().getKV<(DockSlot | null)[] | null>('kernel.dock', null);
-    this.enabled = savedEnabled ?? Object.fromEntries(defaults.enabled.map((id) => [id, true]));
+    // 老安装也要拿到后来新加的默认插件：没明确开关过的（undefined）按默认来，用户关过的（false）尊重
+    const enabled = { ...(savedEnabled ?? {}) };
+    let changed = !savedEnabled;
+    for (const id of defaults.enabled) if (enabled[id] === undefined) { enabled[id] = true; changed = true; }
+    this.enabled = enabled;
+    if (changed) await db().setKV('kernel.enabled', enabled);
     this.dock = savedDock ?? defaults.dock;
     for (const p of this.plugins) if (this.isEnabled(p.id)) await this.runSetup(p);
     this.ready = true;

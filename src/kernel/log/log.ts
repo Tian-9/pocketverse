@@ -1,4 +1,5 @@
 import { ulid } from 'ulid';
+import Dexie from 'dexie';
 import { db } from '../storage/db';
 import type { LogRecord } from '../storage/db';
 import { bus } from '../bus/bus';
@@ -35,7 +36,8 @@ class Logger {
     (level === 'error' ? console.error : level === 'warn' ? console.warn : console.info)(`[${tag}] ${message}`, data ?? '');
     this.queue = this.queue.then(async () => {
       try {
-        await db().logs.add(rec);
+        // 跳出调用方可能所在的 Dexie 事务（liveQuery 里是只读的），日志总能写
+        await Dexie.ignoreTransaction(() => db().logs.add(rec));
         if (++this.writes % 50 === 0) await this.trim();
       } catch { /* 库还没开或者满了，日志不能把主流程弄挂 */ }
     });

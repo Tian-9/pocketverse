@@ -4,9 +4,14 @@
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import { log, fmt } from '$kernel/log/log';
-  const rows = live(() => db().logs.orderBy('ts').reverse().limit(300).toArray(), []);
   let filter = $state<'all' | 'warn' | 'consolidate' | 'catchup' | 'llm'>('all');
-  const shown = $derived(rows.value.filter((r) => filter === 'all' ? true : filter === 'warn' ? r.level !== 'info' : r.tag === filter));
+  // 按标签在库里筛，不然 app 开关的流水会把别的挤出前几百条
+  const rows = live(() => {
+    if (filter === 'all') return db().logs.orderBy('ts').reverse().limit(500).toArray();
+    if (filter === 'warn') return db().logs.orderBy('ts').reverse().filter((r) => r.level !== 'info').limit(500).toArray();
+    return db().logs.where('tag').equals(filter).reverse().sortBy('ts').then((x) => x.slice(0, 500));
+  }, [], () => [filter]);
+  const shown = $derived(rows.value);
   let open = $state<Record<string, boolean>>({});
   let copied = $state('');
   async function copyAll() {
@@ -18,6 +23,7 @@
 </script>
 
 <NavBar title="日志" back="设置" />
+<p class="build">当前运行的构建 {__BUILD__}</p>
 <div class="seg">
   {#each [['all', '全部'], ['warn', '问题'], ['consolidate', '整理'], ['catchup', '补发'], ['llm', '请求']] as [id, label] (id)}
     <button class:on={filter === id} onclick={() => (filter = id as typeof filter)}>{label}</button>
@@ -40,6 +46,7 @@
 <div style="height:40px"></div>
 
 <style>
+  .build { margin: 8px 16px 0; font-size: 12px; color: var(--label-3); text-align: center; }
   .seg { display: flex; gap: 4px; margin: 8px 16px 0; padding: 4px; background: var(--fill-2); border-radius: 10px; }
   .seg button { flex: 1; padding: 6px; border-radius: 8px; font-size: 13px; color: var(--label); }
   .seg button.on { background: var(--bg-surface); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }

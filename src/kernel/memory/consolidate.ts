@@ -82,7 +82,7 @@ const inflight = new Set<string>();
 const failedAt = new Map<string, number>();
 
 /** 对一个会话做一次合并：处理 consolidatedUpTo 之后的消息。 */
-export async function consolidate(conversationId: string, opts: { force?: boolean } = {}): Promise<boolean> {
+export async function consolidate(conversationId: string, opts: { force?: boolean; reason?: string } = {}): Promise<boolean> {
   if (inflight.has(conversationId)) { log.info('consolidate', '跳过：上一次还在进行', { conversationId }); return false; }
   const conv = await db().conversations.get(conversationId);
   if (!conv) return false;
@@ -99,7 +99,7 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
 
   inflight.add(conversationId);
   const t0 = Date.now();
-  log.info('consolidate', `开始：${character.name}，${msgs.length} 条消息（${replies} 条回复）${opts.force ? '，手动' : ''}`, { conversationId, since });
+  log.info('consolidate', `开始：${character.name}，${msgs.length} 条消息（${replies} 条回复），触发：${opts.reason ?? (opts.force ? '手动' : '未知')}`, { conversationId, since });
   try {
     const lore = await db().lore.where('worldId').equals(campaign.worldId).filter((e) => e.enabled && e.kind !== 'style' && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id))).toArray();
     const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');

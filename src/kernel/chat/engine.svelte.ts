@@ -78,12 +78,12 @@ class ChatEngine {
   }
 
   /** 手动触发一次合并（设置或角色页用） */
-  async consolidateNow(conversationId: string) { return consolidate(conversationId, { force: true }); }
+  async consolidateNow(conversationId: string) { return consolidate(conversationId, { force: true, reason: '手动' }); }
 
   private async consolidateAll() {
     const convs = await db().conversations.toArray();
     log.info('consolidate', `回到桌面，检查 ${convs.length} 个会话`);
-    for (const c of convs) consolidate(c.id).catch(() => { /* 已记日志 */ });
+    for (const c of convs) consolidate(c.id, { reason: '回到桌面' }).catch(() => { /* 已记日志 */ });
   }
 
   private async runTurn(conversationId: string) {
@@ -193,7 +193,7 @@ class ChatEngine {
       }
       bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });
       log.info('chat', `回复完成：${toolsUsed.length} 次工具，${cards.length} 张卡片`, { conversationId, model: r.model, stopReason: r.stopReason });
-      consolidate(conversationId).catch(() => { /* 已记日志 */ });
+      consolidate(conversationId, { reason: '回复后检查' }).catch(() => { /* 已记日志 */ });
     } catch (e) {
       const partial = this.live[conversationId]?.text.trim();
       if (e instanceof LlmError && e.kind === 'aborted') {
