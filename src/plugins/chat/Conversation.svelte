@@ -3,7 +3,7 @@
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
-  import { repo, textOf, cardsOf } from '$kernel/data/repo';
+  import { repo, textOf, cardsOf, quoteOf, type MessageQuote } from '$kernel/data/repo';
   import { chat } from '$kernel/chat/engine.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
@@ -46,6 +46,9 @@
     timeWhen = ''; timeNote = '';
   }
   let picked = $state<Message | null>(null);
+  // 引用：长按一条 → 「引用」，输入框上方出现引用条，随下一条文字消息发出去。存的是原文截断，原消息撤回了也还显示
+  let quoting = $state<MessageQuote | null>(null);
+  function quoteLabel(q: MessageQuote) { return (q.role === 'assistant' ? character.value?.name ?? '他' : chat.userName) + '：' + q.text; }
   let scroller: HTMLDivElement;
   let textarea: HTMLTextAreaElement;
 
@@ -61,7 +64,9 @@
     if (!llm.configured) { nav.push('settings', 'api'); return; }
     draft = '';
     textarea.style.height = 'auto';
-    await chat.send(id, t);
+    // $state 对象是 Proxy，写库前要 snapshot
+    const q = quoting ? $state.snapshot(quoting) : null; quoting = null;
+    await chat.send(id, t, q ? { meta: { quote: q } } : {});
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
@@ -76,6 +81,13 @@
     picked = null;
   }
   async function deletePicked() { if (picked) await chat.deleteMessage(picked.id); picked = null; }
+  function quotePicked() {
+    if (picked) quoting = { id: picked.id, role: picked.role, text: textOf(picked).trim().replace(/\s+/g, ' ').slice(0, 80) };
+    picked = null; textarea?.focus();
+  }
+  /** 只能撤回你自己的文字消息：卡片（红包、转账）钱已经动了，旁白没有撤回的意义 */
+  const canRecall = (m: Message) => m.role === 'user' && !m.meta?.narration && !cardsOf(m).length;
+  async function recallPicked() { if (picked) await chat.recallMessage(picked.id); picked = null; }
   /** 点头像进他的主页（角色插件的 profile 页） */
   function openProfile() { if (character.value) nav.push('characters', 'profile', { id: character.value.id }); }
   async function clearAll() {
@@ -126,6 +138,7 @@
           {#if m.role === 'assistant' && character.value}<button class="avatar-btn" onclick={openProfile} aria-label="他的主页"><Avatar blob={character.value.avatar} name={character.value.name} size={wechat ? 36 : 30} /></button>{/if}
           <div class="col">
             {#if textOf(m) && !m.meta?.cardOnly}<div class="bubble">{textOf(m)}</div>{/if}
+            {#if quoteOf(m)}{@const q = quoteOf(m)!}<div class="quote">{quoteLabel(q)}</div>{/if}
             {#each cardsOf(m) as c, i (i)}
               {@const Card = cardComponent(c)}
               {#if Card}<Card body={c.body} attrs={c.attrs} />{/if}
@@ -148,6 +161,9 @@
     {/if}
   </div>
 
+  {#if quoting}
+    <div class="quoting"><span class="qtext">{quoteLabel(quoting)}</span><button class="qclose" onclick={() => (quoting = null)} aria-label="取消引用">✕</button></div>
+  {/if}
   <div class="composer">
     {#if actions.length}
       <button class="plus" class:open={panel} onclick={() => (panel = !panel)} aria-label="更多功能"><Glyph paths={icons.plus} size={22} color={wechat ? 'var(--label)' : 'var(--tint)'} width={2.2} /></button>
@@ -200,6 +216,8 @@
 <Sheet open={!!picked} onclose={() => (picked = null)} title="这条消息">
   <List>
     <Cell title="复制" onclick={copyPicked} />
+    {#if picked && textOf(picked).trim()}<Cell title="引用" onclick={quotePicked} />{/if}
+    {#if picked && canRecall(picked)}<Cell title="撤回" subtitle="他那边会变成「撤回了一条消息」，看不到内容" onclick={recallPicked} />{/if}
     <Cell title="删除" onclick={deletePicked} />
     <Cell title="取消" onclick={() => (picked = null)} />
   </List>
@@ -219,6 +237,11 @@
   .col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .avatar-btn { display: inline-flex; flex: 0 0 auto; padding: 0; }
   .caption { font-size: 11px; color: var(--label-3); padding-left: 6px; }
+  .quote { font-size: 13px; line-height: 1.35; color: var(--label-2); background: var(--fill-2); border-radius: 8px; padding: 5px 9px; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+  .user .quote { align-self: flex-end; }
+  .quoting { display: flex; align-items: center; gap: 8px; padding: 6px 14px 0; background: var(--bg-grouped); }
+  .qtext { flex: 1; min-width: 0; font-size: 13px; color: var(--label-2); background: var(--fill-2); border-radius: 8px; padding: 6px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qclose { color: var(--label-2); font-size: 14px; padding: 4px 6px; }
   .think-toggle { font-size: 11px; color: var(--tint); padding: 0 6px; text-align: left; }
   .think { font-size: 12.5px; line-height: 1.45; color: var(--label-2); background: var(--bg-grouped); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; max-width: 100%; }
   .bubble { padding: 8px 13px; border-radius: 18px; font-size: 17px; line-height: 1.35; white-space: pre-wrap; word-break: break-word; min-width: 0; }
@@ -251,7 +274,7 @@
   .conv.wechat .user .bubble { background: #95ec69; color: #111; }
   :global([data-theme="dark"]) .conv.wechat .assistant .bubble, :global(.dark-system:not([data-theme="light"])) .conv.wechat .assistant .bubble { background: #2c2c2c; color: #eee; }
   :global([data-theme="dark"]) .conv.wechat .user .bubble, :global(.dark-system:not([data-theme="light"])) .conv.wechat .user .bubble { background: #3eb575; color: #fff; }
-  .conv.wechat .composer, .conv.wechat .panel { background: var(--wx-bar); }
+  .conv.wechat .composer, .conv.wechat .panel, .conv.wechat .quoting { background: var(--wx-bar); }
   .conv.wechat textarea { border-radius: 6px; border: 0; }
   .conv.wechat .send { border-radius: 6px; background: #07c160; }
   .conv.wechat .time, .conv.wechat .sys { color: var(--label-2); }

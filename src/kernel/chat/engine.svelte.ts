@@ -65,6 +65,10 @@ class ChatEngine {
 
   stop(conversationId: string) { this.live[conversationId]?.abort.abort(); }
   async deleteMessage(id: string) { await db().messages.delete(id); }
+  /** 撤回：原消息原地改成一行小灰字，正文和卡片都不留；模型下一轮只看到「撤回了一条消息」（见 modelTextOf） */
+  async recallMessage(id: string) {
+    await db().messages.update(id, { content: [{ type: 'text', text: '你撤回了一条消息' }], meta: { narration: true, recalled: true } });
+  }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
   /** 推进剧情时间：写一条旁白，更新状态，然后让角色接着说 */

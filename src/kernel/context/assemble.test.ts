@@ -106,4 +106,21 @@ describe('card alt in history', () => {
     expect(texts[1]).toContain('[发了一个红包：¥8.88，留言「生日快乐」]');
     expect(texts[1]).toContain('生日快乐！\n[分享了歌：晴天 - 周杰伦]');
   });
+
+  it('quotes name whose words were quoted, and a recalled message shows only that it was recalled', () => {
+    const history: Message[] = [
+      msg('assistant', '明天别迟到', 1),
+      { ...msg('user', '知道了', 2), meta: { quote: { id: '1', role: 'assistant', text: '明天别迟到' } } },
+      { ...msg('user', '你撤回了一条消息', 3), meta: { narration: true, recalled: true } },
+      { ...msg('assistant', '怎么了？', 4) },
+      { ...msg('user', '没事', 5), meta: { quote: { id: '2', role: 'user', text: '知道了' } } },
+    ];
+    const r = assemble({ ...base, history, userText: '晚安' });
+    const texts = r.messages.map((m) => m.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n'));
+    // texts[0] 是补的「（对话开始）」
+    expect(texts[2]).toContain('（引用你的话「明天别迟到」）\n知道了');
+    expect(texts[2]).toContain('（我撤回了一条消息）');
+    expect(texts[2]).not.toContain('你撤回了');
+    expect(texts[4]).toContain('（引用自己之前的话「知道了」）\n没事');
+  });
 });

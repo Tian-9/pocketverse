@@ -164,10 +164,22 @@ export function cardsOf(m: Message): MessageCard[] {
  * 用户从「+」面板发的 cardOnly 消息，text 本身就是给模型的描述，不再追加 alt。
  */
 export function modelTextOf(m: Message): string {
+  // 撤回：界面上是一行小灰字，模型只知道撤回了，看不到原文（{{user}} 在拼装时换成名字）
+  if (m.meta?.recalled) return '（{{user}}撤回了一条消息）';
   const text = textOf(m).trim();
-  if (m.meta?.cardOnly) return text;
+  const q = quoteOf(m);
+  // 引用：在正文前写明引的是谁的哪句。引自己的是「自己之前的话」，引对方的是「你的话」，两个方向都成立
+  const quoted = q ? `（引用${q.role === m.role ? '自己之前' : '你'}的话「${q.text}」）` : '';
+  if (m.meta?.cardOnly) return [quoted, text].filter(Boolean).join('\n');
   const alts = cardsOf(m).map((c) => c.alt?.trim()).filter((s): s is string => !!s);
-  return [text, ...alts].filter(Boolean).join('\n');
+  return [quoted, text, ...alts].filter(Boolean).join('\n');
+}
+
+/** 消息引用的那句（meta.quote）：发送时就把原文截一段存下来，原消息删了、撤回了也照样显示 */
+export interface MessageQuote { id: string; role: Message['role']; text: string }
+export function quoteOf(m: Message): MessageQuote | undefined {
+  const q = m.meta?.quote as MessageQuote | undefined;
+  return q && q.text ? q : undefined;
 }
 
 /** 聊天列表里的一行预览：有卡片 alt 用 alt，否则用正文 */

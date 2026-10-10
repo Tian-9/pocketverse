@@ -3,7 +3,7 @@
   import { List, Cell, Sheet, Field, Button } from '$kernel/api';
   import type { ProfileSectionProps } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
-  import { redpacketApi, yuan, type Packet, type Wallet } from './index';
+  import { redpacketApi, yuan, isTransfer, type Packet, type Wallet } from './index';
   let { campaignId, characterId }: ProfileSectionProps = $props();
   const deps = () => [campaignId, characterId];
   // 余额行不存在时 wallet() 会建；这里只读，没有就显示默认值，等第一次发红包再建
@@ -25,11 +25,11 @@
   const fmt = (ts: number) => new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
 </script>
 
-<List footer="钱是这一局里的数字，换一局重新算。点余额可以手改。">
+<List footer="钱是这一局里的数字，换一局重新算。点余额可以手改。红包和转账都从这里扣。">
   <Cell title="他的余额" value={his === undefined ? '还没用过' : yuan(his)} onclick={() => edit(characterId)} />
   <Cell title="你的余额" value={mine === undefined ? '还没用过' : yuan(mine)} onclick={() => edit('user')} />
   {#each recent.value as p (p.id)}
-    <Cell title={`${p.from === 'char' ? '他发的' : '你发的'} ${yuan(p.amount)}`} subtitle={`${fmt(p.createdAt)} · ${p.note}${p.openedAt ? '' : ' · 还没领'}`} />
+    <Cell title={`${p.from === 'char' ? '他' : '你'}${isTransfer(p) ? '转的' : '发的红包'} ${yuan(p.amount)}`} subtitle={[fmt(p.createdAt), p.note, p.refundedAt ? '已退回' : p.openedAt ? '' : isTransfer(p) ? '还没收' : '还没领'].filter(Boolean).join(' · ')} />
   {/each}
 </List>
 
