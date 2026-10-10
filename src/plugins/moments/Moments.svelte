@@ -1,22 +1,17 @@
 <script lang="ts">
-  import { NavBar, Placeholder, Avatar, Glyph, Sheet, List, Cell, icons } from '$kernel/api';
-  import { live } from '$kernel/storage/live.svelte';
-  import { db } from '$kernel/storage/db';
-  import { registry } from '$kernel/registry/registry.svelte';
-  import { bus } from '$kernel/bus/bus';
+  import { NavBar, Placeholder, Avatar, Glyph, Sheet, List, Cell, live, icons } from '$kernel/api';
   import { momentsApi, type Post } from './index';
 
   interface Row extends Post { name: string; avatar?: Blob }
+  // 只看每张卡当前这一局的动态，别的局先睡着
+  const current = live(() => momentsApi.data().currentCampaigns(), []);
   const rows = live(async (): Promise<Row[]> => {
-    if (!registry.isEnabled('moments')) return [];
-    const { repo } = await import('$kernel/data/repo');
-    const current = await repo.currentCampaignIds();
-    const posts = (await momentsApi.posts().reverse().sortBy('createdAt')).filter((p) => current.has(p.campaignId));
+    const ids = new Set(current.value.map((c) => c.id));
+    const posts = (await momentsApi.posts().reverse().sortBy('createdAt')).filter((p) => ids.has(p.campaignId));
     const out: Row[] = [];
-    for (const p of posts) { const ch = await db().characters.get(p.characterId); if (ch) out.push({ ...p, name: ch.name, avatar: ch.avatar }); }
+    for (const p of posts) { const ch = await momentsApi.data().character(p.characterId); if (ch) out.push({ ...p, name: ch.name, avatar: ch.avatar }); }
     return out;
-  }, []);
-  const chars = live(() => db().characters.toArray(), []);
+  }, [], () => [current.value]);
   let picking = $state(false);
   let busy = $state(false);
   let commenting = $state<Row | null>(null);
@@ -35,15 +30,12 @@
     await momentsApi.comment(commenting, t);
     draft = ''; commenting = null;
   }
-  async function generateFor(characterId: string) {
+  async function generateFor(campaignId: string, characterId: string) {
     picking = false; busy = true;
     try {
-      const ch = await db().characters.get(characterId); if (!ch) return;
-      const { repo } = await import('$kernel/data/repo');
-      const cp = await repo.campaignFor(ch);
-      const post = await momentsApi.generate(cp.id, ch.id, '现在想发一条朋友圈。', 'manual');
-      if (!post) bus.emit('notify', { title: '没发出来', body: '先在设置里配置 API Key' });
-    } catch (e) { bus.emit('notify', { title: '生成失败', body: e instanceof Error ? e.message : String(e) }); }
+      const post = await momentsApi.generate(campaignId, characterId, '现在想发一条朋友圈。', 'manual');
+      if (!post) momentsApi.notify('没发出来', '先在设置里配置 API Key');
+    } catch (e) { momentsApi.notify('生成失败', e instanceof Error ? e.message : String(e)); }
     finally { busy = false; }
   }
   async function remove(p: Row) { await momentsApi.posts().delete(p.id); }
@@ -89,8 +81,8 @@
 
 <Sheet bind:open={picking} title="让谁发一条">
   <List>
-    {#each chars.value as c (c.id)}<Cell title={c.name} onclick={() => generateFor(c.id)} />{/each}
-    {#if !chars.value.length}<Cell title="还没有角色" />{/if}
+    {#each current.value as c (c.id)}<Cell title={c.characterName} subtitle={c.worldName} onclick={() => generateFor(c.id, c.characterId)} />{/each}
+    {#if !current.value.length}<Cell title="还没有角色" subtitle="先和他聊一句，他才有这一局" />{/if}
   </List>
 </Sheet>
 <Sheet open={!!commenting} onclose={() => (commenting = null)} title="评论">

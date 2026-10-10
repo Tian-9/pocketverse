@@ -1,7 +1,7 @@
 import type { PluginManifest, Shortcut, PluginContext } from '../api/types';
 import { bus } from '../bus/bus';
 import { db, pluginTable } from '../storage/db';
-import { repo } from '../data/repo';
+import { dataView } from '../data/view';
 import { llm } from '../llm/gateway.svelte';
 import { CONSOLIDATE_MODEL } from '../memory/consolidate';
 import { nav } from '../nav/nav.svelte';
@@ -121,21 +121,12 @@ function makeContext(id: string): PluginContext {
           messages: [{ role: 'user', content: [{ type: 'text', text: req.user }] }],
           purpose: `plugin:${id}`, maxTokens: req.maxTokens ?? 1024, effort: req.effort ?? 'low',
           ...(req.cheap ? { model: CONSOLIDATE_MODEL } : {}),
+          ...(req.jsonSchema ? { jsonSchema: req.jsonSchema } : {}),
         });
         return { text: r.text };
       },
     },
-    async activeCampaigns() {
-      const since = Date.now() - 7 * 24 * 3600 * 1000;
-      const current = await repo.currentCampaignIds();
-      const cps = (await db().campaigns.where('lastPlayedAt').aboveOrEqual(since).toArray()).filter((c) => current.has(c.id));
-      const out = [];
-      for (const c of cps) {
-        const ch = c.characterIds[0] ? await db().characters.get(c.characterIds[0]) : undefined;
-        if (ch) out.push({ campaignId: c.id, characterId: ch.id, characterName: ch.name, lastPlayedAt: c.lastPlayedAt });
-      }
-      return out;
-    },
+    data: dataView,
   };
 }
 

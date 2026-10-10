@@ -20,6 +20,13 @@ export function definePlugin(manifest: PluginManifest): PluginManifest {
   return manifest;
 }
 
+/** 响应式查询：把 Dexie liveQuery 变成 Svelte 值。见 storage/live.svelte.ts 的注意事项 */
+export { live } from '../storage/live.svelte';
+
+import { nav as kernelNav } from '../nav/nav.svelte';
+/** 导航。插件只用这三个：跨插件跳转 push(pluginId, screen, params)，返回一律 pop()，别碰 history */
+export const nav: Pick<typeof kernelNav, 'push' | 'pop' | 'home'> = kernelNav;
+
 /** 内核组件库和图标，插件只能从这里拿 UI。 */
 export { default as NavBar } from '../ui/NavBar.svelte';
 export { default as List } from '../ui/List.svelte';

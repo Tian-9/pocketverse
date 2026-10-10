@@ -18,7 +18,7 @@
 - 角色分享东西（歌、电影、新闻）一律走内核 `share` 工具 + 插件 `shares` 解析器，卡片用通用 `ShareCard`，不要为每种类型新加输出标签和卡片组件。引用原文必须经解析器校验。
 - 离开回来的补发（发动态、写日记、回评论）一律登记到 manifest 的 `catchup`，由内核按角色、按档位合成一次调用；`attach` 档挂在下一次聊天回复或补发上。插件不要自己听 `app.resumed` 调模型。
 - 用户主动发的东西（歌、红包…）走「+」面板 `composerActions`，产出 `OutgoingMessage`；插件工具往回复里放卡片用 `ctx.addCard`，不要新造消息类型。
-- 插件只能 import `$kernel/api`，不能 import 内核内部模块或其他插件；跨插件跳转走 `nav.push(pluginId, screen, params)`。
+- 插件只能 import `$kernel/api`，不能 import 内核内部模块或其他插件；跨插件跳转走 `nav.push(pluginId, screen, params)`。读存档、世界、角色、记忆、条目目录走 `ctx.data`（只读快照），界面响应式查询用 `$kernel/api` 的 `live`。`ctx.data` 缺什么就加到它上面，别绕过去读 `db()`。
 - 开发机可能是 macOS（文件系统不区分大小写）：两个文件名不能只差大小写。`inspect.svelte.ts` 和 `Inspect.svelte` 曾经撞车，在 Mac 上直接 29 个类型错误。
 
 ## 文案

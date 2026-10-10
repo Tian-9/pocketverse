@@ -373,7 +373,9 @@ export default definePlugin({
 })
 ```
 
-`PluginContext` 暴露：`db`（限本插件表 + 只读内核表）、`bus`、`llm`（带配额记账）、`ui`（组件库、notify、navigate）、`campaign`（当前存档的只读视图）、`memory`（写情节记忆的受限接口）。
+`PluginContext` 暴露：`table`（限本插件表）、`data`（内核数据的只读视图：当前存档、存档状态、世界、角色卡、情节记忆、条目目录，返回快照）、`settings`（本插件 KV）、`emit`、`navigate` / `back`、`notify`、`llm`（带配额记账，支持 `cheap` 和 `jsonSchema`）。
+
+`$kernel/api` 另外导出界面要用的 `live`（响应式查询）和 `nav`（只有 `push` / `pop` / `home`）。插件读内核数据只有 `ctx.data` 一条路；它没有的东西先加到它上面，不要去 import `storage/db`。
 
 插件不能：直接 fetch 模型 API（必须走 `ctx.llm`）、读 API Key、改其他插件的表、改正典世界书。
 

@@ -19,6 +19,8 @@ const fmtTime = (ts: number) => new Date(ts).toLocaleString('zh-CN', { hour12: f
 
 export const momentsApi = {
   posts: () => ctx.table<Post>('posts'),
+  data: () => ctx.data,
+  notify: (title: string, body?: string) => ctx.notify(title, body),
   async add(post: Omit<Post, 'id' | 'liked' | 'comments'>) {
     const p: Post = { ...post, id: ulid(), liked: false, comments: [] };
     await ctx.table<Post>('posts').add(p);
@@ -32,15 +34,14 @@ export const momentsApi = {
   /** 手动：让角色现在发一条（补发走内核 catchup，不经这里） */
   async generate(campaignId: string, characterId: string, hint: string, source: Post['source']) {
     if (!ctx.llm.configured) return null;
-    const { db } = await import('$kernel/storage/db');
-    const ch = await db().characters.get(characterId);
-    const cp = await db().campaigns.get(campaignId);
+    const ch = await ctx.data.character(characterId);
+    const cp = await ctx.data.campaign(campaignId);
     if (!ch || !cp) return null;
-    const mems = await db().memories.where('campaignId').equals(campaignId).reverse().sortBy('createdAt');
+    const mems = await ctx.data.memories(campaignId, { limit: 6 });
     const recent = await ctx.table<Post>('posts').where('campaignId').equals(campaignId).reverse().sortBy('createdAt');
     const { text } = await ctx.llm.chat({
       system: `你是「${ch.name}」。设定：${ch.core.slice(0, 800)}\n你要在自己的朋友圈发一条动态。像真人发朋友圈：一两句话，口语，可以有一点情绪或者只是一件小事，不要解释，不要带话题标签，不要提到"用户"或"你"。只输出动态正文。`,
-      user: `${hint}\n\n最近发生的事：\n${mems.slice(0, 6).map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}\n\n你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}\n现在的情绪：${cp.state.mood[characterId] ?? '平常'}`,
+      user: `${hint}\n\n最近发生的事：\n${mems.map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}\n\n你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}\n现在的情绪：${cp.state.mood[characterId] ?? '平常'}`,
       maxTokens: 200, effort: 'low',
     });
     const body = text.trim().replace(/^["“「]|["”」]$/g, '');

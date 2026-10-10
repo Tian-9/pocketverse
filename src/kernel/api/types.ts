@@ -230,9 +230,44 @@ export interface PluginContext {
     chat(req: PluginChatRequest): Promise<{ text: string }>;
     configured: boolean;
   };
-  /** 最近玩过的存档及其角色（最近 7 天） */
-  activeCampaigns(): Promise<ActiveCampaign[]>;
+  /** 内核数据的只读视图：存档、世界、角色、记忆、条目目录。插件读这些一律走这里，不直接碰库 */
+  data: DataView;
 }
+
+/**
+ * 内核数据的只读视图。返回的是快照，改了也不会写回；写记忆、写状态只能由模型通过内核工具做。
+ * 在 live() 里调用也能被 Dexie 追踪，表一变界面就刷新。
+ */
+export interface DataView {
+  /** 每张卡「当前这一局」（聊天列表、补发、朋友圈只看这些），最近玩过的在前 */
+  currentCampaigns(): Promise<CampaignView[]>;
+  campaign(id: string): Promise<CampaignView | undefined>;
+  world(id: string): Promise<WorldView | undefined>;
+  character(id: string): Promise<CharacterView | undefined>;
+  characters(): Promise<CharacterView[]>;
+  /** 这一局的情节记忆，新的在前 */
+  memories(campaignId: string, opts?: { limit?: number; minImportance?: 1 | 2 | 3 }): Promise<MemoryView[]>;
+  /** 这一局能用的条目目录（title + summary，带本局覆盖标注），和拼上下文用的是同一段文字；没有条目返回空串 */
+  loreDirectory(campaignId: string): Promise<string>;
+}
+
+export interface CampaignView {
+  id: string;
+  name: string;
+  worldId: string;
+  worldName: string;
+  /** 现在的存档都是单人局；群聊再扩成数组 */
+  characterId: string;
+  characterName: string;
+  lastPlayedAt: number;
+  state: {
+    inWorldTime?: string; location?: string;
+    relations: Record<string, string>; mood: Record<string, string>; facts: string[];
+  };
+}
+export interface WorldView { id: string; name: string; summary: string }
+export interface CharacterView { id: string; name: string; avatar?: Blob; core: string }
+export interface MemoryView { id: string; characterId?: string; when: string; text: string; importance: 1 | 2 | 3; createdAt: number }
 
 export interface PluginChatRequest {
   system: string;
@@ -241,11 +276,7 @@ export interface PluginChatRequest {
   effort?: 'low' | 'medium' | 'high';
   /** 用便宜模型 */
   cheap?: boolean;
+  /** 要结构化输出时给 JSON schema，返回的 text 就是一段合法 JSON */
+  jsonSchema?: Record<string, unknown>;
 }
 
-export interface ActiveCampaign {
-  campaignId: string;
-  characterId: string;
-  characterName: string;
-  lastPlayedAt: number;
-}
