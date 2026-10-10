@@ -3,7 +3,9 @@ import type { PluginContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Forum from './Forum.svelte';
 import ThreadScreen from './Thread.svelte';
+import ForumSection from './ForumSection.svelte';
 import { CROWD_SYSTEM, crowdUser, crowdSchema, parseCrowd, type WaitingThread } from './crowd';
+import { tools, volatile, collectBrowse, collectReplies } from './character';
 
 /** 谁写的：路人（只有网名）、他（角色）、你 */
 export type Author = { kind: 'npc'; name: string } | { kind: 'char'; characterId: string } | { kind: 'user' };
@@ -165,10 +167,17 @@ export const forumApi = {
 export default definePlugin({
   id: 'forum',
   name: '论坛',
-  version: '0.1.0',
-  description: '这个世界的本地论坛：路人在上面发帖吵架，你可以发帖回帖。',
+  version: '0.2.0',
+  description: '这个世界的本地论坛：路人在上面发帖吵架，你和他都能发帖回帖；他离开回来会刷一刷，也会回他帖子下的评论。',
   app: { screen: Forum, icon: { paths: icons.forum, background: gradients.teal } },
   screens: { thread: ThreadScreen },
   storage: { tables: { threads: 'id, campaignId, lastReplyAt', replies: 'id, threadId, campaignId, createdAt' } },
+  profileSections: [{ id: 'latest', component: ForumSection }],
+  promptContributors: [{ id: 'my-threads', volatile }],
+  tools,
+  catchup: [
+    { id: 'browse', tier: 'h6', collect: collectBrowse },
+    { id: 'replies', tier: 'attach', collect: collectReplies },
+  ],
   setup(c) { ctx = c; },
 });

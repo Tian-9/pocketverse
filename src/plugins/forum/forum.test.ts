@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { PluginContext, CampaignView } from '$kernel/api';
 import { openDB, db, pluginTable } from '$kernel/storage/db';
 import plugin, { forumApi, KEEP_CROWD } from './index';
+import { tools, volatile, collectBrowse, collectReplies } from './character';
+import type { PromptContext, CatchupContext } from '$kernel/api';
 
 const campaign: CampaignView = {
   id: 'cp1', name: '王都', worldId: 'w1', worldName: '王都', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1,
@@ -88,5 +90,60 @@ describe('forum refresh', () => {
     expect(left).toHaveLength(KEEP_CROWD + 1);
     expect(left.some((t) => t.id === kept.id)).toBe(true);
     expect(left.some((t) => t.title === 't0')).toBe(false);
+  });
+});
+
+const pctx: PromptContext = { campaignId: 'cp3', conversationId: 'cv', characterIds: ['ch1'] };
+const cctx: CatchupContext = { campaignId: 'cp3', characterId: 'ch1', characterName: '阿一', elapsedMs: 8 * 3600_000, days: 0, tier: 'h6', elapsedText: '大约 8 小时' };
+const tool = (name: string) => tools.find((t) => t.name === name)!;
+
+describe('forum: the character on the forum', () => {
+  it('browse lists, searches, reads by number; post makes a thread and replies by number', async () => {
+    expect(await tool('forum_browse').handler({}, pctx)).toBe('论坛上还没有帖子。');
+    await forumApi.post('cp3', { kind: 'npc', name: '老王' }, '面包涨价', '离谱啊', 'crowd', { lastReplyAt: 1 });
+    const list = String(await tool('forum_browse').handler({}, pctx));
+    expect(list).toContain('1. 《面包涨价》 老王');
+    expect(String(await tool('forum_browse').handler({ query: '黑猫' }, pctx))).toContain('没有和「黑猫」有关');
+    expect(String(await tool('forum_browse').handler({ n: 1 }, pctx))).toContain('离谱啊');
+    expect(String(await tool('forum_browse').handler({ n: 9 }, pctx))).toContain('没有第 9 个');
+
+    expect(await tool('forum_post').handler({ body: '没标题' }, pctx)).toContain('要有 title');
+    expect(await tool('forum_post').handler({ title: '今天好累', body: '不想说话' }, pctx)).toBe('已发到论坛。');
+    const mine = (await forumApi.threads().where('campaignId').equals('cp3').toArray()).find((t) => t.author.kind === 'char')!;
+    expect(mine.source).toBe('chat');
+    // 新帖排到了第 1，回第 2 个（老王的）
+    expect(await tool('forum_post').handler({ n: 2, body: '确实' }, pctx)).toBe('已回复到《面包涨价》。');
+    const v = await volatile(pctx);
+    expect(v).toContain('你发了《今天好累》');
+    expect(v).not.toContain('还没看');
+  });
+
+  it('attach: pending replies on his thread get answered or dismissed, never asked twice', async () => {
+    const mine = (await forumApi.threads().where('campaignId').equals('cp3').toArray()).find((t) => t.author.kind === 'char')!;
+    await forumApi.reply(mine, { kind: 'user' }, '抱抱');
+    await forumApi.reply(mine, { kind: 'npc', name: '路人甲' }, '怎么了');
+    expect(await volatile(pctx)).toContain('2 条你还没看');
+    const item = (await collectReplies(cctx))!;
+    expect(item.prompt).toContain('路过的人 回复：「抱抱」');
+    expect(item.prompt).toContain('路人甲 回复：「怎么了」');
+    await item.apply({ replies: [{ n: 1, reply: '谢谢' }, { n: 2, reply: '' }] }, cctx);
+    const rs = await forumApi.replies().where('threadId').equals(mine.id).sortBy('createdAt');
+    expect(rs.filter((r) => r.pendingForChar)).toHaveLength(0);
+    expect(rs.at(-1)!.author).toEqual({ kind: 'char', characterId: 'ch1' });
+    expect(rs.at(-1)!.body).toBe('谢谢');
+    expect(await collectReplies(cctx)).toBeNull();
+  });
+
+  it('catchup browse: skipped right after he posted; otherwise he can reply to a numbered thread or post anew', async () => {
+    expect(await collectBrowse(cctx)).toBeNull(); // 刚发过《今天好累》
+    const mine = (await forumApi.threads().where('campaignId').equals('cp3').toArray()).find((t) => t.author.kind === 'char')!;
+    await forumApi.threads().update(mine.id, { createdAt: Date.now() - 7 * 3600_000 });
+    const item = (await collectBrowse(cctx))!;
+    expect(item.prompt).toContain('《面包涨价》');
+    await item.apply({ act: true, reply_to: 0, title: '', text: '今晚月亮很圆' }, cctx);
+    const posted = (await forumApi.threads().where('campaignId').equals('cp3').toArray()).find((t) => t.source === 'catchup')!;
+    expect(posted.title).toBe('今晚月亮很圆');
+    await item.apply({ act: false, reply_to: 0, title: '', text: '不会落库' }, cctx);
+    expect((await forumApi.threads().where('campaignId').equals('cp3').toArray()).filter((t) => t.source === 'catchup')).toHaveLength(1);
   });
 });
