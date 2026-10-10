@@ -1,6 +1,6 @@
 import type { ChatMessage, TextBlock } from '../llm/types';
 import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Message, World } from '../storage/db';
-import { textOf } from '../data/repo';
+import { modelTextOf } from '../data/repo';
 import { triggerL1 } from './l1';
 import { expandMacros } from './macros';
 
@@ -137,7 +137,8 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const messages: ChatMessage[] = [];
   for (const m of recent) {
     if (m.role === 'system') continue;
-    const text = textOf(m).trim();
+    // 正文 + 卡片 alt：只有卡片的回复（发了红包、分享了歌）也要进历史
+    const text = modelTextOf(m).trim();
     if (!text) continue;
     const last = messages[messages.length - 1];
     if (last && last.role === m.role) last.content.push({ type: 'text', text });
@@ -145,7 +146,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   }
 
   // L1：扫最近几条消息 + 本轮输入
-  const scan = [...recent.slice(-scanDepth).map(textOf), input.userText ?? ''].join('\n');
+  const scan = [...recent.slice(-scanDepth).map(modelTextOf), input.userText ?? ''].join('\n');
   const hits = triggerL1(input.lore, input.overlays.filter((o) => !o.pending), { scanText: scan, budgetTokens: input.l1Budget });
 
   const tail: string[] = [];

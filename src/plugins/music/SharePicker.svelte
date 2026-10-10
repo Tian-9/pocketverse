@@ -22,7 +22,7 @@
     if (!card) return;
     const head = card.extra?.lyricsHead as string | undefined;
     const text = `[分享了一首歌：《${card.title}》${card.subtitle ? ' - ' + card.subtitle : ''}]${head ? '\n歌词开头：\n' + head : ''}`;
-    onsend({ text, cards: [{ tag: 'share', body: JSON.stringify(card) }], cardOnly: true });
+    onsend({ text, cards: [{ tag: 'share', body: JSON.stringify(card), alt: `[歌曲] ${card.title}${card.subtitle ? ' - ' + card.subtitle : ''}` }], cardOnly: true });
   }
 </script>
 

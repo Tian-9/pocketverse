@@ -2,7 +2,7 @@
   import { NavBar, List, Placeholder, Avatar, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
-  import { textOf } from '$kernel/data/repo';
+  import { previewOf } from '$kernel/data/repo';
   import { nav } from '$kernel/nav/nav.svelte';
   import { chat } from '$kernel/chat/engine.svelte';
 
@@ -14,7 +14,7 @@
       const ch = cv.participantIds[0] ? await db().characters.get(cv.participantIds[0]) : undefined;
       if (!ch) continue;
       const last = await db().messages.where('conversationId').equals(cv.id).last();
-      out.push({ id: cv.id, name: ch.name, avatar: ch.avatar, last: last ? textOf(last) : '', ts: last?.ts ?? 0 });
+      out.push({ id: cv.id, name: ch.name, avatar: ch.avatar, last: last ? previewOf(last) : '', ts: last?.ts ?? 0 });
     }
     return out.sort((a, b) => b.ts - a.ts);
   }, []);

@@ -3,7 +3,7 @@
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
-  import { repo, textOf } from '$kernel/data/repo';
+  import { repo, textOf, cardsOf } from '$kernel/data/repo';
   import { chat } from '$kernel/chat/engine.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
@@ -11,7 +11,7 @@
   import { toolLabel } from '$kernel/context/tools';
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
-  import type { ComposerAction, OutgoingMessage } from '$kernel/api';
+  import type { ComposerAction, OutgoingMessage, MessageCard } from '$kernel/api';
 
   let { id }: { id: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
@@ -31,7 +31,7 @@
     active = null; panel = false;
     if (!llm.configured) { nav.push('settings', 'api'); return; }
     const meta: Record<string, unknown> = {};
-    if (msg.cards?.length) meta.cards = msg.cards.map((c) => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {} }));
+    if (msg.cards?.length) meta.cards = msg.cards.map((c): MessageCard => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {}, ...(c.alt ? { alt: c.alt } : {}) }));
     if (msg.cardOnly) meta.cardOnly = true;
     await chat.send(id, msg.text, Object.keys(meta).length ? { meta } : {});
   }
@@ -82,9 +82,7 @@
     if (ch?.useFirstMessage && ch.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
     menu = false;
   }
-  interface Card { pluginId: string; tag: string; body: string; attrs: Record<string, string> }
-  function cardsOf(m: Message): Card[] { return (m.meta?.cards as Card[] | undefined) ?? []; }
-  function cardComponent(c: Card) {
+  function cardComponent(c: MessageCard) {
     if (c.tag === 'share') return ShareCardView;
     return registry.get(c.pluginId)?.outputHandlers?.find((h) => h.tag === c.tag)?.component ?? null;
   }

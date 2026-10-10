@@ -77,14 +77,27 @@ export interface PromptContext {
   campaignId: string;
   conversationId: string;
   characterIds: string[];
-  /** 工具处理时可用：往这一轮回复里加一张卡片，由本插件 outputHandlers 里同名 tag 的组件渲染 */
-  addCard?(tag: string, body: string, attrs?: Record<string, string>): void;
+  /**
+   * 工具处理时可用：往这一轮回复里加一张卡片，由本插件 outputHandlers 里同名 tag 的组件渲染。
+   * alt 是这张卡的一句话文字版（如「[发了一个红包：¥8.88「生日快乐」]」），进后续轮次的历史和聊天列表预览；不给的话模型下一轮就不记得发过。
+   */
+  addCard?(tag: string, body: string, attrs?: Record<string, string>, alt?: string): void;
+}
+
+/** 消息里的一张卡片：pluginId + tag 决定用哪个组件渲染，alt 是给模型和列表预览看的一句话 */
+export interface MessageCard {
+  pluginId: string;
+  tag: string;
+  body: string;
+  attrs: Record<string, string>;
+  alt?: string;
 }
 
 /** 用户从「+」面板发出去的消息：text 给模型看，cards 给人看 */
 export interface OutgoingMessage {
   text: string;
-  cards?: { tag: string; body: string; attrs?: Record<string, string> }[];
+  /** alt 是卡片在聊天列表里的预览文字（如「[红包] 恭喜发财」），cardOnly 时没有它列表就会显示给模型看的 text */
+  cards?: { tag: string; body: string; attrs?: Record<string, string>; alt?: string }[];
   /** 只显示卡片，不显示 text 气泡 */
   cardOnly?: boolean;
 }

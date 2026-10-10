@@ -61,7 +61,7 @@ export default definePlugin({
       if (!amount) return '金额不对';
       const note = String(i?.note ?? '').trim().slice(0, 60) || '恭喜发财';
       const packet = await redpacketApi.create({ conversationId: p.conversationId, campaignId: p.campaignId, from: 'char', amount, note });
-      p.addCard?.('redpacket', JSON.stringify({ id: packet.id }));
+      p.addCard?.('redpacket', JSON.stringify({ id: packet.id }), {}, `[发了一个红包：${yuan(amount)}，留言「${note}」]`);
       return `已发出 ${yuan(amount)} 的红包，卡片在对话里，对方点开才会领。不用再描述红包。`;
     },
   }],

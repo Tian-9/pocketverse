@@ -16,7 +16,7 @@
     const text = note.trim() || '恭喜发财，大吉大利';
     const p = await redpacketApi.create({ conversationId, campaignId, from: 'user', amount: n, note: text });
     await redpacketApi.adjust(-n);
-    onsend({ text: `[发了一个红包：${yuan(n)}，留言「${text}」]`, cards: [{ tag: 'redpacket', body: JSON.stringify({ id: p.id }) }], cardOnly: true });
+    onsend({ text: `[发了一个红包：${yuan(n)}，留言「${text}」]`, cards: [{ tag: 'redpacket', body: JSON.stringify({ id: p.id }), alt: `[红包] ${text}` }], cardOnly: true });
   }
 </script>
 
