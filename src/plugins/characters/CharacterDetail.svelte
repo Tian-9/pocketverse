@@ -76,9 +76,9 @@
   <List footer="跟随真实时间：角色知道现在几点，适合日常陪聊。剧情时间：不给真实时钟，时间由角色和你用「推进时间」推进，适合推长线剧情。">
     <Cell title="剧情时间模式" subtitle={storyTime ? '当前：剧情时间' : '当前：跟随真实时间'}>{#snippet right()}<Toggle bind:checked={storyTime} onchange={save} label="剧情时间" />{/snippet}</Cell>
   </List>
-  <SectionTitle text="他的世界书" />
-  <List footer="只属于这个角色的设定，和他聊时才进上下文。">
-    <Cell title="专属设定" value={`${loreCount.value} 条`} chevron onclick={() => nav.push('characters', 'lore', { id })} />
+  <SectionTitle text="人物背景" />
+  <List footer="跟卡走的设定，和他聊时才进上下文，换世界也带着。">
+    <Cell title="人物背景" value={`${loreCount.value} 条`} chevron onclick={() => nav.push('characters', 'lore', { id })} />
   </List>
   <SectionTitle text="开场白" />
   <List footer="酒馆卡的开场白多半是为酒馆场景写的，默认不自动发。写了适合手机聊天的再打开。">

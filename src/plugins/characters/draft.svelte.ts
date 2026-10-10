@@ -28,7 +28,7 @@ class InspectDraft {
     }
     this.book.forEach((e, i) => {
       if (!e.include) return;
-      for (const f of scanText(`book:${i}`, e.content)) out.push({ ...f, key: `book:${i}:${f.kind}:${f.index}`, label: `世界书 · ${e.title}` });
+      for (const f of scanText(`book:${i}`, e.content)) out.push({ ...f, key: `book:${i}:${f.kind}:${f.index}`, label: `人物背景 · ${e.title}` });
     });
     return out;
   });

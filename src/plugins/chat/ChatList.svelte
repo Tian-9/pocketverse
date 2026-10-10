@@ -2,13 +2,15 @@
   import { NavBar, List, Placeholder, Avatar, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
-  import { previewOf } from '$kernel/data/repo';
+  import { repo, previewOf } from '$kernel/data/repo';
   import { nav } from '$kernel/nav/nav.svelte';
   import { chat } from '$kernel/chat/engine.svelte';
 
   interface Row { id: string; name: string; avatar?: Blob; last: string; ts: number }
   const rows = live(async (): Promise<Row[]> => {
-    const convs = await db().conversations.filter((c) => c.pluginId === 'chat').toArray();
+    // 一个角色一行：只列他当前这一局的会话，别的世界的局不出现
+    const current = await repo.currentCampaignIds();
+    const convs = await db().conversations.filter((c) => c.pluginId === 'chat' && current.has(c.campaignId)).toArray();
     const out: Row[] = [];
     for (const cv of convs) {
       const ch = cv.participantIds[0] ? await db().characters.get(cv.participantIds[0]) : undefined;

@@ -22,7 +22,7 @@
   async function remove(o: Row) { await db().overlays.delete(o.id); open = null; }
 </script>
 
-<NavBar title="本局变化" back="世界书" />
+<NavBar title="本局变化" back="世界" />
 {#if rows.value.length === 0}
   <Placeholder title="还没有变化" body="剧情改变世界时，角色或记忆整理会把变化记在这里。原始世界书永远不会被改。" paths={icons.book} />
 {/if}

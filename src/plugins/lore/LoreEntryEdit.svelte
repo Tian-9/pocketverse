@@ -3,7 +3,7 @@
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import { nav } from '$kernel/nav/nav.svelte';
-  let { id, back = '世界书' }: { id: string; back?: string } = $props();
+  let { id, back = '返回' }: { id: string; back?: string } = $props();
   const e = live(() => db().lore.get(id), undefined);
   let title = $state(''), summary = $state(''), content = $state(''), keywords = $state(''), regex = $state(''), order = $state('0');
   let constant = $state(false), recursive = $state(false), style = $state(false), tail = $state(false);

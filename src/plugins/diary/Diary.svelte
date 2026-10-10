@@ -9,7 +9,9 @@
   interface Row extends DiaryEntry { name: string; avatar?: Blob }
   const rows = live(async (): Promise<Row[]> => {
     if (!registry.isEnabled('diary')) return [];
-    const es = await diaryApi.entries().reverse().sortBy('date');
+    const { repo } = await import('$kernel/data/repo');
+    const current = await repo.currentCampaignIds();
+    const es = (await diaryApi.entries().reverse().sortBy('date')).filter((e) => current.has(e.campaignId));
     const out: Row[] = [];
     for (const e of es) { const ch = await db().characters.get(e.characterId); if (ch) out.push({ ...e, name: ch.name, avatar: ch.avatar }); }
     return out;

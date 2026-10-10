@@ -8,7 +8,7 @@
   const exc = $derived(draft.book.map((e, i) => ({ e, i })).filter((x) => !x.e.include));
 </script>
 
-<NavBar title="内嵌世界书" back="检查" />
+<NavBar title="卡里带的背景" back="检查" />
 {#if draft.book.length === 0}
   <Placeholder title="没有条目" paths={icons.book} />
 {/if}

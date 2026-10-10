@@ -1,6 +1,7 @@
 import type { PluginManifest, Shortcut, PluginContext } from '../api/types';
 import { bus } from '../bus/bus';
 import { db, pluginTable } from '../storage/db';
+import { repo } from '../data/repo';
 import { llm } from '../llm/gateway.svelte';
 import { CONSOLIDATE_MODEL } from '../memory/consolidate';
 import { nav } from '../nav/nav.svelte';
@@ -126,7 +127,8 @@ function makeContext(id: string): PluginContext {
     },
     async activeCampaigns() {
       const since = Date.now() - 7 * 24 * 3600 * 1000;
-      const cps = await db().campaigns.where('lastPlayedAt').aboveOrEqual(since).toArray();
+      const current = await repo.currentCampaignIds();
+      const cps = (await db().campaigns.where('lastPlayedAt').aboveOrEqual(since).toArray()).filter((c) => current.has(c.id));
       const out = [];
       for (const c of cps) {
         const ch = c.characterIds[0] ? await db().characters.get(c.characterIds[0]) : undefined;
