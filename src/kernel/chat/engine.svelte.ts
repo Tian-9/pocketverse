@@ -31,7 +31,6 @@ class ChatEngine {
     this.userName = await db().getKV('kernel.userName', '我');
     this.userProfile = await db().getKV('kernel.userProfile', '');
     this.rules = await db().getKV('kernel.rules', '');
-    bus.on('app.closed', () => this.consolidateAll());
   }
   async setUserName(n: string) { this.userName = n.trim() || '我'; await db().setKV('kernel.userName', this.userName); }
   async setUserProfile(p: string) { this.userProfile = p; await db().setKV('kernel.userProfile', p); }
@@ -84,12 +83,6 @@ class ChatEngine {
 
   /** 手动触发一次合并（设置或角色页用） */
   async consolidateNow(conversationId: string) { return consolidate(conversationId, { force: true, reason: '手动' }); }
-
-  private async consolidateAll() {
-    const convs = await db().conversations.toArray();
-    log.info('consolidate', `回到桌面，检查 ${convs.length} 个会话`);
-    for (const c of convs) consolidate(c.id, { reason: '回到桌面' }).catch(() => { /* 已记日志 */ });
-  }
 
   private async runTurn(conversationId: string) {
     const conv = await db().conversations.get(conversationId);

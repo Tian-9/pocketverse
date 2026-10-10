@@ -82,6 +82,13 @@ const inflight = new Set<string>();
 /** 对一个会话做一次合并：处理 consolidatedUpTo 之后的消息。 */
 export async function consolidate(conversationId: string, opts: { force?: boolean; reason?: string } = {}): Promise<boolean> {
   if (inflight.has(conversationId)) { log.info('consolidate', '跳过：上一次还在进行', { conversationId }); return false; }
+  // 在第一次 await 之前占位：两次检查几乎同时进来时，后一次必须看到前一次，否则同一批消息会发两次
+  inflight.add(conversationId);
+  try { return await run(conversationId, opts); }
+  finally { inflight.delete(conversationId); }
+}
+
+async function run(conversationId: string, opts: { force?: boolean; reason?: string }): Promise<boolean> {
   const conv = await db().conversations.get(conversationId);
   if (!conv) return false;
   const campaign = await db().campaigns.get(conv.campaignId);
@@ -100,7 +107,6 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
     if (sinceFail < CONSOLIDATE_EVERY) { log.info('consolidate', `跳过：上次失败后只有 ${sinceFail} 条新回复，攒够 ${CONSOLIDATE_EVERY} 条再试`, { conversationId }); return false; }
   }
 
-  inflight.add(conversationId);
   const t0 = Date.now();
   log.info('consolidate', `开始：${character.name}，${msgs.length} 条消息（${replies} 条回复），触发：${opts.reason ?? (opts.force ? '手动' : '未知')}`, { conversationId, since });
   try {
@@ -131,7 +137,5 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
     await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs });
     log.error('consolidate', `失败：${e instanceof Error ? e.message : String(e)}，这批消息不再自动重试`, { conversationId });
     throw e;
-  } finally {
-    inflight.delete(conversationId);
   }
 }
