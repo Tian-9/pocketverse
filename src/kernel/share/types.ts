@@ -22,6 +22,8 @@ export interface ShareCard {
   preview?: string;
   /** 资料来源，如 itunes+lrclib / manual / none */
   source?: string;
+  /** 点卡片打开的界面（如论坛帖子页）；没有就只是展示 */
+  open?: { pluginId: string; screen: string; params?: Record<string, unknown> };
   extra?: Record<string, unknown>;
 }
 
@@ -40,6 +42,12 @@ export interface ShareResult {
   forModel: string;
 }
 
+/** 解析时所在的局：按存档存东西的解析器（论坛帖子）靠它找 */
+export interface ShareContext {
+  campaignId: string;
+  characterIds: string[];
+}
+
 export interface ShareResolver {
   /** 大类名，进 share 工具的 type 枚举 */
   type: string;
@@ -47,5 +55,6 @@ export interface ShareResolver {
   label: string;
   /** 给模型看的一句说明：这个类型 title / subtitle 填什么 */
   hint: string;
-  resolve(query: ShareQuery): Promise<ShareResult>;
+  /** 查不到又不该编的（本地帖子）就 throw，错误信息会原样告诉模型 */
+  resolve(query: ShareQuery, ctx: ShareContext): Promise<ShareResult>;
 }

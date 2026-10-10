@@ -308,8 +308,8 @@ L2 工具（内核提供）：
 角色在聊天里"分享一个东西"（歌、电影、新闻、链接）走同一条路，不按类型各写一套：
 
 - 内核工具 `share({ type, title, subtitle?, quote?, note? })`。`type` 是大类（music / movie / book / news / link），由已启用插件声明的**分享解析器**决定可选值，没有解析器的类型不出现在 schema 里。
-- 插件用 `shares: [{ type, label, hint, resolve(query) }]` 注册解析器。解析器负责查资料，返回两样东西：给模型看的文本（真实资料，比如完整歌词）和给用户看的卡片 `ShareCard`。
-- `ShareCard` 是通用结构：`type / subtype / title / subtitle / cover / links / quote / excerpt / preview / source`。聊天插件只认这一种卡片，渲染时按字段有无决定显示什么（有 preview 就出播放键，有 cover 就出封面）。类型私有的东西放 `subtype` 和 `extra`，不加新卡片组件。
+- 插件用 `shares: [{ type, label, hint, resolve(query, ctx) }]` 注册解析器，`ctx` 带当前存档和在场角色（按存档存的东西，如论坛帖子，靠它找）。解析器负责查资料，返回两样东西：给模型看的文本（真实资料，比如完整歌词）和给用户看的卡片 `ShareCard`。查不到又不该编的（本地帖子）直接 throw，错误信息原样回给模型。
+- `ShareCard` 是通用结构：`type / subtype / title / subtitle / cover / links / quote / excerpt / preview / source / open`。聊天插件只认这一种卡片，渲染时按字段有无决定显示什么（有 preview 就出播放键，有 cover 就出封面，有 `open` 点卡片就 `nav.push` 过去）。类型私有的东西放 `subtype` 和 `extra`，不加新卡片组件。
 - 查找顺序固定：用户手动维护的本地库（最高优先，可以没有）→ 插件在浏览器里直接请求免费接口（不经过模型，不花 token）→ 都没有时告诉模型"没查到，不要编"，模型若被允许上网可再用 `web_search`。
 - `quote` 是防幻觉点：模型想引用的那句必须在解析器查到的原文里出现，否则丢掉并告诉模型。歌词、台词、新闻原话都走这条规则。
 - 音乐解析器（`plugins/music`）：iTunes Search 拿封面、试听、链接；LRCLIB 拿歌词。两个都免费、无 Key、允许跨域。

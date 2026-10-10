@@ -2,7 +2,7 @@ import type { Component } from 'svelte';
 import type { Table } from 'dexie';
 import type { ShareResolver } from '../share/types';
 
-export type { ShareCard, ShareQuery, ShareResult, ShareResolver } from '../share/types';
+export type { ShareCard, ShareQuery, ShareResult, ShareResolver, ShareContext } from '../share/types';
 
 /** 插件清单：插件通过 definePlugin() 声明，内核据此收集贡献点。 */
 export interface PluginManifest {

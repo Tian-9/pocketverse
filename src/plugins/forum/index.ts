@@ -6,6 +6,8 @@ import ThreadScreen from './Thread.svelte';
 import ForumSection from './ForumSection.svelte';
 import { CROWD_SYSTEM, crowdUser, crowdSchema, parseCrowd, type WaitingThread } from './crowd';
 import { tools, volatile, collectBrowse, collectReplies } from './character';
+import { postResolver } from './share';
+import PostPicker from './PostPicker.svelte';
 
 /** 谁写的：路人（只有网名）、他（角色）、你 */
 export type Author = { kind: 'npc'; name: string } | { kind: 'char'; characterId: string } | { kind: 'user' };
@@ -167,12 +169,14 @@ export const forumApi = {
 export default definePlugin({
   id: 'forum',
   name: '论坛',
-  version: '0.2.0',
+  version: '0.3.0',
   description: '这个世界的本地论坛：路人在上面发帖吵架，你和他都能发帖回帖；他离开回来会刷一刷，也会回他帖子下的评论。',
   app: { screen: Forum, icon: { paths: icons.forum, background: gradients.teal } },
   screens: { thread: ThreadScreen },
   storage: { tables: { threads: 'id, campaignId, lastReplyAt', replies: 'id, threadId, campaignId, createdAt' } },
   profileSections: [{ id: 'latest', component: ForumSection }],
+  shares: [postResolver],
+  composerActions: [{ id: 'post', label: '帖子', icon: { paths: icons.forum, background: gradients.teal }, component: PostPicker }],
   promptContributors: [{ id: 'my-threads', volatile }],
   tools,
   catchup: [

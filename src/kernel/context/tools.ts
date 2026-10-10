@@ -168,7 +168,10 @@ export function shareTool(resolvers: ShareResolver[]): KernelTool | null {
       if (!r) return `没有「${type}」这种分享类型，可选：${types.join('、')}`;
       const title = str(input?.title, 120).trim();
       if (!title) return 'title 不能为空';
-      const res = await r.resolve({ type, title, subtitle: str(input?.subtitle, 120).trim() || undefined, quote: str(input?.quote, 200).trim() || undefined });
+      const res = await r.resolve(
+        { type, title, subtitle: str(input?.subtitle, 120).trim() || undefined, quote: str(input?.quote, 200).trim() || undefined },
+        { campaignId: ctx.campaign.id, characterIds: ctx.characters.map((c) => c.id) },
+      );
       ctx.cards.push(res.card);
       return expandForModel(res.forModel, ctx);
     },

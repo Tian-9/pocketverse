@@ -2,11 +2,16 @@
   /** 通用分享卡：按字段有无决定显示什么。body 是 ShareCard 的 JSON。 */
   import type { ShareCard } from '../share/types';
   import Glyph from './Glyph.svelte';
+  import { icons } from './icons';
+  import { nav } from '../nav/nav.svelte';
   import { onDestroy } from 'svelte';
   let { body }: { body: string; attrs?: Record<string, string> } = $props();
   const card = $derived.by<ShareCard>(() => { try { return JSON.parse(body); } catch { return { type: 'link', title: body }; } });
-  const KIND: Record<string, string> = { music: '分享歌曲', movie: '分享电影', book: '分享书', news: '分享新闻', link: '分享链接' };
+  const KIND: Record<string, string> = { music: '分享歌曲', movie: '分享电影', book: '分享书', news: '分享新闻', link: '分享链接', post: '分享帖子' };
   const kind = $derived(KIND[card.type] ?? '分享');
+  const ICON: Record<string, string[]> = { music: icons.music, post: icons.forum, book: icons.book };
+  const icon = $derived(ICON[card.type] ?? icons.globe);
+  function open() { if (card.open) nav.push(card.open.pluginId, card.open.screen, card.open.params); }
 
   let audio: HTMLAudioElement | null = null;
   let playing = $state(false);
@@ -23,8 +28,8 @@
   onDestroy(() => { audio?.pause(); audio = null; });
 </script>
 
-<div class="share">
-  <span class="k"><Glyph paths={['M9 18V5l12-2v13', 'M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6z']} size={12} width={2.2} /> {kind}</span>
+{#snippet inner()}
+  <span class="k"><Glyph paths={icon} size={12} width={2.2} /> {kind}</span>
   <div class="head">
     {#if card.cover}<img class="cover" src={card.cover} alt="" loading="lazy" />{/if}
     <div class="info">
@@ -32,7 +37,7 @@
       {#if card.subtitle}<div class="s">{card.subtitle}</div>{/if}
     </div>
     {#if card.preview}
-      <button class="play" onclick={toggle} aria-label={playing ? '暂停' : '试听'}>
+      <button class="play" onclick={(e) => { e.stopPropagation(); toggle(); }} aria-label={playing ? '暂停' : '试听'}>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="#fff" aria-hidden="true">
           {#if playing}<path d="M6 5h4v14H6z" /><path d="M14 5h4v14h-4z" />{:else}<path d="M8 4l13 8-13 8z" />{/if}
         </svg>
@@ -42,12 +47,20 @@
   {#if card.quote}<div class="q">“{card.quote}”</div>{/if}
   {#if card.excerpt}<div class="e">{card.excerpt}</div>{/if}
   {#if card.links?.length}
-    <div class="links">{#each card.links as l (l.url)}<a href={l.url} target="_blank" rel="noopener">{l.label}</a>{/each}</div>
+    <div class="links">{#each card.links as l (l.url)}<a href={l.url} target="_blank" rel="noopener" onclick={(e) => e.stopPropagation()}>{l.label}</a>{/each}</div>
   {/if}
-</div>
+{/snippet}
+
+{#if card.open}
+  <div class="share openable" role="button" tabindex="0" onclick={open} onkeydown={(e) => { if (e.key === 'Enter') open(); }}>{@render inner()}</div>
+{:else}
+  <div class="share">{@render inner()}</div>
+{/if}
 
 <style>
   .share { background: var(--bg-surface); border: 0.5px solid var(--separator); border-radius: 14px; padding: 10px 12px; width: 260px; max-width: 100%; }
+  .openable { cursor: pointer; }
+  .openable:active { background: var(--fill-2); }
   .k { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--tint); font-weight: 600; letter-spacing: 0.02em; }
   .head { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .cover { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; background: var(--fill-2); flex-shrink: 0; }
