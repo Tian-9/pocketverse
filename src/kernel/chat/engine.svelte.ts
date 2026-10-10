@@ -13,7 +13,7 @@ import { LlmError } from '../llm/types';
 import { bus } from '../bus/bus';
 import { registry } from '../registry/registry.svelte';
 import { consolidate } from '../memory/consolidate';
-import type { PromptContext } from '../api/types';
+import type { PromptContext, MessageCard, PluginManifest, ShareCard } from '../api/types';
 import { log } from '../log/log';
 
 export type TurnStatus = 'idle' | 'thinking' | 'typing' | 'tool';
@@ -123,13 +123,13 @@ class ChatEngine {
     const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
-    const pluginCards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = [];
+    const pluginCards: MessageCard[] = [];
     const tools: LoopTool[] = useTools ? [
       ...[...kernelTools, ...(share ? [share] : []), ...(catchup.hasAttach() ? [attachedTool] : [])].map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
       ...plugins.flatMap((p) => (p.tools ?? []).map((t) => ({
         spec: { name: t.name, description: t.description, inputSchema: t.inputSchema },
         run: async (input: unknown) => {
-          const ctx: PromptContext = { ...pctx, addCard: (tag, body, attrs = {}) => pluginCards.push({ pluginId: p.id, tag, body, attrs }) };
+          const ctx: PromptContext = { ...pctx, addCard: (tag, body, attrs = {}, alt) => pluginCards.push({ pluginId: p.id, tag, body, attrs, ...(alt ? { alt } : {}) }) };
           const r = await t.handler(input, ctx);
           return typeof r === 'string' ? r : JSON.stringify(r ?? null);
         },
@@ -162,8 +162,8 @@ class ChatEngine {
       const handlers = plugins.flatMap((p) => (p.outputHandlers ?? []).map((h) => ({ pluginId: p.id, h })));
       const { text, found } = extractTags(r.text.trim(), handlers.map((x) => x.h.tag));
       // 工具产生的分享卡在前（它们先发生），标签卡在后
-      const cards: { pluginId: string; tag: string; body: string; attrs: Record<string, string> }[] = [
-        ...tctx.cards.map((c) => ({ pluginId: 'kernel', tag: 'share', body: JSON.stringify(c), attrs: {} })),
+      const cards: MessageCard[] = [
+        ...tctx.cards.map((c) => ({ pluginId: 'kernel', tag: 'share', body: JSON.stringify(c), attrs: {}, alt: shareAlt(c, plugins) })),
         ...pluginCards,
       ];
       for (const f of found) {
@@ -214,6 +214,12 @@ class ChatEngine {
       delete this.live[conversationId];
     }
   }
+}
+
+/** 分享卡的文字版，如「[分享了歌：晴天 - 周杰伦]」；标签来自解析器的 label */
+export function shareAlt(card: ShareCard, plugins: PluginManifest[]): string {
+  const label = plugins.flatMap((p) => p.shares ?? []).find((r) => r.type === card.type)?.label ?? '';
+  return `[分享了${label}：${card.title}${card.subtitle ? ' - ' + card.subtitle : ''}]`;
 }
 
 /** 把一次回复按行拆成多条消息；空行丢掉，最多 6 条，超过的并进最后一条 */

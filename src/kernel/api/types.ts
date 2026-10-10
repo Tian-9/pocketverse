@@ -30,6 +30,8 @@ export interface PluginManifest {
   catchup?: CatchupContributor[];
   /** 聊天输入框「+」面板里的项：用户主动发东西（分享歌、红包…） */
   composerActions?: ComposerAction[];
+  /** 角色主页上挂的段（钱包余额、最近一条朋友圈…）：按存档读自己的表 */
+  profileSections?: ProfileSection[];
   /** 自有数据表：表名 -> Dexie schema 字符串，内核会加 p_<id>_ 前缀 */
   storage?: { tables: Record<string, string> };
   /** 事件订阅 */
@@ -77,14 +79,27 @@ export interface PromptContext {
   campaignId: string;
   conversationId: string;
   characterIds: string[];
-  /** 工具处理时可用：往这一轮回复里加一张卡片，由本插件 outputHandlers 里同名 tag 的组件渲染 */
-  addCard?(tag: string, body: string, attrs?: Record<string, string>): void;
+  /**
+   * 工具处理时可用：往这一轮回复里加一张卡片，由本插件 outputHandlers 里同名 tag 的组件渲染。
+   * alt 是这张卡的一句话文字版（如「[发了一个红包：¥8.88「生日快乐」]」），进后续轮次的历史和聊天列表预览；不给的话模型下一轮就不记得发过。
+   */
+  addCard?(tag: string, body: string, attrs?: Record<string, string>, alt?: string): void;
+}
+
+/** 消息里的一张卡片：pluginId + tag 决定用哪个组件渲染，alt 是给模型和列表预览看的一句话 */
+export interface MessageCard {
+  pluginId: string;
+  tag: string;
+  body: string;
+  attrs: Record<string, string>;
+  alt?: string;
 }
 
 /** 用户从「+」面板发出去的消息：text 给模型看，cards 给人看 */
 export interface OutgoingMessage {
   text: string;
-  cards?: { tag: string; body: string; attrs?: Record<string, string> }[];
+  /** alt 是卡片在聊天列表里的预览文字（如「[红包] 恭喜发财」），cardOnly 时没有它列表就会显示给模型看的 text */
+  cards?: { tag: string; body: string; attrs?: Record<string, string>; alt?: string }[];
   /** 只显示卡片，不显示 text 气泡 */
   cardOnly?: boolean;
 }
@@ -102,6 +117,20 @@ export interface ComposerAction {
   label: string;
   icon: IconSpec;
   /** 在弹窗里渲染的组件，接收 ComposerActionProps */
+  component: Component<any>;
+}
+
+export interface ProfileSectionProps {
+  campaignId: string;
+  characterId: string;
+}
+
+/** 角色主页上的一段，由插件提供；主页本身不认识段的内容 */
+export interface ProfileSection {
+  id: string;
+  /** 段标题，如「钱包」；不给就不显示标题 */
+  label?: string;
+  /** 接收 ProfileSectionProps */
   component: Component<any>;
 }
 

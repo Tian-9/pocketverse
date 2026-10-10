@@ -1,7 +1,7 @@
 import { definePlugin, icons, gradients } from '$kernel/api';
 import Characters from './Characters.svelte';
 import CharacterDetail from './CharacterDetail.svelte';
-import Memories from './Memories.svelte';
+import Profile from './Profile.svelte';
 import Inspect from './Inspect.svelte';
 import Findings from './Findings.svelte';
 import BookEntry from './BookEntry.svelte';
@@ -15,5 +15,6 @@ export default definePlugin({
   core: true,
   description: '世界与角色管理，导入角色卡。',
   app: { screen: Characters, icon: { paths: icons.person, background: gradients.orange } },
-  screens: { detail: CharacterDetail, memories: Memories, inspect: Inspect, findings: Findings, book: Book, bookEntry: BookEntry, lore: CharacterLore },
+  // profile 是角色主页：这一局里的他（状态、钱包、朋友圈、记忆）；detail 是编辑角色卡
+  screens: { detail: CharacterDetail, profile: Profile, inspect: Inspect, findings: Findings, book: Book, bookEntry: BookEntry, lore: CharacterLore },
 });
