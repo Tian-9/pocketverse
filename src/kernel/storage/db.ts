@@ -8,6 +8,10 @@ export interface LoreEntry {
   scope: 'world' | 'character' | 'relation'; characterIds?: string[];
   /** 设定（可查、可覆盖）还是风格指令（像规则一样插入） */
   kind?: 'lore' | 'style';
+  /** 风格指令的位置：system（规则后面，默认）或 tail（对话历史之后、你这句之前，模型最听这里的） */
+  position?: 'system' | 'tail';
+  /** 所属预设（风格包）名，整包可以一起开关、导出 */
+  preset?: string;
   triggers: { keywords: string[]; regex?: string; recursive?: boolean };
   constant: boolean; order: number; enabled: boolean;
 }

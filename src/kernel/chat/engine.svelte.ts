@@ -72,8 +72,13 @@ class ChatEngine {
     const conv = await db().conversations.get(conversationId);
     const campaign = conv && (await db().campaigns.get(conv.campaignId));
     if (!conv || !campaign) return;
+    // 推进时间是章节分隔：先把之前的事整理成记忆，之后的上下文只带分隔点附近几条原话
+    this.live[conversationId] = { conversationId, status: 'thinking', statusText: '正在整理之前的事…', text: '', abort: new AbortController() };
+    try { await consolidate(conversationId, { force: true, reason: '推进时间' }); }
+    catch { /* 已记日志，整理失败不挡推进 */ }
+    finally { delete this.live[conversationId]; }
     await db().campaigns.update(campaign.id, { state: { ...campaign.state, inWorldTime: when } });
-    await repo.addMessage(conversationId, 'user', `（时间来到：${when}${note ? '。' + note : ''}）`, { meta: { narration: true }, inWorldTs: when });
+    await repo.addMessage(conversationId, 'user', `（时间来到：${when}${note ? '。' + note : ''}。之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, inWorldTs: when });
     await this.runTurn(conversationId);
   }
 

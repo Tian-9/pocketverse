@@ -6,17 +6,17 @@
   let { id, back = '世界书' }: { id: string; back?: string } = $props();
   const e = live(() => db().lore.get(id), undefined);
   let title = $state(''), summary = $state(''), content = $state(''), keywords = $state(''), regex = $state(''), order = $state('0');
-  let constant = $state(false), recursive = $state(false), style = $state(false);
+  let constant = $state(false), recursive = $state(false), style = $state(false), tail = $state(false);
   let loaded = $state(false);
   $effect(() => {
     const v = e.value;
-    if (v && !loaded) { title = v.title; summary = v.summary; content = v.content; keywords = v.triggers.keywords.join(', '); regex = v.triggers.regex ?? ''; order = String(v.order); constant = v.constant; recursive = !!v.triggers.recursive; style = v.kind === 'style'; loaded = true; }
+    if (v && !loaded) { title = v.title; summary = v.summary; content = v.content; keywords = v.triggers.keywords.join(', '); regex = v.triggers.regex ?? ''; order = String(v.order); constant = v.constant; recursive = !!v.triggers.recursive; style = v.kind === 'style'; tail = v.position === 'tail'; loaded = true; }
   });
   let t: ReturnType<typeof setTimeout> | undefined;
   function save() {
     clearTimeout(t);
     t = setTimeout(() => db().lore.update(id, {
-      title: title.trim() || '未命名', summary: summary.trim(), content, order: Number(order) || 0, constant, kind: style ? 'style' : 'lore',
+      title: title.trim() || '未命名', summary: summary.trim(), content, order: Number(order) || 0, constant, kind: style ? 'style' : 'lore', position: style && tail ? 'tail' : 'system',
       triggers: { keywords: keywords.split(/[,，、\n]/).map((k) => k.trim()).filter(Boolean), regex: regex.trim() || undefined, recursive },
     }), 400);
   }
@@ -39,6 +39,9 @@
     <SectionTitle text="类型" />
     <List footer="世界设定进目录、可检索、可被本局变化覆盖。风格指令像规则一样插入，不进目录。切换后条目会出现在另一个 App 里。">
       <Cell title="这是风格指令" subtitle={style ? '当前：风格指令' : '当前：世界设定'}>{#snippet right()}<Toggle bind:checked={style} onchange={save} label="风格指令" />{/snippet}</Cell>
+      {#if style}
+        <Cell title="放在尾部" subtitle={tail ? '对话历史之后、你这句之前。模型最听这里的，适合管输出格式和口吻' : '规则后面，和角色设定一起'}>{#snippet right()}<Toggle bind:checked={tail} onchange={save} label="尾部" />{/snippet}</Cell>
+      {/if}
     </List>
   {:else if e.value.kind !== 'style'}
     <SectionTitle text="归属" />

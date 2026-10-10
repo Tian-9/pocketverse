@@ -280,6 +280,10 @@ L2 工具（内核提供）：
 - 每 N 轮（默认 12）或切出 App 时：用 `claude-haiku-5-5` 跑一次合并，输入是上次合并后的消息，输出结构化 JSON：新增情节记忆（带 importance）、状态变化、世界覆盖候选。覆盖候选默认需要用户确认（通知条一键采纳），避免模型瞎改世界。
 - 情节记忆超过 200 条时，对 importance=1 的做二次合并（十条并一条）。
 
+**尾部指令**：`position: 'tail'` 的常驻风格条目不进 system，放在最后一条用户消息里、时间行之前。模型对最后几百字最敏感，管输出格式和口吻放这里。
+
+**章节分隔**：推进时间先强制整理记忆，再写一条带 `meta.chapter` 的旁白。拼装时最近一次分隔点之前只保留几条原话衔接（`chapterTail`，默认 6），之前的事靠记忆而不是复读，防止模型抓着旧梗不放。
+
 ### 5.7 Theme
 
 - 所有颜色、圆角、字体、间距、阴影都是 CSS 变量，定义在 `kernel/theme/tokens.css`，分深浅两套。
@@ -296,7 +300,7 @@ L2 工具（内核提供）：
 
 - 角色卡：PNG 内嵌 `chara` 元数据（V2/V3）和纯 JSON。导入时拆成 `core`（description 的前 800 token，或让模型压一版，用户确认）和 `full`。
 - 世界书：SillyTavern lorebook JSON，字段映射到 `LoreEntry`，`scope` 默认 world，导入后可批量改。
-- 预设：先只导入 system prompt 部分，其他字段忽略，后续按需补。
+- 预设（风格包）：酒馆聊天补全预设的 `prompts[]` 按 `prompt_order` 取文字段落，marker 段跳过，`injection_position=1` 的放尾部，其余放 system；采样参数不要。导入前逐段扫描、可开关可改，入库成一组 `kind: 'style'`、`preset: 名字` 的常驻条目，整包开关、导出（本应用格式可再导入）。
 
 ### 5.10 分享卡与联网
 

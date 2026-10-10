@@ -25,6 +25,8 @@ export interface AssembleInput {
   pluginVolatile?: string[];
   now?: Date;
   windowSize?: number;
+  /** 推进时间是章节分隔：分隔点之前只保留这么多条衔接 */
+  chapterTail?: number;
   l1Budget?: number;
   /** 扫描最近几条消息做 L1 触发 */
   scanDepth?: number;
@@ -48,6 +50,7 @@ export const DEFAULT_RULES = [
   '一次回复 1 到 4 条消息，每条一行，用换行分开，像连发几条微信。短的一句话就一条，不要编号，不要独白。',
   '长度和对方匹配，对方一句你就一两句。',
   '不要替用户说话或决定用户的行动。',
+  '不要反复提同一个梗、同一件事，前面说过的话不要换个说法再说一遍。对方推进了时间，之前的话题就是过去的事，按新的时间点说话。',
   '用中文回复，除非角色设定要求其他语言。',
 ].join('\n');
 
@@ -104,11 +107,13 @@ function stateText(c: Campaign, chars: Character[]): string {
  * 缓存断点两处：system 末尾、倒数第二条消息末尾。易变内容只进最后一条用户消息。
  */
 export function assemble(input: AssembleInput): { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[] } {
-  const { windowSize = 60, scanDepth = 4, now = new Date() } = input;
+  const { windowSize = 60, chapterTail = 6, scanDepth = 4, now = new Date() } = input;
   const isStyle = (e: LoreEntry) => e.kind === 'style';
   const loreOnly = input.lore.filter((e) => !isStyle(e));
   const constant = loreOnly.filter((e) => e.enabled && e.constant).sort((a, b) => a.order - b.order);
-  const constantStyle = input.lore.filter((e) => isStyle(e) && e.enabled && e.constant).sort((a, b) => a.order - b.order);
+  const constantStyleAll = input.lore.filter((e) => isStyle(e) && e.enabled && e.constant).sort((a, b) => a.order - b.order);
+  const constantStyle = constantStyleAll.filter((e) => e.position !== 'tail');
+  const tailStyle = constantStyleAll.filter((e) => e.position === 'tail');
 
   const system = [
     section('规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + toolRules(input) : '')),
@@ -125,7 +130,10 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   ].filter((b): b is TextBlock => !!b);
   system[system.length - 1]!.cache = true;
 
-  const recent = input.history.slice(-windowSize);
+  let recent = input.history.slice(-windowSize);
+  // 章节分隔：最近一次推进时间之前的原话只留几条衔接，之前的事靠记忆，不靠复读
+  const cut = recent.map((m, i) => (m.meta?.chapter ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+  if (cut > chapterTail) recent = recent.slice(cut - chapterTail);
   const messages: ChatMessage[] = [];
   for (const m of recent) {
     if (m.role === 'system') continue;
@@ -146,6 +154,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   if (styleHits.length) tail.push('<风格>\n' + styleHits.map((h) => `## ${h.entry.title}\n${h.entry.content}`).join('\n\n') + '\n</风格>');
   if (loreHits.length) tail.push('<世界书>\n' + loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n') + '\n</世界书>');
   tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
+  if (tailStyle.length) tail.push('<尾部指令>\n' + tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n') + '\n</尾部指令>');
   if (input.storyTime) tail.push(`（剧情时间模式：现在的剧情时间是「${input.campaign.state.inWorldTime || '未设定，由你根据对话决定'}」。时间推进时用 state_update 更新。）`);
   else tail.push(`现在是 ${now.toLocaleString('zh-CN', { hour12: false })}。`);
   if (input.userText?.trim()) tail.push(input.userText.trim());

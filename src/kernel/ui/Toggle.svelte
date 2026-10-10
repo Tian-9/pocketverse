@@ -1,6 +1,8 @@
 <script lang="ts">
   let { checked = $bindable(false), onchange, label, disabled = false }: { checked?: boolean; onchange?: (v: boolean) => void; label?: string; disabled?: boolean } = $props();
-  function flip() {
+  // 开关常放在可点进去的 Cell 里，点开关不能顺带把 Cell 也点了
+  function flip(e: MouseEvent) {
+    e.stopPropagation();
     if (disabled) return;
     checked = !checked;
     onchange?.(checked);

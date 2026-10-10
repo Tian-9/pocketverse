@@ -69,3 +69,24 @@ describe('style entries', () => {
     expect(r.l1Hits).toEqual([]);
   });
 });
+
+describe('tail style and chapter cut', () => {
+  it('puts tail-position constant style entries at the end of the last user message, not in system', () => {
+    const tail: LoreEntry = { id: 't1', worldId: 'global', title: '尾部', summary: '', content: '每条不超过十五个字。', scope: 'world', kind: 'style', position: 'tail', triggers: { keywords: [] }, constant: true, order: 0, enabled: true };
+    const r = assemble({ ...base, lore: [tail], history: [], userText: '嗨' });
+    expect(r.system.some((b) => b.text.includes('每条不超过十五个字'))).toBe(false);
+    const last = r.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(last).toContain('<尾部指令>\n每条不超过十五个字。\n</尾部指令>');
+    expect(last.indexOf('<尾部指令>')).toBeLessThan(last.indexOf('嗨'));
+  });
+  it('keeps only a few messages before the latest chapter marker', () => {
+    const msg = (i: number, extra: Partial<Message> = {}): Message => ({ id: 'm' + i, conversationId: 'c', role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: '第' + i }], ts: i, ...extra });
+    const history = [...Array.from({ length: 20 }, (_, i) => msg(i)), msg(20, { role: 'user', meta: { narration: true, chapter: true }, content: [{ type: 'text', text: '（时间来到：三天后）' }] }), msg(21), msg(22)];
+    const r = assemble({ ...base, lore: [], history, userText: '现在呢', chapterTail: 4 });
+    const text = r.messages.flatMap((m) => m.content.map((b) => (b.type === 'text' ? b.text : ''))).join('\n');
+    expect(text).not.toContain('第15');
+    expect(text).toContain('第16');
+    expect(text).toContain('时间来到');
+    expect(text).toContain('第22');
+  });
+});

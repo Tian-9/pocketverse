@@ -104,7 +104,9 @@ export default definePlugin({
   promptContributors: [{
     id: 'recent-moments',
     async volatile(p: PromptContext) {
-      const posts = await ctx.table<Post>('posts').where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt');
+      // 只带最近两天的和还没回评论的，老动态他自己翻，不然每轮都看到同一条就反复提
+      const fresh = Date.now() - 48 * 3600_000;
+      const posts = (await ctx.table<Post>('posts').where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt')).filter((x) => x.createdAt >= fresh || x.pendingReply);
       if (!posts.length) return '';
       const lines = posts.slice(0, 3).map((x) => `- ${fmtTime(x.createdAt)}：${x.text}${x.liked ? '（用户点了赞）' : ''}${x.comments.length ? '；评论：' + x.comments.map((c) => (c.by === 'user' ? '用户' : '你') + '「' + c.text + '」').join('，') : ''}${x.pendingReply ? '（用户的评论你还没回，见「顺手处理的事」）' : ''}`);
       return `<你最近发的朋友圈>\n${lines.join('\n')}\n</你最近发的朋友圈>`;
