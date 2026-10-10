@@ -4,7 +4,7 @@ import { applyOutput, buildPrompt } from './consolidate';
 import type { Campaign, Character } from '../storage/db';
 
 beforeAll(() => { openDB([]); });
-const character: Character = { id: 'c', worldId: 'w', name: '林晚秋', core: 'x', full: '' };
+const character: Character = { id: 'c', name: '林晚秋', core: 'x', full: '' };
 const campaign: Campaign = { id: 'cp', worldId: 'w', characterIds: ['c'], name: 'x', createdAt: 0, lastPlayedAt: 0, state: { relations: {}, mood: {}, facts: ['旧事实'] } };
 
 describe('consolidate', () => {
@@ -39,7 +39,7 @@ describe('consolidate guards', () => {
     const { consolidate } = await import('./consolidate');
     const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
     await db().worlds.add({ id: 'w2', name: 'w', summary: '', createdAt: 0, updatedAt: 0 });
-    await db().characters.add({ ...character, id: 'c2', worldId: 'w2' });
+    await db().characters.add({ ...character, id: 'c2' });
     await db().campaigns.add({ ...campaign, id: 'cp2', worldId: 'w2', characterIds: ['c2'] });
     await db().conversations.add({ id: 'cv2', campaignId: 'cp2', kind: 'chat', participantIds: ['c2'], pluginId: 'chat' });
     const msgs = Array.from({ length: 24 }, (_, i) => ({ id: 'm' + i, conversationId: 'cv2', role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: [{ type: 'text', text: '…' }], ts: 1000 + i }));
