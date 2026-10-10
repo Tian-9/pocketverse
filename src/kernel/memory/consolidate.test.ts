@@ -81,4 +81,29 @@ describe('consolidate guards', () => {
     release({ text: JSON.stringify({ memories: [], state: {}, overlays: [] }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
     expect(await first).toBe(true);
   });
+
+  it('sends once when two checks start at the same moment', async () => {
+    const { llm } = await import('../llm/gateway.svelte');
+    const { consolidate } = await import('./consolidate');
+    const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
+    chat.mockClear();
+    await db().messages.bulkAdd(Array.from({ length: 24 }, (_, i) => ({ id: 'q' + i, conversationId: 'cv2', role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: [{ type: 'text', text: '…' }], ts: 4000 + i })));
+    chat.mockResolvedValue({ text: JSON.stringify({ memories: [], state: {}, overlays: [] }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    await Promise.all([consolidate('cv2', { reason: 'a' }), consolidate('cv2', { reason: 'b' })]);
+    expect(chat).toHaveBeenCalledTimes(1);
+  });
+
+  it('returning to the home screen does not consolidate', async () => {
+    const { llm } = await import('../llm/gateway.svelte');
+    const { chat: engine } = await import('../chat/engine.svelte');
+    const { bus } = await import('../bus/bus');
+    const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
+    chat.mockClear();
+    // 像导入酒馆记录那样直接写库，攒了一大批没整理的回复
+    await db().messages.bulkAdd(Array.from({ length: 24 }, (_, i) => ({ id: 'h' + i, conversationId: 'cv2', role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: [{ type: 'text', text: '…' }], ts: 5000 + i })));
+    await engine.boot();
+    bus.emit('app.closed', { pluginId: 'characters' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(chat).not.toHaveBeenCalled();
+  });
 });

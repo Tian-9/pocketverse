@@ -73,6 +73,8 @@ class Gateway {
       if (!ok) { log.warn('llm', `预览里取消了 ${full.purpose} 请求`, { conversationId: full.conversationId }); throw new LlmError('你取消了发送', 'aborted'); }
     }
     const t0 = Date.now();
+    // 发出时就记一条：请求如果被刷新或关页掐断，完成/失败那条不会有，这条还在
+    log.info('llm', `发出 ${full.purpose} 请求：${full.model}`, { conversationId: full.conversationId });
     try {
       const result = await this.p.chat(full, hooks);
       await this.record(full, result);
