@@ -5,7 +5,7 @@
    */
   import { NavBar, List, Cell, Field, SectionTitle, Placeholder, Button, Sheet, Avatar, icons } from '$kernel/api';
   import type { ProfileSection } from '$kernel/api';
-  import type { EpisodicMemory, MemFile, CampaignState } from '$kernel/storage/db';
+  import type { EpisodicMemory, MemFile, CampaignState, Campaign, World } from '$kernel/storage/db';
   import { registry } from '$kernel/registry/registry.svelte';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
@@ -20,7 +20,19 @@
   $effect(() => { db().characters.get(id).then((c) => c && repo.campaignFor(c)).then((cp) => (campaignId = cp?.id ?? null)); });
   const deps = () => [campaignId];
   const character = live(() => db().characters.get(id), undefined);
-  const world = live(async () => { const ch = await db().characters.get(id); return ch ? db().worlds.get(ch.worldId) : undefined; }, undefined);
+  const world = live(() => (campaignId ? db().campaigns.get(campaignId).then((c) => (c ? db().worlds.get(c.worldId) : undefined)) : Promise.resolve(undefined)), undefined, deps);
+  // 这张卡的所有局：同一张卡可以在不同世界各开一局，这里切换或新开
+  const saves = live(() => repo.campaignsOf(id), [] as Campaign[]);
+  const worlds = live(() => db().worlds.orderBy('createdAt').toArray(), [] as World[]);
+  let savesOpen = $state(false);
+  let pickWorld = $state(false);
+  async function switchTo(cpId: string) { await repo.setCurrentCampaign(id, cpId); campaignId = cpId; savesOpen = false; }
+  async function startIn(worldId: string) {
+    const ch = character.value; if (!ch) return;
+    const c = await repo.newCampaign(ch, worldId);
+    campaignId = c.id; pickWorld = false; savesOpen = false;
+  }
+  const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
   type Section = ProfileSection & { pluginId: string };
   const sections = $derived<Section[]>(registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.profileSections ?? []).map((s) => ({ ...s, pluginId: p.id }))));
   async function startChat() {
@@ -95,7 +107,7 @@
   <div class="hero">
     <Avatar blob={character.value.avatar} name={character.value.name} size={88} />
     <div class="name">{character.value.name}</div>
-    <div class="save">{world.value?.name ?? ''}{world.value ? ' · ' : ''}{cp.name}</div>
+    <button class="save" onclick={() => (savesOpen = true)}>{world.value?.name ?? '…'}{saves.value.length > 1 ? ` · 共 ${saves.value.length} 局` : ''} ›</button>
   </div>
   <List footer="他在对话中用 state_update 更新，记忆整理也会更新。点任意一行手改。">
     <Cell title="状态" subtitle={s.mood[id] || '—'} onclick={openState} />
@@ -151,6 +163,20 @@
     </div>
   {/if}
 </Sheet>
+<Sheet bind:open={savesOpen} title="他在哪个世界">
+  <List footer="同一张卡可以在不同世界各开一局，记忆、状态、钱包各算各的。聊天、朋友圈、补发只看当前这一局。">
+    {#each saves.value as cp (cp.id)}
+      {@const w = worlds.value.find((x) => x.id === cp.worldId)}
+      <Cell title={w?.name ?? cp.name} subtitle={`${cp.id === campaignId ? '当前这一局 · ' : ''}上次 ${fmtDate(cp.lastPlayedAt)}`} onclick={() => switchTo(cp.id)} />
+    {/each}
+  </List>
+  <div class="actions"><Button kind="tinted" onclick={() => (pickWorld = true)}>换个世界新开一局</Button></div>
+</Sheet>
+<Sheet bind:open={pickWorld} title="选一个世界">
+  <List footer="没有想要的世界，去「世界」App 建一个。">
+    {#each worlds.value as w (w.id)}<Cell title={w.name} subtitle={w.summary || undefined} onclick={() => startIn(w.id)} />{/each}
+  </List>
+</Sheet>
 <Sheet bind:open={editingState} title="当前状态">
   <List footer="事实一行一条，最多 20 条。">
     <Field label="剧情时间" bind:value={st.inWorldTime} placeholder="可空" />
@@ -174,7 +200,7 @@
 <style>
   .hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 18px; }
   .name { font-size: 20px; font-weight: 600; }
-  .save { font-size: 13px; color: var(--label-2); }
+  .save { font-size: 13px; color: var(--tint); }
   .actions { display: flex; flex-direction: column; gap: 10px; margin: 16px 16px 0; align-items: center; }
   .seg { display: flex; gap: 6px; margin: 12px 16px 0; }
   .seg button { flex: 1; padding: 8px; border-radius: 8px; background: var(--fill-2); color: var(--label-2); letter-spacing: 2px; }

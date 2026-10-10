@@ -82,7 +82,7 @@ interface World {
 
 // 世界书条目：正典，导入后只读，用户手动编辑除外
 interface LoreEntry {
-  id: string; worldId: string;                 // 风格指令是全局的，worldId 为 'global'
+  id: string; worldId: string;                 // 风格指令是全局的，worldId 为 'global'；人物背景跟卡走，为 'character'
   title: string; summary: string;              // title+summary 组成 L0 目录
   content: string;                             // 正文，L1 命中或 L2 拉取时才进上下文
   scope: 'world' | 'character' | 'relation';   // 作用域
@@ -93,9 +93,9 @@ interface LoreEntry {
   order: number; enabled: boolean;
 }
 
-// 角色：属于一个世界
+// 角色卡：演员本身，不绑世界。在哪个世界玩由存档决定，同一张卡可以在不同世界各开一局
 interface Character {
-  id: string; worldId: string;
+  id: string;
   name: string; avatar?: Blob;
   core: string;          // 精简版人设，进 L0，目标 ≤ 800 token
   full: string;          // 完整人设、示例对话等，L2 可拉取
@@ -103,7 +103,8 @@ interface Character {
   voice?: Record<string, unknown>;  // 插件自定义字段（口癖、语音等）
 }
 
-// 存档：一个世界 + 一组角色 的一次"游玩"，记忆的拥有者
+// 存档：一个世界 + 一组角色 的一次"游玩"，记忆的拥有者。
+// 每张卡有一个「当前这一局」（kv `kernel.currentCampaign.<characterId>`），聊天、主页、补发、朋友圈只看它；别的局先睡着，主页上能切换或新开。
 interface Campaign {
   id: string; worldId: string; characterIds: string[];
   name: string; createdAt: number; lastPlayedAt: number;
@@ -165,10 +166,10 @@ interface UserProfile { facts: string[]; preferences: string[] }
 
 界面归属（课题分离，2026-10 定）：
 
-- 「世界书」App 只管 `scope: world` 的设定，按世界分。
-- 角色专属条目（`scope: character`，含角色卡内嵌的世界书）只在角色详情页的「他的世界书」里管，不出现在「世界书」App。
+- 「世界」App 列的是一个个世界（背景：哈利·波特、修仙…），点进去是这个世界的条目（`scope: world`）。可新建、改名、删除（有存档在用的不能删）。
+- 「人物背景」（`scope: character`，含角色卡内嵌的世界书）跟卡走，不属于任何世界，只在角色卡页里管，换世界也带着。
 - 「风格」App 管 `kind: style`，全局，不属于任何世界。
-- 拼上下文时取：所在世界的 world 条目 + 在场角色的 character 条目 + 全局 style 条目 + 本局覆盖层。
+- 拼上下文时取：所在世界（存档的 worldId）的 world 条目 + 在场角色的人物背景 + 全局 style 条目 + 本局覆盖层。规则在 `kernel/data/lore.ts` 的 `loreApplies`，拼装和记忆整理共用。
 
 检索规则：**覆盖优先于正典**。查世界书时，若某条正典有覆盖，返回覆盖版并标注"本局已变化：原文 → 现状"。L0 目录里同样标注。正典永远不被程序修改。
 

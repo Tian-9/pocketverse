@@ -4,7 +4,9 @@ import type { PluginManifest } from '../api/types';
 /** 内核表。字段定义见 docs/ARCHITECTURE.md 第 4 节。 */
 export interface World { id: string; name: string; summary: string; createdAt: number; updatedAt: number }
 export interface LoreEntry {
-  id: string; worldId: string; title: string; summary: string; content: string;
+  id: string;
+  /** 所属世界。风格指令是 'global'；人物背景（scope character）跟卡走、不属于任何世界，写 'character' */
+  worldId: string; title: string; summary: string; content: string;
   scope: 'world' | 'character' | 'relation'; characterIds?: string[];
   /** 设定（可查、可覆盖）还是风格指令（像规则一样插入） */
   kind?: 'lore' | 'style';
@@ -15,8 +17,9 @@ export interface LoreEntry {
   triggers: { keywords: string[]; regex?: string; recursive?: boolean };
   constant: boolean; order: number; enabled: boolean;
 }
+/** 角色卡：演员本身，不绑世界。在哪个世界玩由存档决定（一张卡可以在不同世界各开一局） */
 export interface Character {
-  id: string; worldId: string; name: string; avatar?: Blob;
+  id: string; name: string; avatar?: Blob;
   core: string; full: string; firstMessage?: string;
   /** 新对话是否自动发开场白；酒馆卡的开场白多半不合小手机场景，默认不发 */
   useFirstMessage?: boolean;
@@ -65,9 +68,9 @@ export interface UsageRecord {
 }
 
 const KERNEL_SCHEMA: Record<string, string> = {
-  worlds: 'id, name, updatedAt',
+  worlds: 'id, name, createdAt, updatedAt',
   lore: 'id, worldId, scope, order, enabled',
-  characters: 'id, worldId, name',
+  characters: 'id, name',
   campaigns: 'id, worldId, lastPlayedAt',
   conversations: 'id, campaignId, pluginId',
   messages: 'id, conversationId, ts',
@@ -80,7 +83,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 4;
+const KERNEL_VERSION = 5;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;

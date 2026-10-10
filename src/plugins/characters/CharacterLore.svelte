@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** 角色专属世界书：只在和这个角色聊时进上下文 */
+  /** 人物背景：跟卡走的设定，只在和这个角色聊时进上下文，不管他在哪个世界 */
   import { NavBar, List, Cell, Toggle, SectionTitle, Placeholder, Glyph, icons } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
@@ -21,10 +21,10 @@
       let n = 0;
       for (const f of files) {
         const parsed = parseLorebook(JSON.parse(await f.text()));
-        await db().lore.bulkAdd(parsed.map((p) => ({ ...p, id: ulid(), worldId: ch.worldId, scope: 'character' as const, characterIds: [id] })));
+        await db().lore.bulkAdd(parsed.map((p) => ({ ...p, id: ulid(), worldId: 'character', scope: 'character' as const, characterIds: [id] })));
         n += parsed.length;
       }
-      bus.emit('notify', { title: `已给 ${ch.name} 导入 ${n} 条专属设定`, pluginId: 'characters' });
+      bus.emit('notify', { title: `已给 ${ch.name} 导入 ${n} 条人物背景`, pluginId: 'characters' });
     } catch (err) {
       bus.emit('notify', { title: '导入失败', body: err instanceof Error ? err.message : String(err) });
     }
@@ -32,23 +32,23 @@
   async function create() {
     const ch = character.value; if (!ch) return;
     const eid = ulid();
-    await db().lore.add({ id: eid, worldId: ch.worldId, title: '新条目', summary: '', content: '', scope: 'character', characterIds: [id], triggers: { keywords: [] }, constant: false, order: (entries.value.at(-1)?.order ?? 0) + 1, enabled: true });
+    await db().lore.add({ id: eid, worldId: 'character', title: '新条目', summary: '', content: '', scope: 'character', characterIds: [id], triggers: { keywords: [] }, constant: false, order: (entries.value.at(-1)?.order ?? 0) + 1, enabled: true });
     nav.push('lore', 'entry', { id: eid, back: ch.name });
   }
   const trig = (e: (typeof entries.value)[number]) => e.constant ? '常驻' : e.triggers.keywords.length ? '触发词：' + e.triggers.keywords.slice(0, 4).join('、') : '没有触发词，只能被搜到';
 </script>
 
-<NavBar title="他的世界书" back={character.value?.name ?? '角色'}>
+<NavBar title="人物背景" back={character.value?.name ?? '角色'}>
   {#snippet right()}
     <button class="iconbtn" onclick={() => fileInput?.click()} aria-label="导入"><Glyph paths={icons.plus} size={24} color="var(--tint)" width={2.2} /></button>
   {/snippet}
 </NavBar>
 <input type="file" accept=".json,application/json" multiple bind:this={fileInput} onchange={onFiles} hidden />
-<SectionTitle text={`专属设定 · ${entries.value.length}`} />
+<SectionTitle text={`条目 · ${entries.value.length}`} />
 {#if entries.value.length === 0}
-  <Placeholder title="还没有专属设定" body="角色卡内嵌的世界书导入后在这里。也可以右上角 + 导入一份只属于他的世界书，或者新建条目。只在和他聊时生效。" paths={icons.book} />
+  <Placeholder title="还没有人物背景" body="角色卡里带的背景导入后在这里。也可以右上角 + 导入一份只属于他的世界书 JSON，或者新建条目。只在和他聊时生效，不管他在哪个世界。" paths={icons.book} />
 {:else}
-  <List footer="只在和这个角色聊时进上下文。世界共享的设定放「世界书」App。">
+  <List footer="跟卡走：只在和这个角色聊时进上下文，换世界也带着。所有角色共享的背景放「世界」App。">
     {#each entries.value as e (e.id)}
       <Cell title={e.title} subtitle={trig(e)} chevron onclick={() => nav.push('lore', 'entry', { id: e.id, back: character.value?.name ?? '角色' })}>
         {#snippet right()}<Toggle checked={e.enabled} label={e.title} onchange={(v) => db().lore.update(e.id, { enabled: v })} />{/snippet}

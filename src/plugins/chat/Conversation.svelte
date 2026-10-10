@@ -94,7 +94,7 @@
     const parts: string[] = [];
     const lore = meta.lore as string[] | undefined;
     const tools = meta.tools as string[] | undefined;
-    if (lore?.length) parts.push('触发世界书：' + lore.join('、'));
+    if (lore?.length) parts.push('触发设定：' + lore.join('、'));
     if (tools?.length) parts.push('用了 ' + [...new Set(tools)].map(toolLabel).join('、'));
     return parts.join(' · ');
   }

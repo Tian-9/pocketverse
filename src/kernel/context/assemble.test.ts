@@ -3,7 +3,7 @@ import { assemble, loreDirectory } from './assemble';
 import type { Campaign, Character, LoreEntry, LoreOverlay, Message, World } from '../storage/db';
 
 const world: World = { id: 'w', name: '雨城', summary: '一座总在下雨的城市', createdAt: 0, updatedAt: 0 };
-const ch: Character = { id: 'c', worldId: 'w', name: '林晚秋', core: '图书馆管理员', full: '' };
+const ch: Character = { id: 'c', name: '林晚秋', core: '图书馆管理员', full: '' };
 const campaign: Campaign = { id: 'cp', worldId: 'w', characterIds: ['c'], name: 'x', createdAt: 0, lastPlayedAt: 0, state: { relations: { c: '刚认识' }, mood: {}, facts: ['邮差昨天来过'] } };
 const lore: LoreEntry[] = [
   { id: 'l1', worldId: 'w', title: '邮差', summary: '雨天出现的邮差', content: '信都是空的', scope: 'world', triggers: { keywords: ['邮差'] }, constant: false, order: 1, enabled: true },

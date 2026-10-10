@@ -1,6 +1,7 @@
 import { db } from '../storage/db';
 import type { Message } from '../storage/db';
 import { repo } from '../data/repo';
+import { loreApplies } from '../data/lore';
 import { assemble } from '../context/assemble';
 import { kernelTools, shareTool, attachedTool, attachedPrompt, toolLabel } from '../context/tools';
 import { catchup } from '../catchup/catchup';
@@ -100,7 +101,7 @@ class ChatEngine {
 
     const [history, lore, overlays, memories, memIndex] = await Promise.all([
       repo.messagesOf(conversationId),
-      db().lore.filter((e) => e.kind === 'style' || (e.worldId === world.id && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id)))).toArray(),
+      db().lore.filter((e) => loreApplies(e, world.id, [character.id])).toArray(),
       db().overlays.where('campaignId').equals(campaign.id).toArray(),
       db().memories.where('campaignId').equals(campaign.id).filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
       memoryIndex(campaign.id),

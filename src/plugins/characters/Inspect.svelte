@@ -25,9 +25,9 @@
     const c = await repo.createCharacter({ ...fields, avatar: draft.avatar });
     const book = $state.snapshot(draft.book).filter((e) => e.include);
     if (book.length) {
-      await db().lore.bulkAdd(book.map(({ include: _i, ...e }) => ({ ...e, id: ulid(), worldId: c.worldId, scope: 'character' as const, characterIds: [c.id] })));
+      await db().lore.bulkAdd(book.map(({ include: _i, ...e }) => ({ ...e, id: ulid(), worldId: 'character', scope: 'character' as const, characterIds: [c.id] })));
     }
-    bus.emit('notify', { title: `已导入 ${c.name}`, body: book.length ? `带 ${book.length} 条角色世界书` : undefined, pluginId: 'characters' });
+    bus.emit('notify', { title: `已导入 ${c.name}`, body: book.length ? `带 ${book.length} 条人物背景` : undefined, pluginId: 'characters' });
     await nav.pop();
     nav.push('characters', 'detail', { id: c.id });
   }
@@ -64,9 +64,9 @@
 <SectionTitle text="作者备注（不进上下文）" /><List><Field multiline rows={2} bind:value={f.creator_notes} /></List>
 
 {#if draft.book.length}
-  <SectionTitle text="内嵌世界书" />
-  <List footer="卡里自带的世界书，作为这个角色专属的条目导入。">
-    <Cell title="内嵌世界书" subtitle={`${draft.book.filter((e) => e.include).length} 条将导入 · ${draft.book.filter((e) => !e.include).length} 条不导入`} chevron onclick={() => nav.push('characters', 'book')} />
+  <SectionTitle text="人物背景" />
+  <List footer="卡里自带的世界书，作为他的人物背景导入，跟卡走。">
+    <Cell title="卡里带的背景" subtitle={`${draft.book.filter((e) => e.include).length} 条将导入 · ${draft.book.filter((e) => !e.include).length} 条不导入`} chevron onclick={() => nav.push('characters', 'book')} />
   </List>
 {/if}
 <div class="actions">

@@ -30,7 +30,7 @@ describe('catchup run', () => {
     const { catchup } = await import('./catchup');
     const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
     const now = 1_000_000_000_000;
-    await db().characters.bulkAdd([{ id: 'a', worldId: 'w', name: 'A', core: 'x', full: '' }, { id: 'b', worldId: 'w', name: 'B', core: 'y', full: '' }]);
+    await db().characters.bulkAdd([{ id: 'a', name: 'A', core: 'x', full: '' }, { id: 'b', name: 'B', core: 'y', full: '' }]);
     await db().campaigns.bulkAdd([
       { id: 'ca', worldId: 'w', characterIds: ['a'], name: 'a', createdAt: 0, lastPlayedAt: now - 1 * H, state: { relations: {}, mood: {}, facts: [] } },
       { id: 'cb', worldId: 'w', characterIds: ['b'], name: 'b', createdAt: 0, lastPlayedAt: now - 3 * 24 * H, state: { relations: {}, mood: { b: '无聊' }, facts: [] } },

@@ -2,6 +2,7 @@ import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Message } from '../storage/db';
 import { textOf } from '../data/repo';
+import { loreApplies } from '../data/lore';
 import { llm } from '../llm/gateway.svelte';
 import { bus } from '../bus/bus';
 import { expandMacros } from '../context/macros';
@@ -104,7 +105,7 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
   const t0 = Date.now();
   log.info('consolidate', `开始：${character.name}，${msgs.length} 条消息（${replies} 条回复），触发：${opts.reason ?? (opts.force ? '手动' : '未知')}`, { conversationId, since });
   try {
-    const lore = await db().lore.where('worldId').equals(campaign.worldId).filter((e) => e.enabled && e.kind !== 'style' && (e.scope === 'world' || !e.characterIds?.length || e.characterIds.includes(character.id))).toArray();
+    const lore = await db().lore.filter((e) => e.enabled && e.kind !== 'style' && loreApplies(e, campaign.worldId, [character.id])).toArray();
     const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
     const prompt0 = buildPrompt(campaign, character, lore, msgs, existing);
     const userName = await db().getKV('kernel.userName', '我');

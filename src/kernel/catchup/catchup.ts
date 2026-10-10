@@ -1,4 +1,5 @@
 import { db } from '../storage/db';
+import { repo } from '../data/repo';
 import type { Campaign, Character } from '../storage/db';
 import type { CatchupContext, CatchupContributor, CatchupItem, CatchupTier } from '../api/types';
 import { llm } from '../llm/gateway.svelte';
@@ -77,7 +78,9 @@ class Catchup {
     if (!contributors.length) return;
     this.running = true;
     try {
-      const campaigns = (await db().campaigns.orderBy('lastPlayedAt').reverse().toArray()).filter((c) => c.lastPlayedAt > 0);
+      // 只补当前这一局：同一张卡在别的世界的局先睡着
+      const current = await repo.currentCampaignIds();
+      const campaigns = (await db().campaigns.orderBy('lastPlayedAt').reverse().toArray()).filter((c) => c.lastPlayedAt > 0 && current.has(c.id));
       let budget = BUDGET;
       for (const cp of campaigns) {
         if (budget <= 0) break;

@@ -9,7 +9,9 @@
   interface Row extends Post { name: string; avatar?: Blob }
   const rows = live(async (): Promise<Row[]> => {
     if (!registry.isEnabled('moments')) return [];
-    const posts = await momentsApi.posts().reverse().sortBy('createdAt');
+    const { repo } = await import('$kernel/data/repo');
+    const current = await repo.currentCampaignIds();
+    const posts = (await momentsApi.posts().reverse().sortBy('createdAt')).filter((p) => current.has(p.campaignId));
     const out: Row[] = [];
     for (const p of posts) { const ch = await db().characters.get(p.characterId); if (ch) out.push({ ...p, name: ch.name, avatar: ch.avatar }); }
     return out;
