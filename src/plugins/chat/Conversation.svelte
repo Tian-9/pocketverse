@@ -3,7 +3,7 @@
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
-  import { repo, textOf } from '$kernel/data/repo';
+  import { repo, textOf, cardsOf } from '$kernel/data/repo';
   import { chat } from '$kernel/chat/engine.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
@@ -11,7 +11,7 @@
   import { toolLabel } from '$kernel/context/tools';
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
-  import type { ComposerAction, OutgoingMessage } from '$kernel/api';
+  import type { ComposerAction, OutgoingMessage, MessageCard } from '$kernel/api';
 
   let { id }: { id: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
@@ -31,7 +31,7 @@
     active = null; panel = false;
     if (!llm.configured) { nav.push('settings', 'api'); return; }
     const meta: Record<string, unknown> = {};
-    if (msg.cards?.length) meta.cards = msg.cards.map((c) => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {} }));
+    if (msg.cards?.length) meta.cards = msg.cards.map((c): MessageCard => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {}, ...(c.alt ? { alt: c.alt } : {}) }));
     if (msg.cardOnly) meta.cardOnly = true;
     await chat.send(id, msg.text, Object.keys(meta).length ? { meta } : {});
   }
@@ -76,15 +76,15 @@
     picked = null;
   }
   async function deletePicked() { if (picked) await chat.deleteMessage(picked.id); picked = null; }
+  /** 点头像进他的主页（角色插件的 profile 页） */
+  function openProfile() { if (character.value) nav.push('characters', 'profile', { id: character.value.id }); }
   async function clearAll() {
     for (const m of messages.value) await chat.deleteMessage(m.id);
     const ch = character.value;
     if (ch?.useFirstMessage && ch.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
     menu = false;
   }
-  interface Card { pluginId: string; tag: string; body: string; attrs: Record<string, string> }
-  function cardsOf(m: Message): Card[] { return (m.meta?.cards as Card[] | undefined) ?? []; }
-  function cardComponent(c: Card) {
+  function cardComponent(c: MessageCard) {
     if (c.tag === 'share') return ShareCardView;
     return registry.get(c.pluginId)?.outputHandlers?.find((h) => h.tag === c.tag)?.component ?? null;
   }
@@ -123,7 +123,7 @@
         <div class="sys">{textOf(m)}</div>
       {:else}
         <div class="msg {m.role}" onpointerdown={() => pressStart(m)} onpointerup={pressEnd} onpointerleave={pressEnd} onpointercancel={pressEnd} oncontextmenu={(e) => { e.preventDefault(); picked = m; }} role="listitem">
-          {#if m.role === 'assistant' && character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={wechat ? 36 : 30} />{/if}
+          {#if m.role === 'assistant' && character.value}<button class="avatar-btn" onclick={openProfile} aria-label="他的主页"><Avatar blob={character.value.avatar} name={character.value.name} size={wechat ? 36 : 30} /></button>{/if}
           <div class="col">
             {#if textOf(m) && !m.meta?.cardOnly}<div class="bubble">{textOf(m)}</div>{/if}
             {#each cardsOf(m) as c, i (i)}
@@ -183,8 +183,8 @@
   <List>
     <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
     <Cell title="推进时间…" subtitle="比如「三天后的早上」，角色会接着这个时间点说话" onclick={() => { menu = false; timeSheet = true; }} />
-    <Cell title="编辑角色" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
-    <Cell title="他记得什么" onclick={() => { menu = false; if (character.value) nav.push('characters', 'memories', { id: character.value.id }); }} />
+    <Cell title="他的主页" subtitle="状态、钱包、朋友圈、他记得什么" onclick={() => { menu = false; openProfile(); }} />
+    <Cell title="编辑角色卡" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
     <Cell title="清空对话" onclick={clearAll} />
   </List>
 </Sheet>
@@ -217,6 +217,7 @@
   .msg.user { align-self: flex-end; }
   .msg.assistant { align-self: flex-start; }
   .col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .avatar-btn { display: inline-flex; flex: 0 0 auto; padding: 0; }
   .caption { font-size: 11px; color: var(--label-3); padding-left: 6px; }
   .think-toggle { font-size: 11px; color: var(--tint); padding: 0 6px; text-align: left; }
   .think { font-size: 12.5px; line-height: 1.45; color: var(--label-2); background: var(--bg-grouped); border-radius: 10px; padding: 8px 10px; white-space: pre-wrap; max-width: 100%; }

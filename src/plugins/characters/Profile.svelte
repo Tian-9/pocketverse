@@ -1,6 +1,12 @@
 <script lang="ts">
-  import { NavBar, List, Cell, Field, SectionTitle, Placeholder, Button, Sheet, icons } from '$kernel/api';
+  /**
+   * 角色主页：这一局里的他。身份（名字、头像）只读角色卡；状态、钱包、朋友圈、记忆都按存档。
+   * 插件通过 profileSections 往这里挂段，主页本身不认识段的内容。
+   */
+  import { NavBar, List, Cell, Field, SectionTitle, Placeholder, Button, Sheet, Avatar, icons } from '$kernel/api';
+  import type { ProfileSection } from '$kernel/api';
   import type { EpisodicMemory, MemFile, CampaignState } from '$kernel/storage/db';
+  import { registry } from '$kernel/registry/registry.svelte';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import { repo } from '$kernel/data/repo';
@@ -14,6 +20,16 @@
   $effect(() => { db().characters.get(id).then((c) => c && repo.campaignFor(c)).then((cp) => (campaignId = cp?.id ?? null)); });
   const deps = () => [campaignId];
   const character = live(() => db().characters.get(id), undefined);
+  const world = live(async () => { const ch = await db().characters.get(id); return ch ? db().worlds.get(ch.worldId) : undefined; }, undefined);
+  type Section = ProfileSection & { pluginId: string };
+  const sections = $derived<Section[]>(registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.profileSections ?? []).map((s) => ({ ...s, pluginId: p.id }))));
+  async function startChat() {
+    const ch = character.value; if (!ch) return;
+    const conv = await repo.directConversation(ch);
+    await nav.home();
+    nav.push('chat', 'app');
+    nav.push('chat', 'conversation', { id: conv.id });
+  }
   const campaign = live(() => (campaignId ? db().campaigns.get(campaignId) : Promise.resolve(undefined)), undefined, deps);
   const memories = live(() => (campaignId ? db().memories.where('campaignId').equals(campaignId).reverse().sortBy('createdAt') : Promise.resolve([])), [], deps);
   const files = live(() => (campaignId ? db().memfs.where('campaignId').equals(campaignId).toArray() : Promise.resolve([])), [], deps);
@@ -72,18 +88,28 @@
   }
 </script>
 
-<NavBar title="记忆" back={character.value?.name ?? '角色'} />
-{#if campaign.value}
+<NavBar title={character.value?.name ?? '主页'} back="返回" />
+{#if campaign.value && character.value}
   {@const s = campaign.value.state}
-  <SectionTitle text="当前状态" />
-  <List footer="角色在对话中用 state_update 更新，记忆整理也会更新。点任意一行手改。">
-    <Cell title="剧情时间" value={s.inWorldTime || '—'} onclick={openState} />
+  {@const cp = campaign.value}
+  <div class="hero">
+    <Avatar blob={character.value.avatar} name={character.value.name} size={88} />
+    <div class="name">{character.value.name}</div>
+    <div class="save">{world.value?.name ?? ''}{world.value ? ' · ' : ''}{cp.name}</div>
+  </div>
+  <List footer="他在对话中用 state_update 更新，记忆整理也会更新。点任意一行手改。">
+    <Cell title="状态" subtitle={s.mood[id] || '—'} onclick={openState} />
     <Cell title="地点" value={s.location || '—'} onclick={openState} />
-    <Cell title="关系" subtitle={s.relations[id] || '—'} onclick={openState} />
-    <Cell title="情绪" subtitle={s.mood[id] || '—'} onclick={openState} />
+    <Cell title="和你" subtitle={s.relations[id] || '—'} onclick={openState} />
+    <Cell title="剧情时间" value={s.inWorldTime || '—'} onclick={openState} />
     {#each s.facts as f, i (i)}<Cell title={f} onclick={openState} />{/each}
   </List>
-  <SectionTitle text={`情节记忆 · ${memories.value.length}`} />
+  {#each sections as sec (sec.pluginId + '/' + sec.id)}
+    {@const Comp = sec.component}
+    {#if sec.label}<SectionTitle text={sec.label} />{/if}
+    <Comp campaignId={cp.id} characterId={id} />
+  {/each}
+  <SectionTitle text={`他记得什么 · ${memories.value.length}`} />
   {#if memories.value.length === 0}
     <Placeholder title="还没有记忆" body="每聊 12 轮会自动整理一次，也可以现在手动整理，或者自己写一条。" paths={icons.sparkle} />
   {:else}
@@ -100,9 +126,11 @@
     </List>
   {/if}
   <div class="actions">
+    <Button onclick={startChat}>发消息</Button>
     <Button kind="tinted" onclick={consolidateNow} disabled={busy}>{busy ? '整理中…' : '现在整理记忆'}</Button>
     <Button kind="plain" onclick={() => openMem(null)}>手写一条记忆</Button>
     <Button kind="plain" onclick={() => nav.push('lore', 'overlays')}>查看本局世界变化</Button>
+    <Button kind="plain" onclick={() => nav.push('characters', 'detail', { id })}>编辑角色卡</Button>
   </div>
 {/if}
 <div style="height:40px"></div>
@@ -127,8 +155,8 @@
   <List footer="事实一行一条，最多 20 条。">
     <Field label="剧情时间" bind:value={st.inWorldTime} placeholder="可空" />
     <Field label="地点" bind:value={st.location} placeholder="可空" />
-    <Field multiline rows={2} bind:value={st.relation} placeholder="关系：角色与你现在的关系，一句话" />
-    <Field multiline rows={2} bind:value={st.mood} placeholder="情绪：角色现在的情绪，一句话" />
+    <Field multiline rows={2} bind:value={st.mood} placeholder="状态：他现在的情绪，一句话" />
+    <Field multiline rows={2} bind:value={st.relation} placeholder="和你：他和你现在的关系，一句话" />
     <Field multiline rows={5} bind:value={st.facts} placeholder="当前事实，一行一条" />
   </List>
   <div class="actions"><Button onclick={saveState}>保存</Button></div>
@@ -144,6 +172,9 @@
 </Sheet>
 
 <style>
+  .hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 18px; }
+  .name { font-size: 20px; font-weight: 600; }
+  .save { font-size: 13px; color: var(--label-2); }
   .actions { display: flex; flex-direction: column; gap: 10px; margin: 16px 16px 0; align-items: center; }
   .seg { display: flex; gap: 6px; margin: 12px 16px 0; }
   .seg button { flex: 1; padding: 8px; border-radius: 8px; background: var(--fill-2); color: var(--label-2); letter-spacing: 2px; }

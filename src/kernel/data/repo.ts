@@ -1,6 +1,7 @@
 import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { World, Character, Campaign, Conversation, Message } from '../storage/db';
+import type { MessageCard } from '../api/types';
 import { expandMacros } from '../context/macros';
 
 /** 领域操作。存档概念对用户隐藏：一个角色默认一个存档。 */
@@ -88,4 +89,28 @@ export const repo = {
 
 export function textOf(m: Message): string {
   return (m.content as { type: string; text?: string }[]).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('');
+}
+
+/** 消息上挂的卡片（meta.cards） */
+export function cardsOf(m: Message): MessageCard[] {
+  return (m.meta?.cards as MessageCard[] | undefined) ?? [];
+}
+
+/**
+ * 给模型看的文字：正文 + 各卡片的 alt。只有卡片的回复这样才能进历史，否则角色下一轮就不记得自己发过。
+ * 用户从「+」面板发的 cardOnly 消息，text 本身就是给模型的描述，不再追加 alt。
+ */
+export function modelTextOf(m: Message): string {
+  const text = textOf(m).trim();
+  if (m.meta?.cardOnly) return text;
+  const alts = cardsOf(m).map((c) => c.alt?.trim()).filter((s): s is string => !!s);
+  return [text, ...alts].filter(Boolean).join('\n');
+}
+
+/** 聊天列表里的一行预览：有卡片 alt 用 alt，否则用正文 */
+export function previewOf(m: Message): string {
+  const alts = cardsOf(m).map((c) => c.alt?.trim()).filter((s): s is string => !!s);
+  const text = textOf(m).trim();
+  if (m.meta?.cardOnly) return alts.join(' ') || text;
+  return text || alts.join(' ');
 }

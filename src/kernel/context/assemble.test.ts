@@ -90,3 +90,20 @@ describe('tail style and chapter cut', () => {
     expect(text).toContain('第22');
   });
 });
+
+describe('card alt in history', () => {
+  it('keeps card-only replies in history via alt, and does not double user cardOnly text', () => {
+    const card = { pluginId: 'redpacket', tag: 'redpacket', body: '{"id":"p1"}', attrs: {}, alt: '[发了一个红包：¥8.88，留言「生日快乐」]' };
+    const history: Message[] = [
+      { ...msg('user', '[发了一个红包：¥1.00，留言「拿去」]', 1), meta: { cardOnly: true, cards: [{ ...card, alt: '[红包] 拿去' }] } },
+      { ...msg('assistant', '', 2), meta: { cards: [card] } },
+      { ...msg('assistant', '生日快乐！', 3), meta: { cards: [{ ...card, alt: '[分享了歌：晴天 - 周杰伦]' }] } },
+    ];
+    const r = assemble({ ...base, history, userText: '谢谢' });
+    const texts = r.messages.map((m) => m.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n'));
+    expect(texts[0]).toBe('[发了一个红包：¥1.00，留言「拿去」]');
+    expect(texts[0]).not.toContain('[红包]');
+    expect(texts[1]).toContain('[发了一个红包：¥8.88，留言「生日快乐」]');
+    expect(texts[1]).toContain('生日快乐！\n[分享了歌：晴天 - 周杰伦]');
+  });
+});

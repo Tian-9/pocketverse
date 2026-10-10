@@ -3,6 +3,7 @@ import type { PluginContext, PromptContext, CatchupContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Moments from './Moments.svelte';
 import MomentCard from './MomentCard.svelte';
+import MomentsSection from './MomentsSection.svelte';
 
 export interface Post {
   id: string; campaignId: string; characterId: string; text: string;
@@ -101,6 +102,7 @@ export default definePlugin({
   description: '角色会发动态；离开一段时间回来会补发、回评论；你的点赞评论他聊天时也知道。',
   app: { screen: Moments, icon: { paths: icons.clock, background: gradients.yellow } },
   storage: { tables: { posts: 'id, campaignId, characterId, createdAt' } },
+  profileSections: [{ id: 'latest', component: MomentsSection }],
   promptContributors: [{
     id: 'recent-moments',
     async volatile(p: PromptContext) {

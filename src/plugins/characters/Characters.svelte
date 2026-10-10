@@ -51,7 +51,7 @@
 {:else}
   <List>
     {#each chars.value as c (c.id)}
-      <Cell title={c.name} subtitle={c.core.slice(0, 60).replace(/\n/g, ' ') || '还没有设定'} chevron onclick={() => nav.push('characters', 'detail', { id: c.id })}>
+      <Cell title={c.name} subtitle={c.core.slice(0, 60).replace(/\n/g, ' ') || '还没有设定'} chevron onclick={() => nav.push('characters', 'profile', { id: c.id })}>
         {#snippet right()}{/snippet}
       </Cell>
     {/each}
