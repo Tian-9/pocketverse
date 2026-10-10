@@ -30,6 +30,8 @@ export interface PluginManifest {
   catchup?: CatchupContributor[];
   /** 聊天输入框「+」面板里的项：用户主动发东西（分享歌、红包…） */
   composerActions?: ComposerAction[];
+  /** 角色主页上挂的段（钱包余额、最近一条朋友圈…）：按存档读自己的表 */
+  profileSections?: ProfileSection[];
   /** 自有数据表：表名 -> Dexie schema 字符串，内核会加 p_<id>_ 前缀 */
   storage?: { tables: Record<string, string> };
   /** 事件订阅 */
@@ -115,6 +117,20 @@ export interface ComposerAction {
   label: string;
   icon: IconSpec;
   /** 在弹窗里渲染的组件，接收 ComposerActionProps */
+  component: Component<any>;
+}
+
+export interface ProfileSectionProps {
+  campaignId: string;
+  characterId: string;
+}
+
+/** 角色主页上的一段，由插件提供；主页本身不认识段的内容 */
+export interface ProfileSection {
+  id: string;
+  /** 段标题，如「钱包」；不给就不显示标题 */
+  label?: string;
+  /** 接收 ProfileSectionProps */
   component: Component<any>;
 }
 

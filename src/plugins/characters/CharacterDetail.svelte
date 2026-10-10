@@ -47,7 +47,7 @@
         const cp = await repo.campaignFor(ch);
         await db().memories.add({ id: ulid(), campaignId: cp.id, characterId: ch.id, when: '导入前', text: `酒馆里的摘要：${parsed.summary}`, importance: 3, sourceMessageIds: [], createdAt: Date.now() });
       }
-      bus.emit('notify', { title: `导入了 ${parsed.messages.length} 条聊天记录`, body: '去「他记得什么」点一次整理，记忆就会从旧对话里长出来', pluginId: 'characters' });
+      bus.emit('notify', { title: `导入了 ${parsed.messages.length} 条聊天记录`, body: '去他的主页点一次整理，记忆就会从旧对话里长出来', pluginId: 'characters' });
     } catch (err) {
       bus.emit('notify', { title: '导入失败', body: err instanceof Error ? err.message : String(err) });
     }
@@ -87,7 +87,7 @@
   </List>
   <div class="actions">
     <Button onclick={startChat}>开始聊天</Button>
-    <Button kind="tinted" onclick={() => nav.push('characters', 'memories', { id })}>他记得什么</Button>
+    <Button kind="tinted" onclick={() => nav.push('characters', 'profile', { id })}>他的主页</Button>
     <Button kind="plain" onclick={() => chatInput?.click()}>导入酒馆聊天记录（.jsonl）</Button>
     <input type="file" accept=".jsonl,.json,text/plain" bind:this={chatInput} onchange={importChat} hidden />
     <Button kind="plain" onclick={() => (confirmDelete = true)}><span style="color:var(--red)">删除角色</span></Button>
