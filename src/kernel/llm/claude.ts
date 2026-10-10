@@ -4,6 +4,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Block, ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
 import { LlmError } from './types';
+import { rawlog } from './rawlog.svelte';
 
 /**
  * Claude 适配器。浏览器直连，Key 在本机。
@@ -36,30 +37,30 @@ export class ClaudeProvider implements LlmProvider {
     const all = [...custom, ...server];
     const tools = all.length ? all : undefined;
 
+    const params = {
+      model: req.model,
+      max_tokens: req.maxTokens,
+      system,
+      messages,
+      ...(tools ? { tools } : {}),
+      thinking: { type: 'adaptive' as const, display: req.showThinking ? ('summarized' as const) : ('omitted' as const) },
+      output_config: {
+        ...(req.effort ? { effort: req.effort } : {}),
+        ...(req.jsonSchema ? { format: { type: 'json_schema' as const, schema: req.jsonSchema } } : {}),
+      },
+      betas: ['server-side-fallback-2026-07-01', 'context-management-2025-06-27'],
+      fallbacks: 'default' as const,
+      context_management: { edits: [{ type: 'clear_tool_uses_20250919' as const }] },
+    };
     try {
       hooks.onStatus?.('thinking');
-      const stream = this.client.beta.messages.stream(
-        {
-          model: req.model,
-          max_tokens: req.maxTokens,
-          system,
-          messages,
-          ...(tools ? { tools } : {}),
-          thinking: { type: 'adaptive', display: req.showThinking ? 'summarized' : 'omitted' },
-          output_config: {
-            ...(req.effort ? { effort: req.effort } : {}),
-            ...(req.jsonSchema ? { format: { type: 'json_schema', schema: req.jsonSchema } } : {}),
-          },
-          betas: ['server-side-fallback-2026-07-01', 'context-management-2025-06-27'],
-          fallbacks: 'default',
-          context_management: { edits: [{ type: 'clear_tool_uses_20250919' }] },
-        },
-        { signal: hooks.signal },
-      );
+      rawlog.request(requestSummary(params), req.purpose);
+      const stream = this.client.beta.messages.stream(params, { signal: hooks.signal });
 
       let text = '';
       let thinking = '';
       for await (const ev of stream) {
+        rawlog.event(ev);
         if (ev.type === 'content_block_delta' && ev.delta.type === 'thinking_delta') {
           thinking += ev.delta.thinking;
         } else if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
@@ -91,11 +92,47 @@ export class ClaudeProvider implements LlmProvider {
       if (final.stop_reason === 'refusal') {
         result.refusal = { category: final.stop_details?.category ?? null, explanation: final.stop_details?.explanation ?? null };
       }
+      rawlog.done({
+        stop_reason: final.stop_reason,
+        model: final.model,
+        content: final.content.map((b) => (b.type === 'tool_use' || b.type === 'server_tool_use' ? `${b.type}: ${b.name}` : b.type)),
+        usage: { input_tokens: u.input_tokens, output_tokens: u.output_tokens, cache_read_input_tokens: u.cache_read_input_tokens, cache_creation_input_tokens: u.cache_creation_input_tokens },
+      });
       return result;
     } catch (e) {
-      throw toLlmError(e);
+      const err = toLlmError(e);
+      rawlog.error(`${err.kind}：${err.message}`);
+      throw err;
     }
   }
+}
+
+/** 请求信封摘要：正文只记长度不记内容，看结构用。 */
+function requestSummary(p: {
+  model: string; max_tokens: number; system: BetaTextBlockParam[]; messages: BetaMessageParam[];
+  tools?: BetaToolUnion[]; thinking: unknown; output_config: unknown; betas: string[]; fallbacks: string; context_management: unknown;
+}): unknown {
+  return {
+    model: p.model,
+    max_tokens: p.max_tokens,
+    thinking: p.thinking,
+    output_config: p.output_config,
+    betas: p.betas,
+    fallbacks: p.fallbacks,
+    context_management: p.context_management,
+    ...(p.tools ? { tools: p.tools.map((t) => ('input_schema' in t ? t.name : `${(t as { type?: string }).type}`)) } : {}),
+    system: p.system.map((b) => ({ 字数: b.text.length, ...(b.cache_control ? { cache_control: b.cache_control } : {}) })),
+    messages: p.messages.map((m) => ({
+      role: m.role,
+      blocks: typeof m.content === 'string' ? ['text'] : m.content.map((b) => {
+        const cached = 'cache_control' in b && b.cache_control;
+        if (b.type === 'text') return `text(${b.text.length} 字)${cached ? ' ⟨缓存断点⟩' : ''}`;
+        if (b.type === 'tool_use') return `tool_use: ${b.name}`;
+        if (b.type === 'tool_result') return `tool_result${cached ? ' ⟨缓存断点⟩' : ''}`;
+        return b.type;
+      }),
+    })),
+  };
 }
 
 function toParam(b: Block): BetaContentBlockParam {

@@ -9,7 +9,7 @@
   import { nav } from '$kernel/nav/nav.svelte';
   import { bus } from '$kernel/bus/bus';
   import { ulid } from 'ulid';
-  import { draft } from './inspect.svelte';
+  import { draft } from './draft.svelte';
 
   let { card, avatar, raw }: { card?: ParsedCard; avatar?: Blob; raw?: unknown } = $props();
   // 从角色列表进来时带 card，总是新开草稿；子页面不带 card，共用草稿

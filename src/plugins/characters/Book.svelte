@@ -1,7 +1,7 @@
 <script lang="ts">
   /** 内嵌世界书总览：将导入 / 不导入 两栏，各条点进去编辑 */
   import { NavBar, List, Cell, SectionTitle, Placeholder, icons } from '$kernel/api';
-  import { draft } from './inspect.svelte';
+  import { draft } from './draft.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
   const sub = (e: (typeof draft.book)[number]) => e.constant ? '常驻' : e.triggers.keywords.length ? '触发词：' + e.triggers.keywords.slice(0, 4).join('、') : '无触发词';
   const inc = $derived(draft.book.map((e, i) => ({ e, i })).filter((x) => x.e.include));

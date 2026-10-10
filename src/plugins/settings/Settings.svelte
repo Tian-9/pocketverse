@@ -32,5 +32,6 @@
 <List footer="日志只存在本机，记的是决策和结果（为什么合并、请求花了多少、哪里出错），不记聊天正文。出问题时复制发给开发者。">
   <Cell title="Pocketverse" value="0.0.5 · M3" subtitle={`构建 ${__BUILD__}`} />
   <Cell title="日志" icon={{ paths: icons.diary, background: gradients.gray }} chevron onclick={() => nav.push('settings', 'logs')} />
+  <Cell title="原始流" subtitle="和模型之间的每一个 SSE 事件，学习与排错用" icon={{ paths: icons.globe, background: gradients.indigo }} chevron onclick={() => nav.push('settings', 'rawstream')} />
 </List>
 <div style="height:40px"></div>
