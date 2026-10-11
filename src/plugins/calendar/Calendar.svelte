@@ -6,7 +6,6 @@
   import { NavBar, Placeholder, Glyph, Sheet, List, Cell, Field, Button, Toggle, live, nav, clock, icons } from '$kernel/api';
   import type { CampaignView } from '$kernel/api';
   import { calendarApi, dayRange, type CalendarEvent } from './index';
-  import { tsOf } from './plan';
 
   let { campaignId: initial }: { campaignId?: string } = $props();
   const campaigns = live(() => calendarApi.ctx().data.currentCampaigns(), []);
@@ -19,17 +18,18 @@
     calendarApi.lastCampaign().then((last) => { selected = list.some((c) => c.id === last) ? last : list[0]!.id; });
   });
   const current = $derived<CampaignView | undefined>(campaigns.value.find((c) => c.id === selected));
-  // 这局的「今天」按它的钟
-  const todayKey = $derived(current ? clock.dateKey(current.now) : clock.dateKey(Date.now()));
+  // 这局的「今天」按它的钟，「哪一天」「几点」按他的时区
+  const tz = $derived(current?.timeZone);
+  const todayKey = $derived(current ? clock.dateKey(current.now, tz) : clock.dateKey(Date.now()));
   let day = $state<string | null>(null);
   let month = $state<string | null>(null); // YYYY-MM
   $effect(() => { if (current && day === null) { day = todayKey; month = todayKey.slice(0, 7); } });
 
-  const D = 86400_000;
-  const monthRange = (m: string): [number, number] => { const [y, mo] = m.split('-').map(Number); return [new Date(y!, mo! - 1, 1).getTime(), new Date(y!, mo!, 1).getTime()]; };
-  const monthEvents = live(() => (selected && month ? calendarApi.between(selected, ...monthRange(month)) : Promise.resolve([] as CalendarEvent[])), [] as CalendarEvent[], () => [selected, month]);
-  const dayEvents = $derived.by(() => { if (!day) return []; const [s, e] = dayRange(day); return monthEvents.value.filter((x) => x.start >= s && x.start < e); });
-  const dotted = $derived(new Set(monthEvents.value.map((e) => clock.dateKey(e.start))));
+  const nextMonth = (m: string) => { const [y, mo] = m.split('-').map(Number); return mo === 12 ? `${y! + 1}-01` : `${y}-${String(mo! + 1).padStart(2, '0')}`; };
+  const monthRange = (m: string, z?: string): [number, number] => [clock.zoned(m + '-01', '00:00', z), clock.zoned(nextMonth(m) + '-01', '00:00', z)];
+  const monthEvents = live(() => (selected && month ? calendarApi.between(selected, ...monthRange(month, tz)) : Promise.resolve([] as CalendarEvent[])), [] as CalendarEvent[], () => [selected, month, tz]);
+  const dayEvents = $derived.by(() => { if (!day) return []; const [s, e] = dayRange(day, tz); return monthEvents.value.filter((x) => x.start >= s && x.start < e); });
+  const dotted = $derived(new Set(monthEvents.value.map((e) => clock.dateKey(e.start, tz))));
   const grid = $derived.by(() => {
     if (!month) return [] as (string | null)[];
     const [y, mo] = month.split('-').map(Number);
@@ -46,7 +46,7 @@
     month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
   function goToday() { day = todayKey; month = todayKey.slice(0, 7); }
-  const fmt = (ts: number) => new Date(ts).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+  const fmt = (ts: number) => clock.formatTime(ts, tz);
   const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
   const dayTitle = (k: string) => `${Number(k.slice(5, 7))} 月 ${Number(k.slice(8))} 日 周${WEEK[new Date(k + 'T00:00').getDay()]}`;
   const who = (e: CalendarEvent) => (e.owner === 'user' ? '你' : current?.characterName ?? '他');
@@ -68,7 +68,7 @@
   // ---- 新建 / 编辑 ----
   let editing = $state<Partial<CalendarEvent> | null>(null);
   let f = $state({ title: '', date: '', start: '', end: '', place: '', note: '', mine: false });
-  const dateOf = (ts: number) => clock.dateKey(ts);
+  const dateOf = (ts: number) => clock.dateKey(ts, tz);
   function openNew() {
     editing = {};
     f = { title: '', date: day ?? todayKey, start: '09:00', end: '', place: '', note: '', mine: false };
@@ -80,8 +80,8 @@
   async function save() {
     const cp = current; if (!cp || !editing) return;
     const title = f.title.trim(); if (!title || !f.date || !f.start) return;
-    const start = tsOf(f.date, f.start);
-    const end = f.end ? tsOf(f.date, f.end) : NaN;
+    const start = clock.zoned(f.date, f.start, tz);
+    const end = f.end ? clock.zoned(f.date, f.end, tz) : NaN;
     const patch: Partial<CalendarEvent> = { title, start, end: Number.isFinite(end) && end > start ? end : undefined, place: f.place.trim() || undefined, note: f.note.trim() || undefined, owner: f.mine ? 'user' : cp.characterId };
     if (editing.id) await calendarApi.update(editing.id, patch);
     else await calendarApi.add({ campaignId: cp.id, owner: patch.owner!, start, end: patch.end, title, place: patch.place, note: patch.note, source: 'manual', ...(f.mine ? {} : { status: 'planned' }) });
@@ -95,7 +95,7 @@
   function skipToDay() {
     const cp = current; if (!cp || !day) return;
     const first = dayEvents.find((e) => e.start > cp.now);
-    const ts = first ? first.start : tsOf(day, '09:00');
+    const ts = first ? first.start : clock.zoned(day, '09:00', tz);
     nav.push('chat', 'conversation', { campaignId: cp.id, skipTo: ts });
   }
   let picking = $state(false);

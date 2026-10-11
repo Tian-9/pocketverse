@@ -14,7 +14,7 @@ beforeAll(async () => {
     settings: { async get(k: string, f: unknown) { return kv.has(k) ? kv.get(k) : f; }, async set(k: string, v: unknown) { kv.set(k, v); } },
     table: (name: string) => db().table(pluginTable('forum', name)),
     llm: { configured: false, async chat() { return { text: '' }; } },
-    data: { async character() { return { id: 'ch1', name: '阿一', core: '' }; } },
+    data: { async character() { return { id: 'ch1', name: '阿一', core: '' }; }, async campaign() { return undefined; } },
   } as unknown as PluginContext);
 });
 

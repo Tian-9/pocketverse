@@ -117,7 +117,8 @@ interface Campaign {
 // 存档时钟（context/clock.ts，设计见 designs/clock-and-calendar.md）：剧情时刻是普通毫秒时间戳，显示时套角色时区。
 // now = running ? anchorStoryTs + (真实现在 - anchorRealTs) : anchorStoryTs。走表：剧情时间随真实时间流逝；停表：只有推进才动。
 // 谁能动：用户（聊天页「推进时间」、主页「这局的时间」，新开一局可选起始日期）；模型（state_update 的 advance，只往前、一次 ≤ 24 小时）。
-// 每条消息盖 storyTs；插件要「现在几点」拿 ctx.data / PromptContext 里的 now，不自己 Date.now()。
+// 每条消息盖 storyTs；插件要「现在几点」拿 ctx.data / PromptContext 里的 now，不自己 Date.now()。插件自己落的东西（帖子、订单、动态、日程）也盖 storyTs，「刚发过」「最近两天」和显示都按它。
+// 「哪一天」「几点」按角色的时区（Character.timeZone，CampaignView / CharacterView 上也有）：clock.dateKey / formatTime / zoned(dateKey, 'HH:MM', tz) / dayRange，别自己 new Date(y, m, d)。
 interface CampaignClock { anchorStoryTs: number; anchorRealTs: number; running: boolean }
 interface CampaignState {
   location?: string;
@@ -334,7 +335,7 @@ L2 工具（内核提供）：
 
 - **商店**（`shop` 插件，内核不认识商品）：一局一家店，货架是便宜模型按世界生成的（首次打开进货，分类能换一批，搜索本地没有就现编几件存起来），和论坛路人同一个办法。买东西的钱走 `services` 里的 `wallet`，钱包没开只能看、只能分享。商品分享走 `product` 解析器 + 通用分享卡；送礼（你送他、他送你）也是同一张卡，`subtype: 'gift'`，留言借 `quote` 行显示，送出去就到了，没有「收下」。他有的东西（他买的 + 你送的）是状态，每轮都进 volatile 一行，主页「他的东西」段和它是同一个查询；你给自己买的他默认不知道。
 
-- **日历**（`calendar` 插件，内核不认识日程）：挂在存档时钟上的事件表 `events`（`owner` 是角色 id 或 `user`，`source` plan / chat / manual，`status` planned / done / skipped）。他的安排由便宜模型按周排（`plan.ts`，和商店进货同一个办法）：打开日历或聊天时发现往后不足 3 天有安排就补一周，只补他还没排的日子。易变段一句「你今天的安排 … 现在正在 … 接下来 …」给作息感，约 60 token。工具 `calendar_add`（聊天里约的事，`together` 时你的日历也一条）、`calendar_read`。补发登记 `passed`（h6）：这段时间排了的事做了没做，写回 `status` / `note`。服务 `calendar`（`today` / `between` / `next`）给聊天页「到下一个安排」和以后的日记、朋友圈用。主页「他今天」段。日历里某一天「在聊天里推进到这天」走 `nav.push('chat', 'conversation', { campaignId, skipTo })`，聊天页带着时刻打开推进面板。
+- **日历**（`calendar` 插件，内核不认识日程）：挂在存档时钟上的事件表 `events`（`owner` 是角色 id 或 `user`，`source` plan / chat / manual，`status` planned / done / skipped）。他的安排由便宜模型按周排（`plan.ts`，和商店进货同一个办法）：打开日历或聊天时发现往后不足 3 天有安排就补一周，只补他还没排的日子。易变段一句「你今天的安排 … 现在正在 … 接下来 …」给作息感，约 60 token。工具 `calendar_add`（聊天里约的事，`together` 时你的日历也一条）、`calendar_read`。补发登记 `passed`（h6）：这段时间排了的事做了没做，写回 `status` / `note`。服务 `calendar`（`today` / `between` / `next`）给聊天页「到下一个安排」和日记、朋友圈用：日记材料带那天他日历上的事（做没做、备注），朋友圈补发带这段时间排了的事，没开日历就没有这一段。日界和 HH:MM 都按他的时区。主页「他今天」段。日历里某一天「在聊天里推进到这天」走 `nav.push('chat', 'conversation', { campaignId, skipTo })`，聊天页带着时刻打开推进面板。
 
 联网：设置里的"允许角色上网"开关对应 Anthropic 服务端的 `web_search` / `web_fetch` 工具。搜索由 Anthropic 执行，按次计费（每次搜索 $0.01，另加搜到内容占的 token），计入用量。默认关。每轮各最多 3 次。
 

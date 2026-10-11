@@ -171,7 +171,7 @@ describe('forum: the character on the forum', () => {
   it('catchup browse: skipped right after he posted; otherwise he can reply to a numbered thread or post anew', async () => {
     expect(await collectBrowse(cctx)).toBeNull(); // 刚发过《今天好累》
     const mine = (await forumApi.threads().where('campaignId').equals('cp3').toArray()).find((t) => t.author.kind === 'char')!;
-    await forumApi.threads().update(mine.id, { createdAt: Date.now() - 7 * 3600_000 });
+    await forumApi.threads().update(mine.id, { createdAt: Date.now() - 7 * 3600_000, storyTs: Date.now() - 7 * 3600_000 });
     const item = (await collectBrowse(cctx))!;
     expect(item.prompt).toContain('《面包涨价》');
     await item.apply({ act: true, reply_to: 0, title: '', text: '今晚月亮很圆' }, cctx);

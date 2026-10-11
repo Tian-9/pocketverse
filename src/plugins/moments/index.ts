@@ -16,8 +16,22 @@ export interface Post {
   pendingReply?: boolean;
 }
 
+/** 日历插件的服务（形状见 plugins/calendar/index.ts），这里只声明用到的；没开日历就没有 */
+interface CalendarService {
+  between(campaignId: string, from: number, to: number): Promise<{ owner: string; start: number; title: string; place?: string; together?: boolean; status?: 'planned' | 'done' | 'skipped' }[]>;
+}
+
 let ctx: PluginContext;
 const fmtTime = (ts: number) => clock.formatShort(ts);
+
+/** 这段时间他日历上的安排，发朋友圈的料；没开日历或没安排就空串 */
+async function scheduleOf(campaignId: string, characterId: string, from: number, to: number): Promise<string> {
+  const cal = ctx.service<CalendarService>('calendar');
+  if (!cal) return '';
+  const tz = (await ctx.data.character(characterId))?.timeZone;
+  const events = (await cal.between(campaignId, from, to).catch(() => [])).filter((e) => e.owner === characterId && e.status !== 'skipped').slice(0, 6);
+  return events.map((e) => `- ${clock.formatShort(e.start, tz)} ${e.title}${e.place ? '（' + e.place + '）' : ''}${e.together ? '，和对方一起' : ''}`).join('\n');
+}
 /** 动态的剧情时刻 */
 export const postAt = (p: Post) => p.storyTs ?? p.createdAt;
 
@@ -43,9 +57,10 @@ export const momentsApi = {
     if (!ch || !cp) return null;
     const mems = await ctx.data.memories(campaignId, { limit: 6 });
     const recent = await ctx.table<Post>('posts').where('campaignId').equals(campaignId).reverse().sortBy('createdAt');
+    const schedule = await scheduleOf(campaignId, characterId, cp.now - 24 * 3600_000, cp.now + 3600_000);
     const { text } = await ctx.llm.chat({
       system: `你是「${ch.name}」。设定：${ch.core.slice(0, 800)}\n你要在自己的朋友圈发一条动态。像真人发朋友圈：一两句话，口语，可以有一点情绪或者只是一件小事，不要解释，不要带话题标签，不要提到"用户"或"你"。只输出动态正文。`,
-      user: `${hint}\n\n最近发生的事：\n${mems.map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}\n\n你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}\n现在的情绪：${cp.state.mood[characterId] ?? '平常'}`,
+      user: `${hint}\n\n最近发生的事：\n${mems.map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}\n\n${schedule ? `这一天你日历上的安排（可以从这里取材）：\n${schedule}\n\n` : ''}你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}\n现在的情绪：${cp.state.mood[characterId] ?? '平常'}`,
       maxTokens: 200, effort: 'low',
     });
     const body = text.trim().replace(/^["“「]|["”」]$/g, '');
@@ -58,9 +73,10 @@ export const momentsApi = {
 async function collectPost(c: CatchupContext) {
   const recent = await ctx.table<Post>('posts').where('campaignId').equals(c.campaignId).reverse().sortBy('createdAt');
   if (recent[0] && c.to - postAt(recent[0]) < 6 * 3600_000) return null; // 刚发过（按剧情钟）
+  const schedule = await scheduleOf(c.campaignId, c.characterId, c.from, c.to);
   return {
     label: '朋友圈',
-    prompt: `这${c.elapsedText}你自己过了些什么？想发就发一条朋友圈：一两句话，口语，可以只是一件小事，不要话题标签。没什么想说的就不发（post 填 false，text 留空）。\n你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}`,
+    prompt: `这${c.elapsedText}你自己过了些什么？想发就发一条朋友圈：一两句话，口语，可以只是一件小事，不要话题标签。没什么想说的就不发（post 填 false，text 留空）。\n${schedule ? `这段时间你日历上排了的事（可以从这里取材；做没做以「日程」那段为准）：\n${schedule}\n` : ''}你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}`,
     schema: { type: 'object', additionalProperties: false, required: ['post', 'text'], properties: { post: { type: 'boolean', description: '发不发' }, text: { type: 'string', description: '动态正文，不发留空' } } },
     async apply(out: unknown, cc: CatchupContext) {
       const o = out as { post?: boolean; text?: string } | undefined;

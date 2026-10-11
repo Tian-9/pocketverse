@@ -66,10 +66,3 @@ export function parsePlan(text: string, days: string[]): PlanItem[] {
     return { date: str(o?.date, 10), start: str(o?.start, 5), ...(TIME.test(end) ? { end } : {}), title: str(o?.title, 40), ...(place ? { place } : {}) };
   }).filter((p) => allowed.has(p.date) && TIME.test(p.start) && p.title);
 }
-
-/** 「2026-10-12」+「09:30」→ 设备本地时区的时间戳 */
-export function tsOf(date: string, time: string): number {
-  const [y, mo, d] = date.split('-').map(Number);
-  const [h, mi] = time.split(':').map(Number);
-  return new Date(y!, mo! - 1, d!, h ?? 0, mi ?? 0, 0, 0).getTime();
-}

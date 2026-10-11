@@ -2,17 +2,18 @@
  * 他上论坛：聊天里的工具、补发（刷论坛发帖或回帖）、依附档回他帖子下的评论、给提示词的易变段。
  * 这里只拼材料和落库，模型调用都由内核做。
  */
+import { clock } from '$kernel/api';
 import type { PromptContext, CatchupContext, CatchupItem, ToolDef } from '$kernel/api';
-import { forumApi, type Thread, type Reply } from './index';
+import { forumApi, storyAt, type Thread, type Reply } from './index';
 
-const fmtTime = (ts: number) => new Date(ts).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtTime = (ts: number) => clock.formatShort(ts);
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s);
 
 /** 给模型看的帖子列表：编号、标题、谁发的、几条回复、开头 */
 async function listing(threads: Thread[], characterId: string): Promise<string> {
   const lines = await Promise.all(threads.map(async (t, i) => {
     const who = t.author.kind === 'char' && t.author.characterId === characterId ? '你自己' : await forumApi.nameOf(t.author);
-    return `${i + 1}. 《${t.title}》 ${who} · ${t.replyCount} 回复 · ${fmtTime(t.lastReplyAt)}\n   ${clip(t.body.replace(/\s+/g, ' '), 80)}`;
+    return `${i + 1}. 《${t.title}》 ${who} · ${t.replyCount} 回复 · ${fmtTime(storyAt(t))}\n   ${clip(t.body.replace(/\s+/g, ' '), 80)}`;
   }));
   return lines.join('\n');
 }
@@ -20,7 +21,7 @@ async function listing(threads: Thread[], characterId: string): Promise<string> 
 async function threadText(t: Thread, characterId: string): Promise<string> {
   const rs = await forumApi.replies().where('threadId').equals(t.id).sortBy('createdAt');
   const name = async (a: Thread['author']) => (a.kind === 'char' && a.characterId === characterId ? '你自己' : forumApi.nameOf(a));
-  const head = `《${t.title}》 ${await name(t.author)} · ${fmtTime(t.createdAt)}\n${t.body}`;
+  const head = `《${t.title}》 ${await name(t.author)} · ${fmtTime(storyAt(t))}\n${t.body}`;
   const body = await Promise.all(rs.slice(-20).map(async (r, i) => `${i + 1}楼 ${await name(r.author)}：${r.body}`));
   return head + (body.length ? '\n\n回复：\n' + body.join('\n') : '\n\n（还没有回复）');
 }
@@ -72,16 +73,16 @@ export const tools: ToolDef[] = [
   },
 ];
 
-/** 易变段：他最近两天自己发的帖和还没看的回复，一两行 */
+/** 易变段：他最近两天（剧情钟）自己发的帖和还没看的回复，一两行 */
 export async function volatile(p: PromptContext): Promise<string> {
   const characterId = p.characterIds[0]!;
-  const fresh = Date.now() - 48 * 3600_000;
+  const fresh = p.now - 48 * 3600_000;
   const mine = (await forumApi.threads().where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt'))
-    .filter((t) => t.author.kind === 'char' && t.author.characterId === characterId && t.createdAt >= fresh).slice(0, 3);
+    .filter((t) => t.author.kind === 'char' && t.author.characterId === characterId && storyAt(t) >= fresh).slice(0, 3);
   if (!mine.length) return '';
   const lines = await Promise.all(mine.map(async (t) => {
     const pending = await forumApi.replies().where('threadId').equals(t.id).filter((r) => !!r.pendingForChar).count();
-    return `- ${fmtTime(t.createdAt)} 你发了《${t.title}》，${t.replyCount} 条回复${pending ? `（${pending} 条你还没看，见「顺手处理的事」）` : ''}`;
+    return `- ${fmtTime(storyAt(t))} 你发了《${t.title}》，${t.replyCount} 条回复${pending ? `（${pending} 条你还没看，见「顺手处理的事」）` : ''}`;
   }));
   return `<你最近在论坛发的>\n${lines.join('\n')}\n</你最近在论坛发的>`;
 }
@@ -91,7 +92,7 @@ export async function collectBrowse(c: CatchupContext): Promise<CatchupItem | nu
   const threads = await recent(c.campaignId, 8);
   if (!threads.length) return null;
   const myLast = threads.find((t) => t.author.kind === 'char' && t.author.characterId === c.characterId);
-  if (myLast && Date.now() - myLast.createdAt < 6 * 3600_000) return null; // 刚发过
+  if (myLast && c.to - storyAt(myLast) < 6 * 3600_000) return null; // 刚发过（按剧情钟）
   return {
     label: '论坛',
     prompt: `这${c.elapsedText}你也刷了会本地论坛。最近的帖子：\n${await listing(threads, c.characterId)}\n\n想说点什么就说：回其中一帖（reply_to 填编号，text 填回复），或者自己发一帖（reply_to 填 0，title 和 text 都填）。论坛是匿名的，用你的口吻，别提和对方之间的私事。没什么想说的就 act 填 false。`,

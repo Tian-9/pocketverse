@@ -10,33 +10,47 @@ export interface DiaryEntry {
   source: 'auto' | 'manual';
 }
 
+/** 日历插件的服务（形状见 plugins/calendar/index.ts），这里只声明用到的；没开日历就没有 */
+interface CalendarService {
+  between(campaignId: string, from: number, to: number): Promise<{ owner: string; start: number; end?: number; title: string; place?: string; note?: string; together?: boolean; status?: 'planned' | 'done' | 'skipped' }[]>;
+}
+
 let ctx: PluginContext;
 const D = 86400_000;
+const H = 3600_000;
+
+/** 那天他日历上的安排，一行一件；没开日历或没安排就空串 */
+async function scheduleOf(campaignId: string, characterId: string, from: number, to: number, tz?: string): Promise<string> {
+  const cal = ctx.service<CalendarService>('calendar');
+  if (!cal) return '';
+  const events = (await cal.between(campaignId, from, to).catch(() => [])).filter((e) => e.owner === characterId).slice(0, 8);
+  return events.map((e) => `- ${clock.formatTime(e.start, tz)} ${e.title}${e.place ? '（' + e.place + '）' : ''}${e.together ? '，和对方一起' : ''}${e.status === 'done' ? '（做了' + (e.note ? '：' + e.note : '') + '）' : e.status === 'skipped' ? '（没去' + (e.note ? '：' + e.note : '') + '）' : ''}`).join('\n');
+}
 
 export const diaryApi = {
   entries: () => ctx.table<DiaryEntry>('entries'),
   async forDate(campaignId: string, date: string) {
     return this.entries().where('campaignId').equals(campaignId).filter((e) => e.date === date).first();
   },
-  /** 写某一天日记的材料：那天（按剧情时刻）的对话、最近记忆、前一篇 */
+  /** 写某一天日记的材料：那天（按剧情时刻，他的时区）的对话、日历上的安排、最近记忆、前一篇 */
   async material(campaignId: string, characterId: string, date: string) {
     const { db } = await import('$kernel/storage/db');
     const { textOf } = await import('$kernel/data/repo');
     const ch = await db().characters.get(characterId);
     const cp = await db().campaigns.get(campaignId);
     if (!ch || !cp) return null;
-    const [y, m, d] = date.split('-').map(Number);
-    const start = new Date(y!, m! - 1, d).getTime(), end = start + 86400_000;
+    const start = clock.zoned(date, '00:00', ch.timeZone), end = clock.zoned(clock.dateKey(start + 36 * H, ch.timeZone), '00:00', ch.timeZone);
     const convs = await db().conversations.where('campaignId').equals(campaignId).toArray();
     const at = (x: { ts: number; storyTs?: number }) => x.storyTs ?? x.ts;
     const msgs = (await Promise.all(convs.map((c) => db().messages.where('conversationId').equals(c.id).filter((x) => at(x) >= start && at(x) < end && x.role !== 'system').toArray()))).flat().sort((a, b) => at(a) - at(b));
     const mems = await db().memories.where('campaignId').equals(campaignId).reverse().sortBy('createdAt');
     const prev = (await this.entries().where('campaignId').equals(campaignId).reverse().sortBy('date')).filter((e) => e.date < date)[0];
     const transcript = msgs.slice(-60).map((x) => `${x.role === 'user' ? '对方' : '我'}：${textOf(x)}`).join('\n');
+    const schedule = await scheduleOf(campaignId, characterId, start, end, ch.timeZone);
     return {
       ch, cp, talked: msgs.length > 0,
       rules: '第一人称，写给自己看的，不是给别人看的。150 到 300 字。写那天真正在意的事和没说出口的想法，可以有情绪，可以不完整，不要总结式的流水账，不要带日期标题。',
-      text: `${prev ? `前一篇日记（别重复）：\n${prev.text.slice(0, 300)}\n\n` : ''}那天的对话：\n${transcript || '（那天没有和对方说话）'}\n\n最近记得的事：\n${mems.slice(0, 6).map((x) => '- ' + x.text).join('\n') || '（无）'}`,
+      text: `${prev ? `前一篇日记（别重复）：\n${prev.text.slice(0, 300)}\n\n` : ''}那天的对话：\n${transcript || '（那天没有和对方说话）'}\n\n${schedule ? `那天日历上的安排（做没做按上面标的，没标的就是照做了）：\n${schedule}\n\n` : ''}最近记得的事：\n${mems.slice(0, 6).map((x) => '- ' + x.text).join('\n') || '（无）'}`,
     };
   },
   async save(campaignId: string, characterId: string, date: string, text: string, source: DiaryEntry['source']) {
@@ -66,12 +80,13 @@ export const diaryApi = {
  * 用户跳过了几天：只补最后一个完整的一天，没和对方说话也写，写他自己过的日子。
  */
 async function collectWrite(c: CatchupContext) {
-  const date = clock.dateKey(c.to - D);
+  const tz = (await ctx.data.character(c.characterId))?.timeZone;
+  const date = clock.dateKey(c.to - D, tz);
   if (await diaryApi.forDate(c.campaignId, date)) return null;
   const m = await diaryApi.material(c.campaignId, c.characterId, date);
   if (!m) return null;
   if (!m.talked && !c.skipped) return null;
-  const gap = c.skipped && !m.talked ? `这段时间（从 ${clock.format(c.from)} 到 ${clock.format(c.to)}）你们没有说话，写你自己过的日子。` : '';
+  const gap = c.skipped && !m.talked ? `这段时间（从 ${clock.format(c.from, tz)} 到 ${clock.format(c.to, tz)}）你们没有说话，写你自己过的日子。` : '';
   return {
     label: '日记',
     prompt: `补写昨天（${date}）的日记。${m.rules}${gap}不想写就 text 留空。\n${m.text}`,

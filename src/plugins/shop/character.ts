@@ -3,7 +3,7 @@
  * 这里只拼材料和落库，模型调用都由内核做。
  */
 import type { PromptContext, CatchupContext, CatchupItem, ToolDef } from '$kernel/api';
-import { shopApi, yuan, type Product, type Order } from './index';
+import { shopApi, yuan, orderAt, type Product, type Order } from './index';
 import { buildCard } from './share';
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s);
@@ -93,7 +93,7 @@ export async function collectBrowse(c: CatchupContext): Promise<CatchupItem | nu
   const items = await overview(c.campaignId);
   if (!items.length) return null;
   const last = (await hisThings(c.campaignId, 1))[0];
-  if (last && last.buyer === 'char' && Date.now() - last.createdAt < 24 * 3600_000) return null; // 刚买过
+  if (last && last.buyer === 'char' && c.to - orderAt(last) < 24 * 3600_000) return null; // 刚买过（按剧情钟）
   const balance = await wallet.balance(c.campaignId, c.characterId);
   return {
     label: '商店',

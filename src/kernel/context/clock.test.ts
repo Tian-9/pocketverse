@@ -46,3 +46,20 @@ describe('clock', () => {
     expect(clock.fromInput('nope')).toBeNull();
   });
 });
+
+describe('clock in his zone', () => {
+  it('zoned turns a wall-clock time in a zone into the right instant', () => {
+    expect(clock.zoned('2026-10-11', '09:30', 'UTC')).toBe(Date.UTC(2026, 9, 11, 9, 30));
+    expect(clock.zoned('2026-10-11', '09:30', 'Asia/Tokyo')).toBe(Date.UTC(2026, 9, 11, 0, 30));
+    expect(clock.zoned('2026-07-01', '09:30', 'America/New_York')).toBe(Date.UTC(2026, 6, 1, 13, 30)); // 夏令时 -4
+    expect(clock.zoned('2026-01-01', '09:30', 'America/New_York')).toBe(Date.UTC(2026, 0, 1, 14, 30)); // 冬令时 -5
+    expect(clock.zoned('2026-10-11', '09:30', 'Mars/Phobos')).toBe(new Date(2026, 9, 11, 9, 30).getTime());
+    expect(clock.formatTime(Date.UTC(2026, 9, 11, 0, 30), 'Asia/Tokyo')).toBe('09:30');
+  });
+  it('dayRange is that zone\'s midnight to midnight', () => {
+    const [s, e] = clock.dayRange(Date.UTC(2026, 9, 11, 16, 0), 'Asia/Tokyo'); // 东京已是 12 日
+    expect(s).toBe(Date.UTC(2026, 9, 11, 15, 0));
+    expect(e).toBe(Date.UTC(2026, 9, 12, 15, 0));
+    expect(clock.dateKey(s, 'Asia/Tokyo')).toBe('2026-10-12');
+  });
+});

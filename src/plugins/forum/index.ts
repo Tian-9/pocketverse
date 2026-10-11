@@ -18,6 +18,10 @@ export interface Thread {
   /** 话题标签，生成时给的 */
   tag?: string;
   createdAt: number; lastReplyAt: number; replyCount: number;
+  /** 发的时候的剧情时刻（存档时钟）；旧数据没有就当和 createdAt 一样 */
+  storyTs?: number;
+  /** 最后一条回复的剧情时刻 */
+  lastReplyStoryTs?: number;
   source: 'crowd' | 'chat' | 'catchup' | 'user';
   /** 你或他参与过（发的或回过）：清理旧路人帖时留下 */
   mine?: boolean;
@@ -28,6 +32,8 @@ export interface Thread {
 export interface Reply {
   id: string; threadId: string; campaignId: string;
   author: Author; body: string; createdAt: number;
+  /** 回的时候的剧情时刻；旧数据没有就当和 createdAt 一样 */
+  storyTs?: number;
   /** 回在他帖子下、他还没看到；他下次拿起手机时处理 */
   pendingForChar?: boolean;
 }
@@ -41,6 +47,10 @@ const NEW_POSTS = 5;
 const DEFAULT_NICKNAME = '路过的人';
 
 const refreshing = new Set<string>();
+/** 帖子或回复的剧情时刻：「刚发过」「最近两天」和显示都按它 */
+export const storyAt = (x: { createdAt: number; storyTs?: number }) => x.storyTs ?? x.createdAt;
+/** 帖子最后有动静的剧情时刻（列表按它显示） */
+export const lastStoryAt = (t: Thread) => t.lastReplyStoryTs ?? storyAt(t);
 /** 比标题用：去掉书名号、引号和空白，不分大小写 */
 const normTitle = (s: string) => s.replace(/[《》「」""''\s]/g, '').toLowerCase();
 
@@ -60,11 +70,18 @@ export const forumApi = {
     return (await ctx.data.character(a.characterId))?.name ?? '他';
   },
 
+  /** 这局的剧情此刻；传了 real 就按同样的偏移折算（路人帖往前错开时用） */
+  async storyNow(campaignId: string, real = Date.now()): Promise<number> {
+    const cp = await ctx.data.campaign(campaignId);
+    return cp ? cp.now - (Date.now() - real) : real;
+  },
+
   async post(campaignId: string, author: Author, title: string, body: string, source: Thread['source'], extra: Partial<Thread> = {}): Promise<Thread> {
     const now = Date.now();
+    const storyTs = await this.storyNow(campaignId, extra.createdAt ?? now);
     const t: Thread = {
       id: ulid(), campaignId, author, title: title.trim().slice(0, 60), body: body.trim().slice(0, 2000),
-      createdAt: now, lastReplyAt: now, replyCount: 0, source,
+      createdAt: now, lastReplyAt: now, replyCount: 0, source, storyTs, lastReplyStoryTs: storyTs,
       ...(author.kind !== 'npc' ? { mine: true } : {}),
       ...(author.kind === 'user' ? { awaitingCrowd: true } : {}),
       ...extra,
@@ -75,11 +92,11 @@ export const forumApi = {
 
   async reply(thread: Thread, author: Author, body: string, at = Date.now()): Promise<Reply> {
     const r: Reply = {
-      id: ulid(), threadId: thread.id, campaignId: thread.campaignId, author, body: body.trim().slice(0, 1000), createdAt: at,
+      id: ulid(), threadId: thread.id, campaignId: thread.campaignId, author, body: body.trim().slice(0, 1000), createdAt: at, storyTs: await this.storyNow(thread.campaignId, at),
       ...(thread.author.kind === 'char' && author.kind !== 'char' ? { pendingForChar: true } : {}),
     };
     await this.replies().add(r);
-    const patch: Partial<Thread> = { lastReplyAt: Math.max(thread.lastReplyAt, at), replyCount: thread.replyCount + 1 };
+    const patch: Partial<Thread> = { lastReplyAt: Math.max(thread.lastReplyAt, at), lastReplyStoryTs: Math.max(lastStoryAt(thread), r.storyTs!), replyCount: thread.replyCount + 1 };
     if (author.kind !== 'npc') patch.mine = true;
     if (author.kind === 'user') patch.awaitingCrowd = true;
     else if (author.kind === 'npc') patch.awaitingCrowd = false;

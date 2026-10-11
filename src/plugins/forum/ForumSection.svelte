@@ -2,7 +2,7 @@
   /** 角色主页上的论坛段：这一局里他最近一帖，点进论坛 */
   import { List, Cell, live, nav } from '$kernel/api';
   import type { ProfileSectionProps } from '$kernel/api';
-  import { forumApi, type Thread } from './index';
+  import { forumApi, storyAt, type Thread } from './index';
   let { campaignId, characterId }: ProfileSectionProps = $props();
   const latest = live(
     () => forumApi.threads().where('campaignId').equals(campaignId).filter((t) => t.author.kind === 'char' && t.author.characterId === characterId).reverse().sortBy('createdAt').then((xs) => xs[0]),
@@ -17,5 +17,5 @@
 </script>
 
 <List>
-  <Cell title="论坛" subtitle={latest.value ? `${when(latest.value.createdAt)} · ${latest.value.title}` : '还没在论坛发过帖'} chevron onclick={open} />
+  <Cell title="论坛" subtitle={latest.value ? `${when(storyAt(latest.value))} · ${latest.value.title}` : '还没在论坛发过帖'} chevron onclick={open} />
 </List>

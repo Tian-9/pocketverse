@@ -3,11 +3,12 @@ import type { PluginContext, PromptContext, CatchupContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Calendar from './Calendar.svelte';
 import CalendarSection from './CalendarSection.svelte';
-import { PLAN_SYSTEM, planUser, planSchema, parsePlan, tsOf } from './plan';
+import { PLAN_SYSTEM, planUser, planSchema, parsePlan } from './plan';
 
 /**
  * 日历：挂在存档时钟上的事件。他的安排由便宜模型按周排（像商店进货），聊天里约的事记进来，你也能手填。
  * 设计见 designs/clock-and-calendar.md 第 4 节。真实局和剧情局同一套代码：「现在」一律问时钟。
+ * 「几点」「哪一天」按他的时区（角色卡 timeZone，没设就是设备时区）：日期键、日界、HH:MM 的显示和解析都套它。
  */
 export interface CalendarEvent {
   id: string; campaignId: string;
@@ -31,11 +32,13 @@ export const PLAN_DAYS = 7;
 
 let ctx: PluginContext;
 const planning = new Set<string>();
-const fmtClock = (ts: number) => new Date(ts).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
 const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 export const dayLabel = (key: string) => `${key} ${WEEKDAY[new Date(key + 'T00:00').getDay()]}`;
-/** 一天的起止（设备本地时区） */
-export function dayRange(key: string): [number, number] { const s = tsOf(key, '00:00'); return [s, s + D]; }
+/** 某一天（YYYY-MM-DD）在他的时区里的 [零点, 次日零点) */
+export function dayRange(key: string, tz?: string): [number, number] {
+  const s = clock.zoned(key, '00:00', tz);
+  return [s, clock.zoned(clock.dateKey(s + 36 * H, tz), '00:00', tz)];
+}
 
 export const calendarApi = {
   ctx: () => ctx,
@@ -43,6 +46,8 @@ export const calendarApi = {
   lastCampaign: () => ctx.settings.get<string | null>('campaign', null),
   setLastCampaign: (id: string) => ctx.settings.set('campaign', id),
   isPlanning: (campaignId: string) => planning.has(campaignId),
+  /** 这局的他的时区 */
+  async tz(campaignId: string): Promise<string | undefined> { return (await ctx.data.campaign(campaignId))?.timeZone; },
 
   /** [from, to) 之间的，按开始时间排 */
   async between(campaignId: string, from: number, to: number): Promise<CalendarEvent[]> {
@@ -50,8 +55,8 @@ export const calendarApi = {
     return (await this.events().where('campaignId').equals(campaignId).filter((e) => e.start >= from && e.start < to).toArray())
       .sort((a, b) => a.start - b.start || Number(a.owner === 'user') - Number(b.owner === 'user') || a.id.localeCompare(b.id));
   },
-  async onDay(campaignId: string, key: string) { const [s, e] = dayRange(key); return this.between(campaignId, s, e); },
-  async today(campaignId: string, now: number) { return this.onDay(campaignId, clock.dateKey(now)); },
+  async onDay(campaignId: string, key: string) { const [s, e] = dayRange(key, await this.tz(campaignId)); return this.between(campaignId, s, e); },
+  async today(campaignId: string, now: number) { return this.onDay(campaignId, clock.dateKey(now, await this.tz(campaignId))); },
   /** 下一件还没开始的 */
   async next(campaignId: string, now: number): Promise<CalendarEvent | undefined> {
     return (await this.between(campaignId, now, now + 365 * D))[0];
@@ -72,8 +77,9 @@ export const calendarApi = {
 
   /** 从今天起往后，有「他的」安排的日子有几天 */
   async horizon(campaignId: string, characterId: string, now: number): Promise<number> {
-    const [start] = dayRange(clock.dateKey(now));
-    const days = new Set((await this.between(campaignId, start, start + 60 * D)).filter((e) => e.owner === characterId).map((e) => clock.dateKey(e.start)));
+    const tz = await this.tz(campaignId);
+    const [start] = dayRange(clock.dateKey(now, tz), tz);
+    const days = new Set((await this.between(campaignId, start, start + 60 * D)).filter((e) => e.owner === characterId).map((e) => clock.dateKey(e.start, tz)));
     return days.size;
   },
   /** 不足 HORIZON_DAYS 天就排一周；不等结果（给易变段用，不拖慢这一轮） */
@@ -92,12 +98,13 @@ export const calendarApi = {
       const cp = await ctx.data.campaign(campaignId);
       const ch = await ctx.data.character(characterId);
       if (!cp || !ch) return null;
-      const [start] = dayRange(clock.dateKey(now));
+      const tz = ch.timeZone;
+      const [start] = dayRange(clock.dateKey(now, tz), tz);
       const have = await this.between(campaignId, start, start + 60 * D);
-      const covered = new Set(have.filter((e) => e.owner === characterId && e.source === 'plan').map((e) => clock.dateKey(e.start)));
+      const covered = new Set(have.filter((e) => e.owner === characterId && e.source === 'plan').map((e) => clock.dateKey(e.start, tz)));
       const days: string[] = [];
-      for (let i = 0; days.length < PLAN_DAYS && i < 60; i++) { const k = clock.dateKey(start + i * D + H); if (!covered.has(k)) days.push(k); }
-      const existing = have.filter((e) => days.includes(clock.dateKey(e.start))).map((e) => `${clock.dateKey(e.start)} ${fmtClock(e.start)} ${e.title}${e.owner === 'user' ? '（对方的）' : ''}`);
+      for (let i = 0; days.length < PLAN_DAYS && i < 60; i++) { const k = clock.dateKey(start + i * D + H, tz); if (!covered.has(k)) days.push(k); }
+      const existing = have.filter((e) => days.includes(clock.dateKey(e.start, tz))).map((e) => `${clock.dateKey(e.start, tz)} ${clock.formatTime(e.start, tz)} ${e.title}${e.owner === 'user' ? '（对方的）' : ''}`);
       const [world, dir, mems] = await Promise.all([ctx.data.world(cp.worldId), ctx.data.loreDirectory(campaignId), ctx.data.memories(campaignId, { limit: 6, minImportance: 2 })]);
       const { text } = await ctx.llm.chat({
         system: PLAN_SYSTEM,
@@ -109,8 +116,9 @@ export const calendarApi = {
         cheap: true, effort: 'low', maxTokens: 2500, jsonSchema: planSchema(),
       });
       const items = parsePlan(text, days);
+      const at = (date: string, time: string) => clock.zoned(date, time, tz);
       const rows: CalendarEvent[] = items.map((it) => ({
-        id: ulid(), campaignId, owner: characterId, start: tsOf(it.date, it.start), ...(it.end && tsOf(it.date, it.end) > tsOf(it.date, it.start) ? { end: tsOf(it.date, it.end) } : {}),
+        id: ulid(), campaignId, owner: characterId, start: at(it.date, it.start), ...(it.end && at(it.date, it.end) > at(it.date, it.start) ? { end: at(it.date, it.end) } : {}),
         title: it.title, ...(it.place ? { place: it.place } : {}), source: 'plan', status: 'planned',
       }));
       if (rows.length) await this.events().bulkAdd(rows);
@@ -120,17 +128,18 @@ export const calendarApi = {
   },
 };
 
-const line = (e: CalendarEvent) => `${fmtClock(e.start)}${e.end ? '–' + fmtClock(e.end) : ''} ${e.title}${e.place ? '（' + e.place + '）' : ''}${e.together ? '，和对方一起' : ''}`;
+const line = (e: CalendarEvent, tz?: string) => `${clock.formatTime(e.start, tz)}${e.end ? '–' + clock.formatTime(e.end, tz) : ''} ${e.title}${e.place ? '（' + e.place + '）' : ''}${e.together ? '，和对方一起' : ''}`;
 
 /** 易变段：今天的安排、现在正在干什么、接下来一件。只给他自己的 */
 export async function volatileLine(campaignId: string, characterId: string, now: number): Promise<string> {
+  const tz = await calendarApi.tz(campaignId);
   const today = (await calendarApi.today(campaignId, now)).filter((e) => e.owner === characterId);
   const current = today.find((e) => e.start <= now && now < (e.end ?? e.start + H));
   const upcoming = today.find((e) => e.start > now) ?? (await calendarApi.next(campaignId, now));
   if (!today.length && !upcoming) return '';
-  const parts = [`你今天的安排：${today.length ? today.map(line).join(' · ') : '没有'}`];
+  const parts = [`你今天的安排：${today.length ? today.map((e) => line(e, tz)).join(' · ') : '没有'}`];
   if (current) parts.push(`现在正在：${current.title}`);
-  if (upcoming) parts.push(`接下来：${clock.dateKey(upcoming.start) === clock.dateKey(now) ? '' : clock.formatShort(upcoming.start).split(' ')[0] + ' '}${line(upcoming)}`);
+  if (upcoming) parts.push(`接下来：${clock.dateKey(upcoming.start, tz) === clock.dateKey(now, tz) ? '' : clock.formatShort(upcoming.start, tz).split(' ')[0] + ' '}${line(upcoming, tz)}`);
   return `（${parts.join('。')}。）`;
 }
 
@@ -138,9 +147,10 @@ export async function volatileLine(campaignId: string, characterId: string, now:
 async function collectPassed(c: CatchupContext) {
   const passed = (await calendarApi.between(c.campaignId, c.from, c.to)).filter((e) => e.owner === c.characterId && (e.status ?? 'planned') === 'planned').slice(0, 8);
   if (!passed.length) return null;
+  const tz = await calendarApi.tz(c.campaignId);
   return {
     label: '日程',
-    prompt: `这段时间你日历上排了这些事：\n${passed.map((e, i) => `${i + 1}. ${clock.formatShort(e.start)} ${e.title}${e.place ? '（' + e.place + '）' : ''}`).join('\n')}\n按编号说每件做了没做（done），一句话说说怎么样（note，像给自己记的备注，可以空）。大多数照做了，偶尔鸽一件也正常。`,
+    prompt: `这段时间你日历上排了这些事：\n${passed.map((e, i) => `${i + 1}. ${clock.formatShort(e.start, tz)} ${e.title}${e.place ? '（' + e.place + '）' : ''}`).join('\n')}\n按编号说每件做了没做（done），一句话说说怎么样（note，像给自己记的备注，可以空）。大多数照做了，偶尔鸽一件也正常。`,
     schema: { type: 'object', additionalProperties: false, required: ['items'], properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'done', 'note'], properties: { n: { type: 'integer' }, done: { type: 'boolean' }, note: { type: 'string' } } } } } },
     async apply(out: unknown) {
       const items = ((out as { items?: { n?: number; done?: boolean; note?: string }[] } | undefined)?.items ?? []);
@@ -154,11 +164,12 @@ async function collectPassed(c: CatchupContext) {
 }
 
 const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
-/** 「2026-10-12 19:30」「2026-10-12T19:30」→ 时间戳；解析不了 null */
-export function parseWhen(v: unknown): number | null {
+/** 「2026-10-12 19:30」「2026-10-12T19:30」→ 他的时区里的那一刻；只给日期算 09:00；解析不了 null */
+export function parseWhen(v: unknown, tz?: string): number | null {
   const s = str(v, 40).replace(' ', 'T');
-  if (!/^\d{4}-\d{2}-\d{2}(T\d{1,2}:\d{2})?$/.test(s)) return null;
-  const t = new Date(s.length === 10 ? s + 'T09:00' : s).getTime();
+  const m = /^(\d{4}-\d{2}-\d{2})(?:T(\d{1,2}:\d{2}))?$/.exec(s);
+  if (!m) return null;
+  const t = clock.zoned(m[1]!, m[2] ?? '09:00', tz);
   return Number.isFinite(t) ? t : null;
 }
 
@@ -194,11 +205,12 @@ export default definePlugin({
       }, required: ['title', 'start'] },
       async handler(input: unknown, p: PromptContext) {
         const o = input as { title?: unknown; start?: unknown; end?: unknown; place?: unknown; together?: unknown } | undefined;
-        const title = str(o?.title, 40), start = parseWhen(o?.start), end = parseWhen(o?.end), place = str(o?.place, 40);
+        const tz = await calendarApi.tz(p.campaignId);
+        const title = str(o?.title, 40), start = parseWhen(o?.start, tz), end = parseWhen(o?.end, tz), place = str(o?.place, 40);
         if (!title) return 'title 不能为空。';
         if (start === null) return 'start 格式不对，写「YYYY-MM-DD HH:MM」。';
         const e = await calendarApi.addTogether(p.campaignId, p.characterIds[0]!, { start, ...(end !== null && end > start ? { end } : {}), title, ...(place ? { place } : {}), source: 'chat' }, o?.together === true);
-        return `记下了：${clock.format(e.start)} ${e.title}${e.together ? '（对方的日历里也有了）' : ''}。`;
+        return `记下了：${clock.format(e.start, tz)} ${e.title}${e.together ? '（对方的日历里也有了）' : ''}。`;
       },
     },
     {
@@ -208,12 +220,13 @@ export default definePlugin({
       inputSchema: { type: 'object', properties: { days: { type: 'integer', minimum: 1, maximum: 30 } } },
       async handler(input: unknown, p: PromptContext) {
         const days = Math.min(30, Math.max(1, Math.round(Number((input as { days?: unknown })?.days) || 7)));
-        const [start] = dayRange(clock.dateKey(p.now));
+        const tz = await calendarApi.tz(p.campaignId);
+        const [start] = dayRange(clock.dateKey(p.now, tz), tz);
         const all = (await calendarApi.between(p.campaignId, start, start + days * D)).filter((e) => e.owner === p.characterIds[0]);
         if (!all.length) return '这几天日历上没有安排。';
         const byDay = new Map<string, CalendarEvent[]>();
-        for (const e of all) { const k = clock.dateKey(e.start); byDay.set(k, [...(byDay.get(k) ?? []), e]); }
-        return [...byDay.entries()].map(([k, es]) => `${dayLabel(k)}\n${es.map((e) => '  ' + line(e) + (e.status === 'done' ? '（已做）' : e.status === 'skipped' ? '（没去）' : '')).join('\n')}`).join('\n');
+        for (const e of all) { const k = clock.dateKey(e.start, tz); byDay.set(k, [...(byDay.get(k) ?? []), e]); }
+        return [...byDay.entries()].map(([k, es]) => `${dayLabel(k)}\n${es.map((e) => '  ' + line(e, tz) + (e.status === 'done' ? '（已做）' : e.status === 'skipped' ? '（没去）' : '')).join('\n')}`).join('\n');
       },
     },
   ],

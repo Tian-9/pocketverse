@@ -19,7 +19,8 @@ let answer = '';
 const notices: string[] = [];
 const pc = (addCard?: PromptContext['addCard']): PromptContext => ({ campaignId: 'cp1', conversationId: 'cv1', characterIds: ['ch1'], now: Date.now(), addCard });
 const tool = (name: string) => tools.find((t) => t.name === name)!;
-const cc: CatchupContext = { campaignId: 'cp1', characterId: 'ch1', characterName: '阿一', elapsedMs: 7 * 3600_000, from: Date.now() - 7 * 3600_000, to: Date.now(), now: Date.now(), days: 0, tier: 'h6', elapsedText: '大约 7 小时' };
+// 补发的「现在」是剧情时刻（这局停在 2026-03-20），「刚买过」按它算
+const cc: CatchupContext = { campaignId: 'cp1', characterId: 'ch1', characterName: '阿一', elapsedMs: 7 * 3600_000, from: campaign.now - 7 * 3600_000, to: campaign.now, now: campaign.now, days: 0, tier: 'h6', elapsedText: '大约 7 小时' };
 
 beforeAll(async () => {
   openDB([plugin]);

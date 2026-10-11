@@ -1,10 +1,10 @@
 import { db } from '../storage/db';
-import type { Campaign } from '../storage/db';
+import type { Campaign, Character } from '../storage/db';
 import { repo } from './repo';
 import { loreApplies } from './lore';
 import { loreDirectory } from '../context/assemble';
 import { clock } from '../context/clock';
-import type { DataView, CampaignView } from '../api/types';
+import type { DataView, CampaignView, CharacterView } from '../api/types';
 
 async function toView(c: Campaign): Promise<CampaignView | undefined> {
   const chId = c.characterIds[0];
@@ -12,9 +12,11 @@ async function toView(c: Campaign): Promise<CampaignView | undefined> {
   if (!ch) return undefined;
   return {
     id: c.id, name: c.name, worldId: c.worldId, worldName: world?.name ?? '', characterId: ch.id, characterName: ch.name,
-    lastPlayedAt: c.lastPlayedAt, now: clock.now(c.clock), aligned: clock.aligned(c.clock), state: structuredClone(c.state),
+    lastPlayedAt: c.lastPlayedAt, now: clock.now(c.clock), aligned: clock.aligned(c.clock), ...(ch.timeZone ? { timeZone: ch.timeZone } : {}), state: structuredClone(c.state),
   };
 }
+
+const charView = (c: Character): CharacterView => ({ id: c.id, name: c.name, avatar: c.avatar, core: c.core, ...(c.timeZone ? { timeZone: c.timeZone } : {}) });
 
 /** PluginContext.data 的实现：插件读内核数据的唯一入口，只读。 */
 export const dataView: DataView = {
@@ -34,10 +36,10 @@ export const dataView: DataView = {
   },
   async character(id) {
     const c = await db().characters.get(id);
-    return c ? { id: c.id, name: c.name, avatar: c.avatar, core: c.core } : undefined;
+    return c ? charView(c) : undefined;
   },
   async characters() {
-    return (await db().characters.toArray()).map((c) => ({ id: c.id, name: c.name, avatar: c.avatar, core: c.core }));
+    return (await db().characters.toArray()).map(charView);
   },
   async memories(campaignId, opts = {}) {
     const min = opts.minImportance ?? 1;

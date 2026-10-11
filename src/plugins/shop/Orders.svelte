@@ -1,15 +1,16 @@
 <script lang="ts">
   /** 订单：这一局里买过的东西，新的在前。who 指定只看谁的（归你的 / 归他的）。 */
-  import { NavBar, Placeholder, List, Cell, live, nav, icons } from '$kernel/api';
+  import { NavBar, Placeholder, List, Cell, live, nav, icons, clock } from '$kernel/api';
   import type { Order } from './index';
-  import { shopApi, yuan } from './index';
+  import { shopApi, yuan, orderAt } from './index';
 
   let { campaignId, who }: { campaignId: string; who?: Order['to'] } = $props();
   const orders = live(() => shopApi.recentOrders(campaignId, who), [] as Order[], () => [campaignId, who]);
-  const fmt = (ts: number) => new Date(ts).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  // 剧情时刻（和真实时间一样的局就是真实时刻）
+  const fmt = (ts: number) => clock.formatShort(ts);
   function line(o: Order) {
     const whose = o.buyer === o.to ? (o.buyer === 'user' ? '你买的' : '他买的') : o.buyer === 'user' ? '你送他的' : '他送你的';
-    return [fmt(o.createdAt), whose, o.note ? '「' + o.note + '」' : ''].filter(Boolean).join(' · ');
+    return [fmt(orderAt(o)), whose, o.note ? '「' + o.note + '」' : ''].filter(Boolean).join(' · ');
   }
 </script>
 

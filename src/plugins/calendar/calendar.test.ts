@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import type { PluginContext, CampaignView, PromptContext, CatchupContext } from '$kernel/api';
 import { openDB, db, pluginTable } from '$kernel/storage/db';
+import { clock } from '$kernel/api';
 import plugin, { calendarApi, volatileLine, parseWhen, HORIZON_DAYS, dayLabel } from './index';
-import { planUser, parsePlan, tsOf } from './plan';
+import { planUser, parsePlan } from './plan';
+
+/** 设备本地时区的「那天几点」（测试里的局没设时区） */
+const tsOf = (date: string, time: string) => clock.zoned(date, time);
 
 const H = 3600_000, D = 24 * H;
 // 剧情「现在」：2027-03-10 10:00（设备本地时区），和真实时间无关
@@ -11,6 +15,8 @@ const campaign: CampaignView = {
   id: 'cp1', name: '雨城', worldId: 'w1', worldName: '雨城', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1, now, aligned: false,
   state: { location: '图书馆', relations: {}, mood: { ch1: '困' }, facts: ['下周考试'] },
 };
+/** 同一张卡在东京的局：他那边的几点按 Asia/Tokyo 算 */
+const tokyo: CampaignView = { ...campaign, id: 'cp2', timeZone: 'Asia/Tokyo' };
 let answer = '';
 let lastUser = '';
 let calls = 0;
@@ -26,7 +32,7 @@ beforeAll(async () => {
     llm: { configured: true, async chat(req: { user: string }) { calls++; lastUser = req.user; return { text: answer }; } },
     data: {
       async currentCampaigns() { return [campaign]; },
-      async campaign(id: string) { return id === campaign.id ? campaign : undefined; },
+      async campaign(id: string) { return id === campaign.id ? campaign : id === tokyo.id ? tokyo : undefined; },
       async world() { return { id: 'w1', name: '雨城', summary: '总在下雨' }; },
       async character(id: string) { return id === 'ch1' ? { id, name: '阿一', core: '图书馆管理员' } : undefined; },
       async characters() { return []; },
@@ -129,5 +135,15 @@ describe('volatile line, tools, service', () => {
     const done = await calendarApi.between('cp1', now, now + 2 * D);
     expect(done.map((e) => [e.title, e.status, e.note])).toEqual([['还书', 'done', '顺便借了两本'], ['晨会', 'skipped', undefined], ['晨会', 'done', undefined]]);
     expect(await c.collect(cctx)).toBeNull();
+  });
+  it('a character in another zone: his day and HH:MM follow that zone, not the device', async () => {
+    const p2: PromptContext = { ...pctx, campaignId: 'cp2' };
+    await tool('calendar_add').handler({ title: '晚饭', start: '2027-03-13 19:30' }, p2);
+    const e = (await calendarApi.between('cp2', 0, Infinity))[0]!;
+    expect(e.start).toBe(Date.UTC(2027, 2, 13, 10, 30)); // 东京 19:30 = UTC 10:30
+    expect((await calendarApi.today('cp2', Date.UTC(2027, 2, 13, 14, 0))).map((x) => x.title)).toEqual(['晚饭']); // 东京 13 日 23:00
+    expect(await calendarApi.today('cp2', Date.UTC(2027, 2, 13, 16, 0))).toEqual([]); // 东京已是 14 日
+    expect(await volatileLine('cp2', 'ch1', Date.UTC(2027, 2, 13, 9, 0))).toContain('你今天的安排：19:30 晚饭');
+    expect(await tool('calendar_read').handler({ days: 1 }, { ...p2, now: Date.UTC(2027, 2, 13, 9, 0) })).toContain('2027-03-13 周六\n  19:30 晚饭');
   });
 });

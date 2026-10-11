@@ -3,9 +3,9 @@
    * 论坛首页：一局一个论坛。顶部切存档（只列每张卡当前这一局），列表按最后活跃排。
    * 打开时距上次刷新超过 6 小时就自动让路人发一批；右上角能手动刷、能发帖。
    */
-  import { NavBar, Placeholder, Glyph, Sheet, List, Cell, Field, Button, live, nav, icons } from '$kernel/api';
+  import { NavBar, Placeholder, Glyph, Sheet, List, Cell, Field, Button, live, nav, icons, clock } from '$kernel/api';
   import type { CampaignView } from '$kernel/api';
-  import { forumApi, type Thread } from './index';
+  import { forumApi, lastStoryAt, type Thread } from './index';
 
   const campaigns = live(() => forumApi.ctx().data.currentCampaigns(), []);
   let selected = $state<string | null>(null);
@@ -59,7 +59,10 @@
   }
   async function pick(c: CampaignView) { selected = c.id; picking = false; await forumApi.setLastCampaign(c.id); }
 
-  function when(ts: number) {
+  // 按这局的剧情钟显示：和真实时间一样的局还是「3 分钟前」，跳过时间或停表的局给剧情时刻
+  function when(t: Thread) {
+    const ts = lastStoryAt(t);
+    if (current && !current.aligned) return clock.formatShort(ts);
     const d = Date.now() - ts;
     if (d < 60_000) return '刚刚';
     if (d < 3600_000) return Math.floor(d / 60_000) + ' 分钟前';
@@ -94,7 +97,7 @@
         <p class="snippet">{t.body}</p>
         <div class="meta">
           <span class:me={t.author.kind === 'user'} class:char={t.author.kind === 'char'}>{t.who}</span>
-          <span>{when(t.lastReplyAt)}{t.replyCount ? ` · ${t.replyCount} 回复` : ''}</span>
+          <span>{when(t)}{t.replyCount ? ` · ${t.replyCount} 回复` : ''}</span>
         </div>
       </button>
     {/each}

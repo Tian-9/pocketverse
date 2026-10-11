@@ -279,13 +279,15 @@ export interface CampaignView {
   now: number;
   /** 这局的钟和真实时间是否对齐（走表、没跳过）。真实天气之类只在对齐时给 */
   aligned: boolean;
+  /** 他的时区（IANA 名）；没设就是设备时区。按天分组、「几点」的显示和解析都套它 */
+  timeZone?: string;
   state: {
     location?: string;
     relations: Record<string, string>; mood: Record<string, string>; facts: string[];
   };
 }
 export interface WorldView { id: string; name: string; summary: string }
-export interface CharacterView { id: string; name: string; avatar?: Blob; core: string }
+export interface CharacterView { id: string; name: string; avatar?: Blob; core: string; timeZone?: string }
 export interface MemoryView { id: string; characterId?: string; when: string; text: string; importance: 1 | 2 | 3; createdAt: number }
 
 export interface PluginChatRequest {

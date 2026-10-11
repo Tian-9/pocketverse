@@ -38,9 +38,14 @@ export interface Order {
   conversationId?: string;
   source: 'ui' | 'chat' | 'catchup';
   createdAt: number;
+  /** 买的时候的剧情时刻（存档时钟）；旧数据没有就当和 createdAt 一样 */
+  storyTs?: number;
   /** 留给以后的物流，先不用 */
   deliveredAt?: number;
 }
+
+/** 订单的剧情时刻：「刚买过」和显示都按它 */
+export const orderAt = (o: Order) => o.storyTs ?? o.createdAt;
 
 /** 钱包插件提供的服务，形状见 plugins/redpacket/index.ts 的 WalletService；这里只声明用到的 */
 export interface ShopWallet {
@@ -155,7 +160,7 @@ export const shopApi = {
     if (!(await wallet.charge(product.campaignId, owner, product.price, `买 ${product.name}`))) return null;
     const order: Order = {
       id: ulid(), campaignId: product.campaignId, productId: product.id, name: product.name, price: product.price,
-      buyer: o.buyer, to: o.to, characterId: o.characterId, source: o.source, createdAt: Date.now(),
+      buyer: o.buyer, to: o.to, characterId: o.characterId, source: o.source, createdAt: Date.now(), storyTs: (await ctx.data.campaign(product.campaignId))?.now ?? Date.now(),
       ...(o.note ? { note: o.note } : {}), ...(o.conversationId ? { conversationId: o.conversationId } : {}),
     };
     await this.orders().add(order);

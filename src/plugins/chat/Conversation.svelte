@@ -258,7 +258,7 @@
   <div onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); advance(); } }} role="presentation">
   <div class="quick">
     {#each quick as q (q.label)}<button onclick={() => advance(q.ts)}>{q.label}</button>{/each}
-    {#if nextEvent}<button onclick={() => advance(nextEvent!.start)}>到「{nextEvent.title}」{clock.formatShort(nextEvent.start)}</button>{/if}
+    {#if nextEvent}<button onclick={() => advance(nextEvent!.start)}>到「{nextEvent.title}」{clock.formatShort(nextEvent.start, character.value?.timeZone)}</button>{/if}
   </div>
   <List footer={`这局现在是 ${clock.format(storyNow(), character.value?.timeZone)}。推进后会先整理记忆，插一条旁白，他接着那个时间点说话。想让他定住不走，去他的主页把这局停表。`}>
     <Field label="来到" type="datetime-local" bind:value={timeWhen} />

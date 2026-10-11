@@ -1,7 +1,7 @@
 <script lang="ts">
   /** 帖子页：正文 + 回复 + 回复框。你回完可以点「看看有没有人回」让路人现在接话。 */
-  import { NavBar, Placeholder, Button, live, nav, icons } from '$kernel/api';
-  import { forumApi, type Thread, type Reply } from './index';
+  import { NavBar, Placeholder, Button, live, nav, icons, clock } from '$kernel/api';
+  import { forumApi, storyAt, type Thread, type Reply } from './index';
 
   let { id }: { id: string } = $props();
   const thread = live(() => forumApi.threads().get(id), undefined as Thread | undefined, () => [id]);
@@ -35,7 +35,8 @@
     await forumApi.remove(thread.value.id);
     await nav.pop();
   }
-  const fmt = (ts: number) => new Date(ts).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  // 剧情时刻（和真实时间一样的局就是真实时刻）
+  const fmt = (x: { createdAt: number; storyTs?: number }) => clock.formatShort(storyAt(x));
   const cls = (a: Reply['author'] | Thread['author']) => (a.kind === 'user' ? 'me' : a.kind === 'char' ? 'char' : '');
 </script>
 
@@ -47,14 +48,14 @@
   {@const t = thread.value}
   <article class="post">
     <h2 class="title">{#if t.tag}<span class="tag">{t.tag}</span>{/if}{t.title}</h2>
-    <div class="by"><span class={cls(t.author)}>{who.value}</span><span>{fmt(t.createdAt)}</span></div>
+    <div class="by"><span class={cls(t.author)}>{who.value}</span><span>{fmt(t)}</span></div>
     <p class="body">{t.body}</p>
   </article>
 
   <div class="replies">
     {#each replies.value as r, i (r.id)}
       <div class="reply">
-        <div class="rhead"><span class="floor">{i + 1}楼</span><span class={cls(r.author)}>{r.who}</span><span class="t">{fmt(r.createdAt)}</span></div>
+        <div class="rhead"><span class="floor">{i + 1}楼</span><span class={cls(r.author)}>{r.who}</span><span class="t">{fmt(r)}</span></div>
         <p>{r.body}</p>
       </div>
     {:else}
