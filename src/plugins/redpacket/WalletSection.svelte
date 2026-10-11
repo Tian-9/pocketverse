@@ -2,7 +2,7 @@
   /** 角色主页上的钱包段：他和你在这一局的余额、最近几个红包。点余额可以手改（他是穷学生还是富二代由你定）。 */
   import { List, Cell, Sheet, Field, Button } from '$kernel/api';
   import type { ProfileSectionProps } from '$kernel/api';
-  import { live } from '$kernel/storage/live.svelte';
+  import { live } from '$kernel/api';
   import { redpacketApi, yuan, isTransfer, type Packet, type Wallet } from './index';
   let { campaignId, characterId }: ProfileSectionProps = $props();
   const deps = () => [campaignId, characterId];

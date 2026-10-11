@@ -1,6 +1,6 @@
 <script lang="ts">
   /** 聊天里的红包卡片。body 是 {id}；状态从表里实时取。 */
-  import { live } from '$kernel/storage/live.svelte';
+  import { live } from '$kernel/api';
   import { redpacketApi, yuan, type Packet } from './index';
   let { body }: { body: string; attrs?: Record<string, string> } = $props();
   const id = $derived.by(() => { try { return String(JSON.parse(body).id ?? ''); } catch { return ''; } });

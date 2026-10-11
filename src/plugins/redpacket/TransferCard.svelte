@@ -1,6 +1,6 @@
 <script lang="ts">
   /** 聊天里的转账卡片。body 是 {id}；状态从表里实时取。他转给你的，点「收款」到账，点「退还」退回去 */
-  import { live } from '$kernel/storage/live.svelte';
+  import { live } from '$kernel/api';
   import { redpacketApi, yuan, isPending, type Packet } from './index';
   let { body }: { body: string; attrs?: Record<string, string> } = $props();
   const id = $derived.by(() => { try { return String(JSON.parse(body).id ?? ''); } catch { return ''; } });

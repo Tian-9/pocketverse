@@ -5,6 +5,7 @@ import type { CatchupContext, CatchupContributor, CatchupItem, CatchupTier } fro
 import { llm } from '../llm/gateway.svelte';
 import { bus } from '../bus/bus';
 import { registry } from '../registry/registry.svelte';
+import { scheduler } from '../scheduler/scheduler';
 import { log } from '../log/log';
 
 const H = 3600_000, D = 24 * H;
@@ -13,6 +14,8 @@ export const TIERS: Record<Exclude<CatchupTier, 'attach'>, number> = { h6: 6 * H
 const ORDER: Exclude<CatchupTier, 'attach'>[] = ['h6', 'd1', 'days'];
 /** 一次回来最多处理几个角色 */
 export const BUDGET = 3;
+/** 前台开着的时候也每隔这么久查一次：不然网页挂一天，谁也不会动 */
+export const TICK = 60 * 60_000;
 
 export function tierFor(elapsedMs: number): Exclude<CatchupTier, 'attach'> | null {
   if (elapsedMs >= TIERS.days) return 'days';
@@ -44,7 +47,12 @@ class Catchup {
   private running = false;
 
   boot() {
-    bus.on('app.resumed', () => { this.run().catch((e) => log.error('catchup', e instanceof Error ? e.message : String(e))); });
+    const kick = () => { this.run().catch((e) => log.error('catchup', e instanceof Error ? e.message : String(e))); };
+    // 前台定时器切到后台会被清掉，回到前台先补一次，再重新上表
+    let stop: (() => void) | null = null;
+    const arm = () => { stop?.(); stop = scheduler.every(TICK, kick); };
+    bus.on('app.resumed', () => { kick(); arm(); });
+    arm();
   }
 
   contributors(): { pluginId: string; c: CatchupContributor }[] {
