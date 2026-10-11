@@ -8,6 +8,7 @@ import { CATALOG_SYSTEM, catalogUser, catalogSchema, parseCatalog, type CatalogM
 import ShopSection from './ShopSection.svelte';
 import { tools, volatile, collectBrowse } from './character';
 import { productResolver } from './share';
+import ProductPicker from './ProductPicker.svelte';
 
 /**
  * 商店：一局一家店，货架是便宜模型按这个世界生成的，搜什么就有什么。
@@ -180,13 +181,14 @@ export const shopApi = {
 export default definePlugin({
   id: 'shop',
   name: '商店',
-  version: '0.2.0',
+  version: '0.3.0',
   description: '这个世界的购物 App：货架按世界生成，搜什么有什么。买东西花钱包里的钱，一局一家店。他也会逛，会给自己买，也会买了送你。',
   app: { screen: Shop, icon: { paths: icons.shop, background: gradients.orange } },
   screens: { product: ProductScreen, orders: OrdersScreen },
   storage: { tables: { products: 'id, campaignId, category, createdAt', orders: 'id, campaignId, createdAt' } },
   profileSections: [{ id: 'things', label: '他的东西', component: ShopSection }],
   shares: [productResolver],
+  composerActions: [{ id: 'product', label: '商品', icon: { paths: icons.shop, background: gradients.orange }, component: ProductPicker }],
   promptContributors: [{ id: 'things', volatile }],
   tools,
   catchup: [{ id: 'browse', tier: 'h6', collect: collectBrowse }],
