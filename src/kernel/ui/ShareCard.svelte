@@ -7,9 +7,9 @@
   import { onDestroy } from 'svelte';
   let { body }: { body: string; attrs?: Record<string, string> } = $props();
   const card = $derived.by<ShareCard>(() => { try { return JSON.parse(body); } catch { return { type: 'link', title: body }; } });
-  const KIND: Record<string, string> = { music: '分享歌曲', movie: '分享电影', book: '分享书', news: '分享新闻', link: '分享链接', post: '分享帖子' };
-  const kind = $derived(KIND[card.type] ?? '分享');
-  const ICON: Record<string, string[]> = { music: icons.music, post: icons.forum, book: icons.book };
+  const KIND: Record<string, string> = { music: '分享歌曲', movie: '分享电影', book: '分享书', news: '分享新闻', link: '分享链接', post: '分享帖子', product: '分享商品' };
+  const kind = $derived(card.type === 'product' && card.subtype === 'gift' ? '送你的' : KIND[card.type] ?? '分享');
+  const ICON: Record<string, string[]> = { music: icons.music, post: icons.forum, book: icons.book, product: icons.shop };
   const icon = $derived(ICON[card.type] ?? icons.globe);
   function open() { if (card.open) nav.push(card.open.pluginId, card.open.screen, card.open.params); }
 
