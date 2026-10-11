@@ -23,6 +23,9 @@ describe('forum crowd', () => {
     expect((crowdSchema(true, false) as { required: string[] }).required).toEqual(['posts']);
     expect((crowdSchema(false, true) as { required: string[] }).required).toEqual(['replies']);
     expect((crowdSchema(true, true) as { required: string[] }).required).toEqual(['posts', 'replies']);
+    // 便宜模型会照抄「别重复」列表里的标题：title 字段本身要说清
+    const title = (crowdSchema(true, false) as { properties: { posts: { items: { properties: { title: { description: string } } } } } }).properties.posts.items.properties.title;
+    expect(title.description).toContain('已经有了');
   });
 
   it('parse drops broken items, trims lengths, and survives garbage', () => {

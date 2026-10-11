@@ -52,7 +52,7 @@ export function crowdUser(m: CrowdMaterial): string {
   ];
   if (m.loreDirectory) parts.push(`# 设定目录（可聊可不聊）\n${m.loreDirectory}`);
   parts.push(`# 现在\n时间：${m.time}${m.location ? '\n大家主要在聊的地方：' + m.location : ''}\n最近发生的事（路人只知道个大概）：\n${list(m.happenings, '（没什么大事）')}`);
-  if (m.newPosts > 0) parts.push(`# 新帖\n写 ${m.newPosts} 个新帖，每个带 2 到 4 条回复。下面这些帖子论坛上已经有了，标题和事情都别重复，另找话题：\n${list(m.recentTitles, '（无）')}`);
+  if (m.newPosts > 0) parts.push(`# 新帖\n写 ${m.newPosts} 个新帖，每个带 2 到 4 条回复。下面这些帖子论坛上已经有了，标题和事情都别重复，另找话题（照抄这些标题的帖子会被整条丢掉）：\n${list(m.recentTitles, '（无）')}`);
   if (m.waiting.length) {
     const lines = m.waiting.map((w) => `${w.n}. 《${w.title}》\n   正文：${w.body}\n   已有回复：${w.replies.length ? w.replies.map((r) => `${r.name}「${r.body}」`).join('；') : '（还没有）'}`);
     parts.push(`# 等人接话的帖子\n网名「${m.nickname}」是个普通网友，和别人一样对待。下面这些帖子最后一条是他发的或他回的，给每个写 1 到 3 条路人回复，接着话茬：\n${lines.join('\n')}`);
@@ -67,7 +67,7 @@ export function crowdSchema(newPosts: boolean, waiting: boolean): Record<string,
   if (newPosts) {
     required.push('posts');
     properties.posts = { type: 'array', items: { type: 'object', additionalProperties: false, required: ['name', 'title', 'body', 'tag', 'replies'], properties: {
-      name: { type: 'string', description: '发帖人网名' }, title: { type: 'string' }, body: { type: 'string' },
+      name: { type: 'string', description: '发帖人网名' }, title: { type: 'string', description: '新标题，必须和「已经有了」列表里的每一个都不同，也不是它们的续集' }, body: { type: 'string' },
       tag: { type: 'string', description: '两三个字的话题标签，如 闲聊、求助、八卦' }, replies: { type: 'array', items: reply },
     } } };
   }
