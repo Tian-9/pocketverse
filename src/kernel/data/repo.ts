@@ -142,7 +142,7 @@ export const repo = {
     const ts = Date.now();
     const m: Message = { id: ulid(), conversationId, role, content: [{ type: 'text', text }], ts, storyTs: clock.now(cp?.clock, ts), ...extra };
     await db().messages.add(m);
-    if (conv) await db().campaigns.update(conv.campaignId, { lastPlayedAt: ts });
+    if (conv) await db().campaigns.update(conv.campaignId, { lastPlayedAt: ts, playedStoryTs: m.storyTs });
     return m;
   },
 

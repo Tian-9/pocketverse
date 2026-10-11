@@ -2,7 +2,7 @@
   /** 角色主页上的朋友圈段：这一局里他最近一条动态，点进朋友圈 */
   import { List, Cell, live, nav } from '$kernel/api';
   import type { ProfileSectionProps } from '$kernel/api';
-  import { momentsApi, type Post } from './index';
+  import { momentsApi, postAt, type Post } from './index';
   let { campaignId, characterId }: ProfileSectionProps = $props();
   const latest = live(
     () => momentsApi.posts().where('campaignId').equals(campaignId).filter((p) => p.characterId === characterId).reverse().sortBy('createdAt').then((xs) => xs[0]),
@@ -13,5 +13,5 @@
 </script>
 
 <List>
-  <Cell title="朋友圈" subtitle={latest.value ? `${when(latest.value.createdAt)} · ${latest.value.text}` : '还没发过动态'} chevron onclick={() => nav.push('moments', 'app')} />
+  <Cell title="朋友圈" subtitle={latest.value ? `${when(postAt(latest.value))} · ${latest.value.text}` : '还没发过动态'} chevron onclick={() => nav.push('moments', 'app')} />
 </List>

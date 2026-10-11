@@ -4,7 +4,8 @@
   import { db } from '$kernel/storage/db';
   import { registry } from '$kernel/registry/registry.svelte';
   import { bus } from '$kernel/bus/bus';
-  import { diaryApi, today, type DiaryEntry } from './index';
+  import { diaryApi, type DiaryEntry } from './index';
+  import { clock } from '$kernel/api';
 
   interface Row extends DiaryEntry { name: string; avatar?: Blob }
   const rows = live(async (): Promise<Row[]> => {
@@ -27,7 +28,7 @@
       const ch = await db().characters.get(characterId); if (!ch) return;
       const { repo } = await import('$kernel/data/repo');
       const cp = await repo.campaignFor(ch);
-      const date = today();
+      const date = clock.dateKey(clock.now(cp.clock), ch.timeZone);
       if (await diaryApi.forDate(cp.id, date)) { bus.emit('notify', { title: '今天已经写过了', body: '删掉再写可以重写' }); return; }
       const e = await diaryApi.write(cp.id, ch.id, date, 'manual');
       if (!e) bus.emit('notify', { title: '没写出来', body: '先在设置里配置 API Key' });

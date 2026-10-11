@@ -79,7 +79,15 @@ class ChatEngine {
     try { await consolidate(conversationId, { force: true, reason: '推进时间' }); }
     catch { /* 已记日志，整理失败不挡推进 */ }
     finally { delete this.live[conversationId]; }
+    const fromTs = clock.now(campaign.clock);
     await repo.setClock(campaign.id, clock.skipTo(campaign.clock, toTs));
+    // 他也过了这段时间：跳三天就按 days 档补一次（朋友圈、日记、回评论），再接着聊
+    if (toTs > fromTs) {
+      this.live[conversationId] = { conversationId, status: 'thinking', statusText: '这段时间他过得怎么样…', text: '', abort: new AbortController() };
+      try { await catchup.skipped(campaign.id, fromTs, toTs); }
+      catch { /* 已记日志 */ }
+      finally { delete this.live[conversationId]; }
+    }
     await repo.addMessage(conversationId, 'user', `（时间来到：${clock.format(toTs, character?.timeZone)}${note ? '。' + note : ''}。之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, storyTs: toTs });
     await this.runTurn(conversationId);
   }

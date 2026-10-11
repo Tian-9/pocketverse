@@ -1,4 +1,4 @@
-import { definePlugin, icons, gradients } from '$kernel/api';
+import { definePlugin, icons, gradients, clock } from '$kernel/api';
 import type { PluginContext, PromptContext, CatchupContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Moments from './Moments.svelte';
@@ -8,6 +8,8 @@ import MomentsSection from './MomentsSection.svelte';
 export interface Post {
   id: string; campaignId: string; characterId: string; text: string;
   createdAt: number; liked: boolean; comments: { by: 'user' | 'char'; text: string; ts: number }[];
+  /** 发的时候的剧情时刻（存档时钟）；旧数据没有就当和 createdAt 一样 */
+  storyTs?: number;
   /** 来源：对话里发的 / 补发的 / 手动生成 */
   source: 'chat' | 'catchup' | 'manual';
   /** 用户评论了、角色还没看到；补发时一起处理，处理过（回了或决定不回）就清掉 */
@@ -15,7 +17,9 @@ export interface Post {
 }
 
 let ctx: PluginContext;
-const fmtTime = (ts: number) => new Date(ts).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtTime = (ts: number) => clock.formatShort(ts);
+/** 动态的剧情时刻 */
+export const postAt = (p: Post) => p.storyTs ?? p.createdAt;
 
 export const momentsApi = {
   posts: () => ctx.table<Post>('posts'),
@@ -46,14 +50,14 @@ export const momentsApi = {
     });
     const body = text.trim().replace(/^["“「]|["”」]$/g, '');
     if (!body) return null;
-    return this.add({ campaignId, characterId, text: body, createdAt: Date.now(), source });
+    return this.add({ campaignId, characterId, text: body, createdAt: Date.now(), storyTs: cp.now, source });
   },
 };
 
 /** 补发 · 发一条：离开 ≥ 6 小时，这段时间他自己过了什么 */
 async function collectPost(c: CatchupContext) {
   const recent = await ctx.table<Post>('posts').where('campaignId').equals(c.campaignId).reverse().sortBy('createdAt');
-  if (recent[0] && Date.now() - recent[0].createdAt < 6 * 3600_000) return null; // 刚发过
+  if (recent[0] && c.to - postAt(recent[0]) < 6 * 3600_000) return null; // 刚发过（按剧情钟）
   return {
     label: '朋友圈',
     prompt: `这${c.elapsedText}你自己过了些什么？想发就发一条朋友圈：一两句话，口语，可以只是一件小事，不要话题标签。没什么想说的就不发（post 填 false，text 留空）。\n你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}`,
@@ -62,7 +66,7 @@ async function collectPost(c: CatchupContext) {
       const o = out as { post?: boolean; text?: string } | undefined;
       const text = String(o?.text ?? '').trim().replace(/^["“「]|["”」]$/g, '').slice(0, 500);
       if (!o?.post || !text) return;
-      await momentsApi.add({ campaignId: cc.campaignId, characterId: cc.characterId, text, createdAt: Date.now(), source: 'catchup' });
+      await momentsApi.add({ campaignId: cc.campaignId, characterId: cc.characterId, text, createdAt: Date.now(), storyTs: cc.to, source: 'catchup' });
       ctx.notify(`${cc.characterName} 发了一条朋友圈`, text, 'app');
     },
   };
@@ -75,7 +79,7 @@ async function collectReplies(c: CatchupContext) {
   const lines = pending.map((p, i) => {
     const lastChar = p.comments.map((x, j) => (x.by === 'char' ? j : -1)).reduce((a, b) => Math.max(a, b), -1);
     const fresh = p.comments.slice(lastChar + 1).filter((x) => x.by === 'user');
-    return `${i + 1}. 你 ${fmtTime(p.createdAt)} 发的「${p.text}」${p.liked ? '（对方点了赞）' : ''}\n   对方评论：${fresh.map((x) => '「' + x.text + '」').join(' ')}`;
+    return `${i + 1}. 你 ${fmtTime(postAt(p))} 发的「${p.text}」${p.liked ? '（对方点了赞）' : ''}\n   对方评论：${fresh.map((x) => '「' + x.text + '」').join(' ')}`;
   });
   return {
     label: '朋友圈评论',
@@ -107,11 +111,11 @@ export default definePlugin({
   promptContributors: [{
     id: 'recent-moments',
     async volatile(p: PromptContext) {
-      // 只带最近两天的和还没回评论的，老动态他自己翻，不然每轮都看到同一条就反复提
-      const fresh = Date.now() - 48 * 3600_000;
-      const posts = (await ctx.table<Post>('posts').where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt')).filter((x) => x.createdAt >= fresh || x.pendingReply);
+      // 只带最近两天（剧情钟）的和还没回评论的，老动态他自己翻，不然每轮都看到同一条就反复提
+      const fresh = p.now - 48 * 3600_000;
+      const posts = (await ctx.table<Post>('posts').where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt')).filter((x) => postAt(x) >= fresh || x.pendingReply);
       if (!posts.length) return '';
-      const lines = posts.slice(0, 3).map((x) => `- ${fmtTime(x.createdAt)}：${x.text}${x.liked ? '（用户点了赞）' : ''}${x.comments.length ? '；评论：' + x.comments.map((c) => (c.by === 'user' ? '用户' : '你') + '「' + c.text + '」').join('，') : ''}${x.pendingReply ? '（用户的评论你还没回，见「顺手处理的事」）' : ''}`);
+      const lines = posts.slice(0, 3).map((x) => `- ${fmtTime(postAt(x))}：${x.text}${x.liked ? '（用户点了赞）' : ''}${x.comments.length ? '；评论：' + x.comments.map((c) => (c.by === 'user' ? '用户' : '你') + '「' + c.text + '」').join('，') : ''}${x.pendingReply ? '（用户的评论你还没回，见「顺手处理的事」）' : ''}`);
       return `<你最近发的朋友圈>\n${lines.join('\n')}\n</你最近发的朋友圈>`;
     },
   }],
@@ -124,7 +128,7 @@ export default definePlugin({
       const text = String((input as { text?: unknown })?.text ?? '').trim().slice(0, 500);
       if (!text) return '正文不能为空';
       const characterId = p.characterIds[0]!;
-      await momentsApi.add({ campaignId: p.campaignId, characterId, text, createdAt: Date.now(), source: 'chat' });
+      await momentsApi.add({ campaignId: p.campaignId, characterId, text, createdAt: Date.now(), storyTs: p.now, source: 'chat' });
       return '已发布到朋友圈。';
     },
   }],
@@ -133,7 +137,7 @@ export default definePlugin({
     component: MomentCard,
     async onParsed(body, _attrs, p) {
       if (!body.trim()) return;
-      await momentsApi.add({ campaignId: p.campaignId, characterId: p.characterIds[0]!, text: body.trim().slice(0, 500), createdAt: Date.now(), source: 'chat' });
+      await momentsApi.add({ campaignId: p.campaignId, characterId: p.characterIds[0]!, text: body.trim().slice(0, 500), createdAt: Date.now(), storyTs: p.now, source: 'chat' });
     },
   }],
   catchup: [

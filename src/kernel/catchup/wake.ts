@@ -13,11 +13,14 @@ import type { CatchupItem, CatchupContext } from '../api/types';
 export interface Wake {
   campaignId: string;
   characterId: string;
-  /** 真实时间，到点触发 */
+  /** 剧情时刻（存档时钟）。走表的局和真实时间一样到点；停表的局你一跳过它就到点 */
   fireAt: number;
   /** 他那时想做或想说的事，一句话 */
   intent: string;
+  /** 真实时间：追一句看对方有没有在这之后说话 */
   createdAt: number;
+  /** 记下时的剧情时刻，没有就当和 createdAt 一样（旧数据） */
+  createdStoryTs?: number;
   /** 只在对方到时候还没回消息时才联系（追一句）；对方回了就作废 */
   onlyIfSilent?: boolean;
 }
@@ -53,13 +56,13 @@ export async function userRepliedSince(w: Wake): Promise<boolean> {
   return false;
 }
 
-/** 补发里的一段：到点了，拿起手机决定发不发 */
-export function wakeItem(w: Wake, now: number, timeZone?: string): CatchupItem {
-  const ago = Math.max(1, Math.round((now - w.createdAt) / 60_000));
+/** 补发里的一段：到点了，拿起手机决定发不发。now 是剧情此刻 */
+export function wakeItem(w: Wake, now: number, timeZone?: string, story = false): CatchupItem {
+  const ago = Math.max(1, Math.round((now - (w.createdStoryTs ?? w.createdAt)) / 60_000));
   const agoText = ago >= 60 ? `${Math.round(ago / 60)} 小时` : `${ago} 分钟`;
   return {
     label: '稍后联系',
-    prompt: `${agoText}前你记下：晚点要联系对方，想着「${w.intent}」。${w.onlyIfSilent ? '对方到现在还没回你。' : ''}${timeLine(new Date(now), timeZone)}
+    prompt: `${agoText}前你记下：晚点要联系对方，想着「${w.intent}」。${w.onlyIfSilent ? '对方到现在还没回你。' : ''}${timeLine(new Date(now), timeZone, undefined, story)}
 现在到时间了。想说就发消息：1 到 3 条，每条一行，短、口语，像真的在手机上打字，不要解释自己为什么发。觉得已经没必要了就不发（send 填 false，messages 留空）。`,
     schema: { type: 'object', additionalProperties: false, required: ['send', 'messages'], properties: { send: { type: 'boolean', description: '发不发' }, messages: { type: 'array', items: { type: 'string' }, maxItems: 3, description: '要发的消息，一条一项，不发留空' } } },
     async apply(out: unknown, ctx: CatchupContext) {

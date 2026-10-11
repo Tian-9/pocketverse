@@ -1,24 +1,24 @@
-import { definePlugin, icons, gradients } from '$kernel/api';
+import { definePlugin, icons, gradients, clock } from '$kernel/api';
 import type { PluginContext, PromptContext, CatchupContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Diary from './Diary.svelte';
 
 export interface DiaryEntry {
   id: string; campaignId: string; characterId: string;
-  /** YYYY-MM-DD，真实日期 */
+  /** YYYY-MM-DD，剧情日期（存档时钟；没跳过时间的局就是真实日期） */
   date: string; text: string; createdAt: number;
   source: 'auto' | 'manual';
 }
 
 let ctx: PluginContext;
-export const today = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const D = 86400_000;
 
 export const diaryApi = {
   entries: () => ctx.table<DiaryEntry>('entries'),
   async forDate(campaignId: string, date: string) {
     return this.entries().where('campaignId').equals(campaignId).filter((e) => e.date === date).first();
   },
-  /** 写某一天日记的材料：那天的对话、最近记忆、前一篇 */
+  /** 写某一天日记的材料：那天（按剧情时刻）的对话、最近记忆、前一篇 */
   async material(campaignId: string, characterId: string, date: string) {
     const { db } = await import('$kernel/storage/db');
     const { textOf } = await import('$kernel/data/repo');
@@ -28,7 +28,8 @@ export const diaryApi = {
     const [y, m, d] = date.split('-').map(Number);
     const start = new Date(y!, m! - 1, d).getTime(), end = start + 86400_000;
     const convs = await db().conversations.where('campaignId').equals(campaignId).toArray();
-    const msgs = (await Promise.all(convs.map((c) => db().messages.where('conversationId').equals(c.id).filter((x) => x.ts >= start && x.ts < end && x.role !== 'system').toArray()))).flat().sort((a, b) => a.ts - b.ts);
+    const at = (x: { ts: number; storyTs?: number }) => x.storyTs ?? x.ts;
+    const msgs = (await Promise.all(convs.map((c) => db().messages.where('conversationId').equals(c.id).filter((x) => at(x) >= start && at(x) < end && x.role !== 'system').toArray()))).flat().sort((a, b) => at(a) - at(b));
     const mems = await db().memories.where('campaignId').equals(campaignId).reverse().sortBy('createdAt');
     const prev = (await this.entries().where('campaignId').equals(campaignId).reverse().sortBy('date')).filter((e) => e.date < date)[0];
     const transcript = msgs.slice(-60).map((x) => `${x.role === 'user' ? '对方' : '我'}：${textOf(x)}`).join('\n');
@@ -60,16 +61,20 @@ export const diaryApi = {
   },
 };
 
-/** 补发 · 昨天的日记：离开 ≥ 6 小时，昨天有对话、还没写 */
+/**
+ * 补发 · 昨天的日记：过了 ≥ 6 小时（剧情钟），昨天（剧情日期）有对话、还没写。
+ * 用户跳过了几天：只补最后一个完整的一天，没和对方说话也写，写他自己过的日子。
+ */
 async function collectWrite(c: CatchupContext) {
-  const y = new Date(); y.setDate(y.getDate() - 1);
-  const date = today(y);
+  const date = clock.dateKey(c.to - D);
   if (await diaryApi.forDate(c.campaignId, date)) return null;
   const m = await diaryApi.material(c.campaignId, c.characterId, date);
-  if (!m || !m.talked) return null;
+  if (!m) return null;
+  if (!m.talked && !c.skipped) return null;
+  const gap = c.skipped && !m.talked ? `这段时间（从 ${clock.format(c.from)} 到 ${clock.format(c.to)}）你们没有说话，写你自己过的日子。` : '';
   return {
     label: '日记',
-    prompt: `补写昨天（${date}）的日记。${m.rules}不想写就 text 留空。\n${m.text}`,
+    prompt: `补写昨天（${date}）的日记。${m.rules}${gap}不想写就 text 留空。\n${m.text}`,
     schema: { type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string', description: '日记正文，不写留空' } } },
     async apply(out: unknown, cc: CatchupContext) {
       const e = await diaryApi.save(cc.campaignId, cc.characterId, date, String((out as { text?: string } | undefined)?.text ?? ''), 'auto');

@@ -166,8 +166,12 @@ export interface CatchupContext {
   campaignId: string;
   characterId: string;
   characterName: string;
-  /** 距上次和这个角色互动（或上次补发）的时长 */
+  /** 距上次和这个角色互动（或上次补发）的剧情时长：走表的局等于真实时长，停表的局只有跳过才有 */
   elapsedMs: number;
+  /** 这段时间的起止（剧情时刻）。now 等于 to；插件要「现在几点」用它，不要 Date.now() */
+  from: number; to: number; now: number;
+  /** 这段时间是用户在聊天里跳过去的（不是真的离开了这么久）：没有对话材料也可以写他自己过的日子 */
+  skipped?: boolean;
   /** 整天数，days 档才有意义 */
   days: number;
   /** 这次达到的档位；chat 表示挂在一次聊天回复上；wake 表示没到档，只是角色自己定的"稍后联系"到点了 */

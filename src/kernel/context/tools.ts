@@ -7,6 +7,7 @@ import { runMemoryCommand, type MemCommand } from './memfs';
 import { bus } from '../bus/bus';
 import { expandMacros } from './macros';
 import { clock, MAX_ADVANCE_MINUTES } from './clock';
+import { isValidTimeZone } from './time';
 import { chat } from '../chat/engine.svelte';
 import { registry } from '../registry/registry.svelte';
 import type { ShareCard, ShareResolver } from '../share/types';
@@ -144,7 +145,7 @@ export const kernelTools: KernelTool[] = [
     label: '定闹钟',
     spec: {
       name: 'wake_later',
-      description: `过一会儿主动联系对方：真实时间 afterMinutes 分钟后（${MIN_MINUTES} 到 ${MAX_MINUTES}），你会"拿起手机"，决定要不要发消息。intent 写你那时想做或想说的事（一句话），到时候会提醒你。只在确实有事或有话想晚点说时用（"等我下班跟你说""一小时后提醒你吃药"）；一次只记一件，新的覆盖旧的。onlyIfSilent 为 true 表示只在对方到时候还没回你时才联系（追一句），对方回了就作废。`,
+      description: `过一会儿主动联系对方：afterMinutes 分钟后（${MIN_MINUTES} 到 ${MAX_MINUTES}，按你们这边的时间算），你会"拿起手机"，决定要不要发消息。intent 写你那时想做或想说的事（一句话），到时候会提醒你。只在确实有事或有话想晚点说时用（"等我下班跟你说""一小时后提醒你吃药"）；一次只记一件，新的覆盖旧的。onlyIfSilent 为 true 表示只在对方到时候还没回你时才联系（追一句），对方回了就作废。`,
       inputSchema: { type: 'object', properties: {
         afterMinutes: { type: 'integer', minimum: MIN_MINUTES, maximum: MAX_MINUTES },
         intent: { type: 'string', description: '那时想做或想说的事，一句话' },
@@ -157,11 +158,11 @@ export const kernelTools: KernelTool[] = [
       if (!intent) return 'intent 不能为空：写一句那时想做什么。';
       const me = ctx.characters[0];
       if (!me) return '没有在场角色。';
-      const now = Date.now();
-      await wakes.set({ campaignId: ctx.campaign.id, characterId: me.id, fireAt: now + minutes * 60_000, intent, createdAt: now, onlyIfSilent: input?.onlyIfSilent === true });
+      const now = Date.now(), storyNow = clock.now(ctx.campaign.clock, now);
+      await wakes.set({ campaignId: ctx.campaign.id, characterId: me.id, fireAt: storyNow + minutes * 60_000, intent, createdAt: now, createdStoryTs: storyNow, onlyIfSilent: input?.onlyIfSilent === true });
       catchup.armWake(now).catch(() => {});
       log.info('catchup', `${me.name} 定了 ${minutes} 分钟后联系：${intent}`, { campaignId: ctx.campaign.id });
-      const at = new Date(now + minutes * 60_000).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+      const at = new Date(storyNow + minutes * 60_000).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', ...(me.timeZone && isValidTimeZone(me.timeZone) ? { timeZone: me.timeZone } : {}) });
       return `记下了：${minutes} 分钟后（${at}）${input?.onlyIfSilent === true ? '看对方回没回，没回就' : ''}联系对方。正常接着回消息就行。`;
     },
   },

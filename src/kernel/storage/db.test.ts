@@ -29,7 +29,7 @@ describe('PocketDB v6 upgrade', () => {
     const db = new PocketDB(name, []);
     await db.open();
     const a = (await db.campaigns.get('a'))!;
-    expect((a.state as Record<string, unknown>).inWorldTime).toBeUndefined();
+    expect((a.state as unknown as Record<string, unknown>).inWorldTime).toBeUndefined();
     expect(a.state.facts).toEqual(['之前记的剧情时间：三天后的早上', '下雨']);
     expect((await db.campaigns.get('b'))!.state.facts).toEqual([]);
     db.close();

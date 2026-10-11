@@ -1,6 +1,7 @@
 <script lang="ts">
   import { NavBar, Placeholder, Avatar, Glyph, Sheet, List, Cell, live, icons } from '$kernel/api';
-  import { momentsApi, type Post } from './index';
+  import { momentsApi, postAt, type Post } from './index';
+  import { clock } from '$kernel/api';
 
   interface Row extends Post { name: string; avatar?: Blob }
   // 只看每张卡当前这一局的动态，别的局先睡着
@@ -17,7 +18,11 @@
   let commenting = $state<Row | null>(null);
   let draft = $state('');
 
-  function when(ts: number) {
+  // 按这局的剧情钟显示：和真实时间一样的局还是「3 分钟前」，跳过时间或停表的局给剧情时刻
+  function when(p: Row) {
+    const cp = current.value.find((c) => c.id === p.campaignId);
+    const ts = postAt(p);
+    if (cp && !cp.aligned) return clock.formatShort(ts);
     const d = Date.now() - ts;
     if (d < 60_000) return '刚刚';
     if (d < 3600_000) return Math.floor(d / 60_000) + ' 分钟前';
@@ -58,7 +63,7 @@
           <div class="name">{p.name}</div>
           <p class="text">{p.text}</p>
           <div class="meta">
-            <span>{when(p.createdAt)}{p.source === 'catchup' ? ' · 你不在的时候' : ''}</span>
+            <span>{when(p)}{p.source === 'catchup' ? ' · 你不在的时候' : ''}</span>
             <span class="acts">
               <button class:on={p.liked} onclick={() => like(p)} aria-label="赞">{p.liked ? '♥' : '♡'}</button>
               <button onclick={() => (commenting = p)} aria-label="评论">评论</button>

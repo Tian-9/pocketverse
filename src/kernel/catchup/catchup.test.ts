@@ -128,3 +128,86 @@ describe('wake_later (稍后联系)', () => {
     expect(await wakes.get('cw')).toBeNull();
   });
 });
+
+describe('catchup on the story clock', () => {
+  const D = 24 * H;
+  async function reset() {
+    const { llm } = await import('../llm/gateway.svelte');
+    const { registry } = await import('../registry/registry.svelte');
+    const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
+    chat.mockReset();
+    (registry.plugins as unknown[]).length = 0;
+    const seen: unknown[] = [];
+    (registry.plugins as unknown[]).push({ id: 'moments', catchup: [
+      { id: 'post', tier: 'h6', collect: async (c: unknown) => { seen.push(c); return { label: '朋友圈', prompt: 'x', schema: { type: 'object' }, apply: async () => {} }; } },
+    ] });
+    await db().campaigns.clear(); await db().characters.clear(); await db().kv.clear(); await db().conversations.clear(); await db().messages.clear();
+    await db().characters.add({ id: 's', name: 'S', core: 'z', full: '' });
+    await db().setKV('kernel.currentCampaign.s', 'cs');
+    return { chat, seen };
+  }
+
+  it('a paused save does not catch up however long you are away; skipping time does, once', async () => {
+    const { chat, seen } = await reset();
+    const { catchup } = await import('./catchup');
+    const now = 3_000_000_000_000;
+    const story = now - 365 * D;
+    // 停表：剧情定在一年前，三天没来
+    await db().campaigns.add({ id: 'cs', worldId: 'w', characterIds: ['s'], name: 's', createdAt: 0, lastPlayedAt: now - 3 * D, playedStoryTs: story, clock: { anchorStoryTs: story, anchorRealTs: now - 3 * D, running: false }, state: { relations: {}, mood: {}, facts: [] } });
+    await catchup.run(now);
+    expect(chat).not.toHaveBeenCalled();
+    // 在聊天里跳了三天：days 档，材料说「过去了3 天」，时间行标剧情时间，收集到的上下文带 from/to/skipped
+    chat.mockResolvedValueOnce({ text: JSON.stringify({ moments_post: {} }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    await catchup.skipped('cs', story, story + 3 * D, now);
+    expect(chat).toHaveBeenCalledTimes(1);
+    const u = chat.mock.calls[0]![0].messages[0].content[0].text as string;
+    expect(u).toContain('过去了3 天');
+    expect(u).toContain('（剧情时间）');
+    expect(seen[0]).toMatchObject({ tier: 'days', days: 3, from: story, to: story + 3 * D, now: story + 3 * D, skipped: true });
+    const cp = (await db().campaigns.get('cs'))!;
+    expect(cp.catchupStoryTs).toBe(story + 3 * D);
+    expect(cp.catchupAt).toBe(now);
+    // 再查一次：这段已经算过了，不重复
+    await db().campaigns.update('cs', { clock: { anchorStoryTs: story + 3 * D, anchorRealTs: now, running: false } });
+    await catchup.run(now + 2 * D);
+    expect(chat).toHaveBeenCalledTimes(1);
+    // 跳一小段（没到档）也记下来
+    await catchup.skipped('cs', story + 3 * D, story + 3 * D + H, now + 2 * D);
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect((await db().campaigns.get('cs'))!.catchupStoryTs).toBe(story + 3 * D + H);
+  });
+
+  it('a running save with an offset behaves like real time: elapsed is real elapsed', async () => {
+    const { chat } = await reset();
+    const { catchup } = await import('./catchup');
+    const now = 3_000_000_000_000;
+    const played = now - 8 * H;
+    await db().campaigns.add({ id: 'cs', worldId: 'w', characterIds: ['s'], name: 's', createdAt: 0, lastPlayedAt: played, playedStoryTs: played - 30 * D, clock: { anchorStoryTs: played - 30 * D, anchorRealTs: played, running: true }, state: { relations: {}, mood: {}, facts: [] } });
+    chat.mockResolvedValueOnce({ text: JSON.stringify({ moments_post: {} }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    await catchup.run(now);
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(chat.mock.calls[0]![0].messages[0].content[0].text).toContain('对方离开了大约 8 小时');
+  });
+
+  it("a wake on a paused clock fires when the user skips past it, not as real time passes", async () => {
+    const { chat } = await reset();
+    const { catchup } = await import('./catchup');
+    const { wakes } = await import('./wake');
+    const now = 3_000_000_000_000;
+    const story = now - 100 * D;
+    await db().campaigns.add({ id: 'cs', worldId: 'w', characterIds: ['s'], name: 's', createdAt: 0, lastPlayedAt: now, playedStoryTs: story, clock: { anchorStoryTs: story, anchorRealTs: now, running: false }, state: { relations: {}, mood: {}, facts: [] } });
+    await wakes.set({ campaignId: 'cs', characterId: 's', fireAt: story + 2 * H, intent: '下班说', createdAt: now, createdStoryTs: story });
+    await catchup.run(now + 5 * H); // 真实过了五小时，剧情没动
+    expect(chat).not.toHaveBeenCalled();
+    expect(await wakes.get('cs')).not.toBeNull();
+    chat.mockResolvedValueOnce({ text: JSON.stringify({ kernel_wake: { send: true, messages: ['下班啦'] } }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    await catchup.skipped('cs', story, story + 3 * H, now + 5 * H);
+    expect(chat).toHaveBeenCalledTimes(1);
+    expect(chat.mock.calls[0]![0].messages[0].content[0].text).toContain('3 小时前你记下');
+    expect(await wakes.get('cs')).toBeNull();
+    const conv = await db().conversations.where('campaignId').equals('cs').first();
+    const msgs = await db().messages.where('conversationId').equals(conv!.id).toArray();
+    expect(msgs.map((m) => (m.content[0] as { text: string }).text)).toEqual(['下班啦']);
+    expect(msgs[0]!.storyTs).toBeDefined();
+  });
+});
