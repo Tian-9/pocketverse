@@ -7,6 +7,8 @@ import { bus } from '../bus/bus';
 import { registry } from '../registry/registry.svelte';
 import { scheduler } from '../scheduler/scheduler';
 import { log } from '../log/log';
+import { wakes, wakeItem, userRepliedSince, KEY as WAKE_KEY } from './wake';
+import { timeLine } from '../context/time';
 
 const H = 3600_000, D = 24 * H;
 /** 档位阈值。TODO：做成设置项。 */
@@ -45,14 +47,28 @@ interface Collected { key: string; item: CatchupItem }
  */
 class Catchup {
   private running = false;
+  private stopWake: (() => void) | null = null;
+  private kick = () => { this.run().catch((e) => log.error('catchup', e instanceof Error ? e.message : String(e))); };
 
   boot() {
-    const kick = () => { this.run().catch((e) => log.error('catchup', e instanceof Error ? e.message : String(e))); };
     // 前台定时器切到后台会被清掉，回到前台先补一次，再重新上表
     let stop: (() => void) | null = null;
-    const arm = () => { stop?.(); stop = scheduler.every(TICK, kick); };
-    bus.on('app.resumed', () => { kick(); arm(); });
+    const arm = () => { stop?.(); stop = scheduler.every(TICK, this.kick); };
+    bus.on('app.resumed', () => { this.kick(); arm(); });
     arm();
+    this.armWake().catch(() => {});
+  }
+
+  /**
+   * 角色定的"稍后联系"是分钟级的，等不了每小时一次的 tick：按最早到点的那件排一个一次性定时器。
+   * 定了新的、跑完一轮、回到前台都重排一次；切到后台定时器被清掉，回来 run() 里会先查一遍到点的。
+   */
+  async armWake(now = Date.now()) {
+    this.stopWake?.(); this.stopWake = null;
+    const current = await repo.currentCampaignIds();
+    const next = (await wakes.all()).filter((w) => current.has(w.campaignId)).reduce<number | null>((a, w) => (a === null || w.fireAt < a ? w.fireAt : a), null);
+    if (next === null) return;
+    this.stopWake = scheduler.after(Math.max(1000, next - now), this.kick);
   }
 
   contributors(): { pluginId: string; c: CatchupContributor }[] {
@@ -94,20 +110,28 @@ class Catchup {
         if (budget <= 0) break;
         const elapsed = now - Math.max(cp.lastPlayedAt, cp.catchupAt ?? 0);
         const tier = tierFor(elapsed);
-        if (!tier) continue;
+        // 角色自己定的"稍后联系"到点了也算一次"拿起手机"，没到档也跑，到档了就和插件的事拼成同一次调用
+        let wake = await wakes.get(cp.id);
+        if (wake && wake.fireAt > now) wake = null;
+        if (wake?.onlyIfSilent && (await userRepliedSince(wake))) { await wakes.clear(cp.id); wake = null; }
+        if (!tier && !wake) continue;
         const ch = cp.characterIds[0] ? await db().characters.get(cp.characterIds[0]) : undefined;
-        if (!ch) continue;
+        if (!ch) { if (wake) await wakes.clear(cp.id); continue; }
         budget--;
-        await this.runFor(cp, ch, tier, elapsed, contributors, now).catch((e) => log.error('catchup', `${ch.name}：${e instanceof Error ? e.message : String(e)}`, { campaignId: cp.id }));
+        const extra: Collected[] = wake ? [{ key: WAKE_KEY, item: wakeItem(wake, now, ch.timeZone) }] : [];
+        await this.runFor(cp, ch, tier, elapsed, contributors, now, extra).catch((e) => log.error('catchup', `${ch.name}：${e instanceof Error ? e.message : String(e)}`, { campaignId: cp.id }));
+        if (wake) await wakes.clear(cp.id);
       }
     } finally { this.running = false; }
+    this.armWake(now).catch(() => {});
   }
 
-  async runFor(cp: Campaign, ch: Character, tier: Exclude<CatchupTier, 'attach'>, elapsedMs: number, contributors: { pluginId: string; c: CatchupContributor }[], now: number) {
-    const ctx: CatchupContext = { campaignId: cp.id, characterId: ch.id, characterName: ch.name, elapsedMs, days: Math.floor(elapsedMs / D), tier, elapsedText: elapsedText(elapsedMs) };
-    const items: Collected[] = [];
+  async runFor(cp: Campaign, ch: Character, tier: Exclude<CatchupTier, 'attach'> | null, elapsedMs: number, contributors: { pluginId: string; c: CatchupContributor }[], now: number, extra: Collected[] = []) {
+    const ctx: CatchupContext = { campaignId: cp.id, characterId: ch.id, characterName: ch.name, elapsedMs, days: Math.floor(elapsedMs / D), tier: tier ?? 'wake', elapsedText: elapsedText(elapsedMs) };
+    const items: Collected[] = [...extra];
     for (const { pluginId, c } of contributors) {
-      if (!covers(tier, c.tier)) continue;
+      // 没到档（只是"稍后联系"到点）时只带依附档的事
+      if (!(c.tier === 'attach' || (tier && covers(tier, c.tier)))) continue;
       try {
         const item = await c.collect(ctx);
         if (item) items.push({ key: `${pluginId}_${c.id}`, item });
@@ -115,15 +139,16 @@ class Catchup {
     }
     // 没事也记一下时间，不然下次回来还按同一段离开时长再算一遍
     await db().campaigns.update(cp.id, { catchupAt: now });
-    if (!items.length) { log.info('catchup', `${ch.name}：${tier} 档，没有要处理的事`, { campaignId: cp.id }); return; }
-    log.info('catchup', `${ch.name}：${tier} 档（离开 ${ctx.elapsedText}），处理 ${items.map((i) => i.item.label).join('、')}`, { campaignId: cp.id, keys: items.map((i) => i.key) });
+    if (!items.length) { log.info('catchup', `${ch.name}：${ctx.tier} 档，没有要处理的事`, { campaignId: cp.id }); return; }
+    log.info('catchup', `${ch.name}：${ctx.tier} 档（离开 ${ctx.elapsedText}），处理 ${items.map((i) => i.item.label).join('、')}`, { campaignId: cp.id, keys: items.map((i) => i.key) });
 
     const mems = await db().memories.where('campaignId').equals(cp.id).reverse().sortBy('createdAt');
-    const system = `你是「${ch.name}」。设定：${ch.core.slice(0, 800)}
-你有一阵没碰手机了，现在拿起手机处理几件事。每件事按它的说明回答，用中文，按给定的 JSON 结构输出。
+    const userName = await db().getKV('kernel.userName', '我');
+    const system = `你是「${ch.name}」。设定：${ch.core.slice(0, 800)}${cp.userPersona?.trim() ? `\n对方「${userName}」在这个世界里是：${cp.userPersona.trim()}` : ''}
+${tier ? '你有一阵没碰手机了，现在拿起手机处理几件事。' : '你之前记下过晚点要联系对方，现在到时间了，拿起手机。'}每件事按它的说明回答，用中文，按给定的 JSON 结构输出。
 保持角色的口吻，像真人用手机：短、口语、不解释。不要提到"用户"这个词，称呼对方用你平时的叫法。不想做的事可以不做，各段说明里写了怎么表示。`;
     const user = [
-      `# 情况\n对方离开了${ctx.elapsedText}。现在是 ${new Date(now).toLocaleString('zh-CN', { hour12: false })}。\n你现在的情绪：${cp.state.mood[ch.id] ?? '平常'}\n最近记得的事：\n${mems.slice(0, 6).map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}`,
+      `# 情况\n${tier ? `对方离开了${ctx.elapsedText}。` : `你们上次聊是${ctx.elapsedText}前。`}${timeLine(new Date(now), ch.timeZone)}\n你现在的情绪：${cp.state.mood[ch.id] ?? '平常'}\n最近记得的事：\n${mems.slice(0, 6).map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}`,
       '# 要处理的事',
       ...items.map(({ key, item }) => `## ${item.label}（字段 ${key}）\n${item.prompt}`),
     ].join('\n\n');
@@ -143,7 +168,7 @@ class Catchup {
       try { await item.apply(out[key], ctx); done.push(key); }
       catch (e) { log.error('catchup', `${key} 落库失败：${e instanceof Error ? e.message : String(e)}`, { campaignId: cp.id }); }
     }
-    bus.emit('catchup.done', { campaignId: cp.id, tier, keys: done });
+    bus.emit('catchup.done', { campaignId: cp.id, tier: ctx.tier, keys: done });
   }
 }
 

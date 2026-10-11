@@ -3,6 +3,7 @@ import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Messa
 import { modelTextOf } from '../data/repo';
 import { triggerL1 } from './l1';
 import { expandMacros } from './macros';
+import { timeLine } from './time';
 
 export interface AssembleInput {
   world: World;
@@ -118,7 +119,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const system = [
     section('规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + toolRules(input) : '')),
     constantStyle.length ? section('写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
-    section('用户', `用户的名字是「${input.userName}」。${input.userProfile ? '\n' + input.userProfile : ''}`),
+    section('用户', `用户的名字是「${input.userName}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，用户是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),
     section(`世界：${input.world.name}`, input.world.summary),
     ...input.characters.map((c) => section(input.characters.length > 1 ? `角色：${c.name}` : `你扮演的角色：${c.name}`, c.core)),
     section('当前状态', stateText(input.campaign, input.characters)),
@@ -157,7 +158,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
   if (tailStyle.length) tail.push('<尾部指令>\n' + tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n') + '\n</尾部指令>');
   if (input.storyTime) tail.push(`（剧情时间模式：现在的剧情时间是「${input.campaign.state.inWorldTime || '未设定，由你根据对话决定'}」。时间推进时用 state_update 更新。）`);
-  else tail.push(`现在是 ${now.toLocaleString('zh-CN', { hour12: false })}。`);
+  else tail.push(timeLine(now, input.characters[0]?.timeZone));
   if (input.userText?.trim()) tail.push(input.userText.trim());
 
   const last = messages[messages.length - 1];

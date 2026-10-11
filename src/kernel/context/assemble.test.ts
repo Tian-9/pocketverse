@@ -46,6 +46,15 @@ describe('assemble (full)', () => {
     expect(r.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join()).toContain('邮差死了');
   });
 
+  it('puts the per-save user persona in the user section and the character time zone in the time line', () => {
+    const r = assemble({ ...base, campaign: { ...campaign, userPersona: '刚入门的师弟' }, characters: [{ ...ch, timeZone: 'Pacific/Kiritimati' }], history: [], userText: '嗨' });
+    expect(r.system.find((b) => b.text.startsWith('# 用户'))!.text).toContain('在这个世界里，用户是：刚入门的师弟');
+    const last = r.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(last).toContain('你在 Pacific/Kiritimati，那边是');
+    const plain = assemble({ ...base, history: [], userText: '嗨' });
+    expect(plain.system.find((b) => b.text.startsWith('# 用户'))!.text).not.toContain('在这个世界里');
+  });
+
   it('puts the second cache breakpoint on the second-to-last message', () => {
     const r = assemble({ ...base, history: [msg('user', 'a', 1), msg('assistant', 'b', 2)], userText: 'c' });
     const prev = r.messages.at(-2)!;

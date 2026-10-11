@@ -4,6 +4,7 @@ import type { CatchupItem } from '../api/types';
 
 vi.mock('../llm/gateway.svelte', () => ({ llm: { configured: true, chat: vi.fn(), settings: {} } }));
 vi.mock('../registry/registry.svelte', () => ({ registry: { plugins: [] as unknown[], isEnabled: () => true } }));
+vi.mock('../nav/nav.svelte', () => ({ nav: { push: vi.fn() } }));
 
 beforeAll(() => { openDB([]); });
 const H = 3600_000;
@@ -67,5 +68,63 @@ describe('catchup run', () => {
     expect(chat).toHaveBeenCalledTimes(3);
     expect(chat.mock.calls.slice(1).map((c) => c[0].system[0].text.match(/「(.)」/)![1]).sort()).toEqual(['A', 'B']);
     for (const c of chat.mock.calls.slice(1)) expect(c[0].jsonSchema.required).toEqual(['moments_post', 'moments_replies']);
+  });
+});
+
+describe('wake_later (稍后联系)', () => {
+  it('fires a due wake through the same per-character call even below any tier, writes the messages, and clears it', async () => {
+    const { llm } = await import('../llm/gateway.svelte');
+    const { registry } = await import('../registry/registry.svelte');
+    const { catchup } = await import('./catchup');
+    const { wakes } = await import('./wake');
+    const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
+    chat.mockReset();
+    (registry.plugins as unknown[]).length = 0;
+    (registry.plugins as unknown[]).push({ id: 'moments', catchup: [
+      { id: 'post', tier: 'h6', collect: async () => ({ label: '朋友圈', prompt: 'x', schema: { type: 'object' }, apply: async () => {} }) },
+      { id: 'replies', tier: 'attach', collect: async () => ({ label: '回评', prompt: 'y', schema: { type: 'object' }, apply: async () => {} }) },
+    ] });
+    const now = 2_000_000_000_000;
+    await db().campaigns.clear(); await db().characters.clear(); await db().kv.clear();
+    await db().characters.add({ id: 'w', name: 'W', core: 'z', full: '', timeZone: 'Asia/Tokyo' });
+    await db().campaigns.add({ id: 'cw', worldId: 'w', characterIds: ['w'], name: 'w', createdAt: 0, lastPlayedAt: now - 20 * 60_000, userPersona: '隔壁班的', state: { relations: {}, mood: {}, facts: [] } });
+    await db().setKV('kernel.currentCampaign.w', 'cw');
+    await wakes.set({ campaignId: 'cw', characterId: 'w', fireAt: now - 1000, intent: '提醒他吃药', createdAt: now - 30 * 60_000 });
+
+    chat.mockResolvedValueOnce({ text: JSON.stringify({ kernel_wake: { send: true, messages: ['吃药了没', '别又忘了'] }, moments_replies: {} }), stopReason: 'end_turn', usage: {}, content: [], model: 'm' });
+    await catchup.run(now);
+    expect(chat).toHaveBeenCalledTimes(1);
+    const req = chat.mock.calls[0]![0];
+    // 没到档：只带稍后联系 + 依附档，不带 h6 的朋友圈
+    expect(req.jsonSchema.required).toEqual(['kernel_wake', 'moments_replies']);
+    const u = req.messages[0].content[0].text as string;
+    expect(u).toContain('提醒他吃药');
+    expect(u).toContain('你在 Asia/Tokyo');
+    expect(req.system[0].text).toContain('隔壁班的');
+    expect(req.system[0].text).toContain('到时间了');
+    const conv = await db().conversations.where('campaignId').equals('cw').first();
+    const msgs = await db().messages.where('conversationId').equals(conv!.id).sortBy('ts');
+    expect(msgs.map((m) => (m.content[0] as { text: string }).text)).toEqual(['吃药了没', '别又忘了']);
+    expect(msgs.every((m) => m.meta?.wake === true)).toBe(true);
+    expect(await wakes.get('cw')).toBeNull();
+  });
+
+  it('drops an onlyIfSilent wake when the user has written since, and ignores wakes that are not due', async () => {
+    const { llm } = await import('../llm/gateway.svelte');
+    const { catchup } = await import('./catchup');
+    const { wakes } = await import('./wake');
+    const chat = llm.chat as unknown as ReturnType<typeof vi.fn>;
+    chat.mockReset();
+    const now = 2_000_000_000_000;
+    const conv = await db().conversations.where('campaignId').equals('cw').first();
+    await db().messages.add({ id: 'u1', conversationId: conv!.id, role: 'user', content: [{ type: 'text', text: '吃了' }], ts: now + 60_000 });
+    await db().campaigns.update('cw', { lastPlayedAt: now + 60_000, catchupAt: now });
+    await wakes.set({ campaignId: 'cw', characterId: 'w', fireAt: now + 2 * 60_000, intent: '追一句', createdAt: now, onlyIfSilent: true });
+    await catchup.run(now + 90_000); // 没到点
+    expect(chat).not.toHaveBeenCalled();
+    expect(await wakes.get('cw')).not.toBeNull();
+    await catchup.run(now + 3 * 60_000); // 到点了，但对方已经回了
+    expect(chat).not.toHaveBeenCalled();
+    expect(await wakes.get('cw')).toBeNull();
   });
 });

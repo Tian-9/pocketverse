@@ -11,6 +11,8 @@ import { registry } from '../registry/registry.svelte';
 import type { ShareCard, ShareResolver } from '../share/types';
 import type { CatchupContext, CatchupItem } from '../api/types';
 import { log } from '../log/log';
+import { wakes, MIN_MINUTES, MAX_MINUTES } from '../catchup/wake';
+import { catchup } from '../catchup/catchup';
 
 export interface AttachedTask { key: string; item: CatchupItem; ctx: CatchupContext }
 export interface ToolContext {
@@ -132,6 +134,31 @@ export const kernelTools: KernelTool[] = [
       ctx.overlays.push(ov);
       bus.emit('memory.written', { kind: 'overlay', id: ov.id });
       return `已记录：${ov.title}`;
+    },
+  },
+  {
+    label: '定闹钟',
+    spec: {
+      name: 'wake_later',
+      description: `过一会儿主动联系对方：真实时间 afterMinutes 分钟后（${MIN_MINUTES} 到 ${MAX_MINUTES}），你会"拿起手机"，决定要不要发消息。intent 写你那时想做或想说的事（一句话），到时候会提醒你。只在确实有事或有话想晚点说时用（"等我下班跟你说""一小时后提醒你吃药"）；一次只记一件，新的覆盖旧的。onlyIfSilent 为 true 表示只在对方到时候还没回你时才联系（追一句），对方回了就作废。`,
+      inputSchema: { type: 'object', properties: {
+        afterMinutes: { type: 'integer', minimum: MIN_MINUTES, maximum: MAX_MINUTES },
+        intent: { type: 'string', description: '那时想做或想说的事，一句话' },
+        onlyIfSilent: { type: 'boolean' },
+      }, required: ['afterMinutes', 'intent'] },
+    },
+    async handler(input, ctx) {
+      const minutes = Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, Math.round(Number(input?.afterMinutes) || 0)));
+      const intent = str(input?.intent, 200).trim();
+      if (!intent) return 'intent 不能为空：写一句那时想做什么。';
+      const me = ctx.characters[0];
+      if (!me) return '没有在场角色。';
+      const now = Date.now();
+      await wakes.set({ campaignId: ctx.campaign.id, characterId: me.id, fireAt: now + minutes * 60_000, intent, createdAt: now, onlyIfSilent: input?.onlyIfSilent === true });
+      catchup.armWake(now).catch(() => {});
+      log.info('catchup', `${me.name} 定了 ${minutes} 分钟后联系：${intent}`, { campaignId: ctx.campaign.id });
+      const at = new Date(now + minutes * 60_000).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+      return `记下了：${minutes} 分钟后（${at}）${input?.onlyIfSilent === true ? '看对方回没回，没回就' : ''}联系对方。正常接着回消息就行。`;
     },
   },
   {

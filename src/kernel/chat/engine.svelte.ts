@@ -5,6 +5,7 @@ import { loreApplies } from '../data/lore';
 import { assemble } from '../context/assemble';
 import { kernelTools, shareTool, attachedTool, attachedPrompt, toolLabel } from '../context/tools';
 import { catchup } from '../catchup/catchup';
+import { wakes, wakeNotice } from '../catchup/wake';
 import type { ToolContext } from '../context/tools';
 import { memoryIndex } from '../context/memfs';
 import { runToolLoop, type LoopTool } from './loop';
@@ -43,6 +44,9 @@ class ChatEngine {
   async send(conversationId: string, text: string, extra: Partial<Message> = {}) {
     if (this.live[conversationId]) return;
     await repo.addMessage(conversationId, 'user', text, { ...(await this.stamp(conversationId)), ...extra });
+    // 他定的"没回就追一句"：你回了就作废
+    const conv = await db().conversations.get(conversationId);
+    if (conv) { const w = await wakes.get(conv.campaignId); if (w?.onlyIfSilent) await wakes.clear(conv.campaignId); }
     await this.runTurn(conversationId);
   }
 
@@ -122,6 +126,9 @@ class ChatEngine {
     }
 
     const useTools = llm.settings.tools !== false;
+    // 他给自己定过"稍后联系"：告诉他一声，免得每轮重新定
+    const pendingWake = useTools ? await wakes.get(campaign.id) : null;
+    if (pendingWake) pluginVolatile.push(wakeNotice(pendingWake));
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
     const attached = useTools && catchup.hasAttach() ? await catchup.collectAttached(campaign, character) : [];
     if (attached.length) pluginVolatile.push(attachedPrompt(attached));

@@ -25,6 +25,8 @@ export interface Character {
   useFirstMessage?: boolean;
   /** 时间模式：real 跟随真实时间（默认）；story 只用剧情时间，由角色和用户推进 */
   timeMode?: 'real' | 'story';
+  /** 他所在的时区（IANA 名，如 Asia/Tokyo）。留空＝和你同一个时区；出远门才填，提示词里会多给一个"他那边的时间" */
+  timeZone?: string;
   voice?: Record<string, unknown>;
 }
 export interface CampaignState {
@@ -34,6 +36,8 @@ export interface CampaignState {
 export interface Campaign {
   id: string; worldId: string; characterIds: string[]; name: string;
   createdAt: number; lastPlayedAt: number; state: CampaignState;
+  /** 你在这个世界里是谁（一两句话）。按存档分：修仙世界里是师弟，校园里是同桌。没有就只用全局的用户画像 */
+  userPersona?: string;
   /** 上次合并处理到的消息 ts */
   consolidatedUpTo?: number;
   /** 上次补发的时间，和 lastPlayedAt 一起决定下次补发的档位 */

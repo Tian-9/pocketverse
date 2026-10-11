@@ -168,8 +168,8 @@ export interface CatchupContext {
   elapsedMs: number;
   /** 整天数，days 档才有意义 */
   days: number;
-  /** 这次达到的档位；chat 表示挂在一次聊天回复上 */
-  tier: Exclude<CatchupTier, 'attach'> | 'chat';
+  /** 这次达到的档位；chat 表示挂在一次聊天回复上；wake 表示没到档，只是角色自己定的"稍后联系"到点了 */
+  tier: Exclude<CatchupTier, 'attach'> | 'chat' | 'wake';
   /** 给模型看的时长，如「大约 8 小时」「3 天」 */
   elapsedText: string;
 }

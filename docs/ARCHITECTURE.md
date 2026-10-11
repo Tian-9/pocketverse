@@ -100,6 +100,8 @@ interface Character {
   core: string;          // 精简版人设，进 L0，目标 ≤ 800 token
   full: string;          // 完整人设、示例对话等，L2 可拉取
   firstMessage?: string;
+  timeMode?: 'real' | 'story';      // 跟随真实时间（默认）还是剧情时间
+  timeZone?: string;                // 他所在的时区（IANA 名）。默认不填＝和你用同一个时间；出远门才填，时间行里多给一个"他那边几点"
   voice?: Record<string, unknown>;  // 插件自定义字段（口癖、语音等）
 }
 
@@ -109,6 +111,7 @@ interface Campaign {
   id: string; worldId: string; characterIds: string[];
   name: string; createdAt: number; lastPlayedAt: number;
   state: CampaignState;                        // 当前状态，进 L0
+  userPersona?: string;                        // 你在这局里是谁（修仙世界里是师弟，校园里是同桌），进 system 的「用户」段；没有就只用全局画像
 }
 interface CampaignState {
   inWorldTime?: string; location?: string;
@@ -243,7 +246,7 @@ Gemini、OpenAI 兼容适配器：只实现 `chat` 和流式，其他能力标 f
 [tools]      内核工具 + 当前启用插件的工具（顺序固定，按 id 排序）
 [system]     ← 缓存断点 1
   1. 全局规则（输出格式、禁止事项，固定文本）
-  2. 用户画像
+  2. 用户画像（+ 这局里你是谁 `userPersona`）
   3. 世界摘要
   4. 在场角色的 core
   5. 存档状态 CampaignState
@@ -255,7 +258,7 @@ Gemini、OpenAI 兼容适配器：只实现 `chat` 和流式，其他能力标 f
   最后一条用户消息：
     - L1 命中的世界书正文（按 order 排序）
     - 插件 promptContributors（易变部分，如"刚发了一条朋友圈"）
-    - 当前真实时间与剧情时间
+    - 当前真实时间与剧情时间（角色设了别的时区就多一句"你在 Asia/Tokyo，那边是 …"；`context/time.ts`）
     - 用户输入
 ```
 
@@ -272,6 +275,7 @@ L2 工具（内核提供）：
 | `character_read(id)` | 读角色 full 人设 |
 | `state_update(patch)` | 更新 CampaignState（关系、情绪、地点、事实） |
 | `overlay_write(entry)` | 写一条世界覆盖 |
+| `wake_later(afterMinutes, intent, onlyIfSilent?)` | 给自己定"稍后联系"：真实时间几分钟后拿起手机决定发不发消息（见 5.11）。一局只记一件，新的覆盖旧的 |
 
 工具描述里明确告诉模型：目录里有的东西需要细节时才查，不要每轮都查。
 
@@ -293,7 +297,7 @@ L2 工具（内核提供）：
 
 ### 5.8 Scheduler
 
-- 前台：`setInterval` 包一层，页面不可见时暂停，可见时恢复。
+- 前台：`setInterval` 包一层（`every`），页面不可见时暂停，可见时恢复；另有一次性的 `after`，给角色定的"稍后联系"用，同样切后台清掉、回前台重排。
 - 补发：`app.resumed(elapsedMs)` 事件带上离开时长，插件自行决定补什么（朋友圈插件可能补一条动态，日记插件可能补一篇日记）。补发生成的消息 `inWorldTs` 设为应该发生的时间。
 - 补发有预算：一次最多补 3 条，避免离开三天回来被刷屏和烧钱。
 - 前台开着的时候也每小时查一次补发（`catchup.TICK`），不然网页挂一天谁也不会动；切到后台定时器清掉，回到前台先补一次再重新上表。
@@ -338,6 +342,7 @@ L2 工具（内核提供）：
 - **模型可以说"不用"**：每段 schema 自己定义"不做"的表达（不发、回复留空）。回评论被跳过的那条打标记，以后不再拿出来。
 - **预算**：一次回来最多处理 3 个角色，按最近玩过的排序。
 - **触发时机**：回到前台（含冷启动）立刻查一次；前台开着每小时再查一次。查是免费的，只有到档才调模型。
+- **稍后联系（角色自己定的）**：聊天里他用 `wake_later({ afterMinutes, intent, onlyIfSilent })` 给自己定一件事（"等我下班跟你说""没回就追一句"），存 kv `kernel.wake.<campaignId>`，一局一件。到点就是一次"拿起手机"：走同一个 `runFor`，`intent` 作为一段（字段 `kernel_wake`，schema `{ send, messages[] }`）和同时到档的插件的事拼成同一次调用；没到档时只带它和依附档。发出来的消息直接进私聊（`meta.wake`），顶部通知条提醒。`onlyIfSilent` 的，你一回消息就作废。分钟级的到点靠 `scheduler.after` 排一个一次性定时器（定了新的、跑完一轮、回到前台都重排），不另起轮询。聊天的易变段会告诉他"已经记下了"，免得每轮重定。
 
 ## 6. 聊天插件（内核级）
 
@@ -346,7 +351,7 @@ L2 工具（内核提供）：
 - 对话列表、对话页、流式气泡、"正在输入"状态（工具调用时显示具体在干什么）。
 - 长按消息：重新生成、编辑、删除、从此处分叉。
 - 消息里的插件卡片由注册的 `outputHandlers` 渲染，聊天插件本身不认识任何标签。
-- 群聊：多角色轮流，由拼装器按 `participantIds` 切换 core 和视角。
+- 群聊（未实现，设计已定 2026-10-11）：**一次调用出所有在场角色的话**，不是每人一次。`participantIds` 的 core 全进 system，模型按带名字前缀的分段返回（`[名字] 一行一条`），拼装器拆成各自的消息。便宜，也更像真群聊（互相接话）。
 
 ## 7. 插件接口
 

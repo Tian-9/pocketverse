@@ -7,14 +7,19 @@ import Findings from './Findings.svelte';
 import BookEntry from './BookEntry.svelte';
 import Book from './Book.svelte';
 import CharacterLore from './CharacterLore.svelte';
+import Versions from './Versions.svelte';
+import { setVersionsContext } from './versions';
 
 export default definePlugin({
   id: 'characters',
   name: '角色',
-  version: '0.2.0',
+  version: '0.3.0',
   core: true,
   description: '世界与角色管理，导入角色卡。',
   app: { screen: Characters, icon: { paths: icons.person, background: gradients.orange } },
   // profile 是角色主页：这一局里的他（状态、钱包、朋友圈、记忆）；detail 是编辑角色卡
-  screens: { detail: CharacterDetail, profile: Profile, inspect: Inspect, findings: Findings, book: Book, bookEntry: BookEntry, lore: CharacterLore },
+  screens: { detail: CharacterDetail, profile: Profile, inspect: Inspect, findings: Findings, book: Book, bookEntry: BookEntry, lore: CharacterLore, versions: Versions },
+  // 角色卡的历史版本：改卡前自动留一份，最多 30 份
+  storage: { tables: { versions: 'id, characterId, createdAt' } },
+  setup(c) { setVersionsContext(c); },
 });

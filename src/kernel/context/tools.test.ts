@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { openDB, db } from '../storage/db';
 import { kernelTools, shareTool } from './tools';
+
+vi.mock('../catchup/catchup', () => ({ catchup: { armWake: vi.fn(async () => {}), hasAttach: () => false } }));
+beforeAll(() => { openDB([]); });
 
 describe('kernel tools', () => {
   it('all tool names satisfy the API pattern', () => {
@@ -40,5 +44,28 @@ describe('handle_attached tool', () => {
     expect(applied).toEqual([{ replies: [] }]);
     expect(await attachedTool.handler({ key: 'moments_replies', output: {} }, ctx as any)).toContain('没有 key');
     expect(attachedPrompt([])).toBe('');
+  });
+});
+
+describe('wake_later tool', () => {
+  it('clamps minutes, requires an intent, stores one wake per campaign and re-arms the timer', async () => {
+    const { wakes, MIN_MINUTES, MAX_MINUTES } = await import('../catchup/wake');
+    const { catchup } = await import('../catchup/catchup');
+    const t = kernelTools.find((x) => x.spec.name === 'wake_later')!;
+    const ctx = { campaign: { id: 'cp9' } as any, characters: [{ id: 'c9', name: '阿九' }] as any, lore: [], overlays: [], cards: [] as any[], attached: [] as any[] };
+    expect(await t.handler({ afterMinutes: 10, intent: '  ' }, ctx as any)).toContain('intent 不能为空');
+    expect(await wakes.get('cp9')).toBeNull();
+    const before = Date.now();
+    expect(await t.handler({ afterMinutes: 1, intent: '提醒吃药' }, ctx as any)).toContain(`${MIN_MINUTES} 分钟后`);
+    const w = (await wakes.get('cp9'))!;
+    expect(w).toMatchObject({ campaignId: 'cp9', characterId: 'c9', intent: '提醒吃药', onlyIfSilent: false });
+    expect(w.fireAt - w.createdAt).toBe(MIN_MINUTES * 60_000);
+    expect(w.createdAt).toBeGreaterThanOrEqual(before);
+    expect(await t.handler({ afterMinutes: 99999999, intent: '下班说', onlyIfSilent: true }, ctx as any)).toContain('没回就');
+    const w2 = (await wakes.get('cp9'))!;
+    expect(w2.fireAt - w2.createdAt).toBe(MAX_MINUTES * 60_000);
+    expect(w2.onlyIfSilent).toBe(true);
+    expect((await db().kv.where('key').startsWith('kernel.wake.').count())).toBe(1);
+    expect(catchup.armWake).toHaveBeenCalled();
   });
 });

@@ -7,6 +7,9 @@
   import { parseStChat } from '$kernel/importers/stChat';
   import { bus } from '$kernel/bus/bus';
   import { ulid } from 'ulid';
+  import { isValidTimeZone } from '$kernel/context/time';
+  import { backup, deleteVersionsOf, versionsTable, snapshotOf, sameData, type VersionData } from './versions';
+  import type { Character } from '$kernel/storage/db';
 
   let { id }: { id: string } = $props();
   const c = live(() => db().characters.get(id), undefined);
@@ -14,16 +17,33 @@
   let name = $state(''), core = $state(''), full = $state(''), firstMessage = $state('');
   let useFirst = $state(false);
   let storyTime = $state(false);
+  let timeZone = $state('');
   let loaded = $state(false);
   let confirmDelete = $state(false);
+  const versionCount = live(() => versionsTable().where('characterId').equals(id).count(), 0);
+  // 进页面时的样子：第一次改动前留一份历史版本
+  let original: Character | null = null;
+  // 最后一次是我们自己写进库的内容；库里的值和它不一样，就是别处改了（如恢复了历史版本），把字段重新读进来
+  let written: VersionData | null = null;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   $effect(() => {
     const v = c.value;
-    if (v && !loaded) { name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; storyTime = v.timeMode === 'story'; loaded = true; }
+    if (!v) return;
+    if (loaded && (saveTimer !== undefined || (written && sameData(written, snapshotOf(v))))) return;
+    name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; storyTime = v.timeMode === 'story'; timeZone = v.timeZone ?? '';
+    loaded = true; original = $state.snapshot(v) as Character; written = snapshotOf(v);
   });
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  // 时区：留空＝和你同一个时区；写了但不认识就当没写
+  const tzOk = $derived(!timeZone.trim() || isValidTimeZone(timeZone.trim()));
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => repo.updateCharacter(id, { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst, timeMode: storyTime ? 'story' : 'real' }), 400);
+    if (original) { backup(original, '编辑前').catch(() => {}); original = null; }
+    saveTimer = setTimeout(() => {
+      saveTimer = undefined;
+      const patch = { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst, timeMode: storyTime ? 'story' as const : 'real' as const, timeZone: tzOk && timeZone.trim() ? timeZone.trim() : undefined };
+      written = snapshotOf({ id, ...patch });
+      repo.updateCharacter(id, patch);
+    }, 400);
   }
   async function startChat() {
     const ch = await db().characters.get(id);
@@ -53,6 +73,7 @@
     }
   }
   async function remove() {
+    await deleteVersionsOf(id);
     await repo.deleteCharacter(id);
     nav.pop();
   }
@@ -76,9 +97,18 @@
   <List footer="跟随真实时间：角色知道现在几点，适合日常陪聊。剧情时间：不给真实时钟，时间由角色和你用「推进时间」推进，适合推长线剧情。">
     <Cell title="剧情时间模式" subtitle={storyTime ? '当前：剧情时间' : '当前：跟随真实时间'}>{#snippet right()}<Toggle bind:checked={storyTime} onchange={save} label="剧情时间" />{/snippet}</Cell>
   </List>
+  {#if !storyTime}
+    <List footer={tzOk ? '默认他和你用同一个时间（你设备的时间）。他出远门、在另一个时区生活时才填，写法如 Asia/Tokyo、Europe/London，他会知道自己那边几点。' : '不认识这个时区，先按和你同一个时间算。写法如 Asia/Tokyo、America/New_York。'}>
+      <Field label="他所在的时区" bind:value={timeZone} placeholder="留空＝和你一样" oninput={save} />
+    </List>
+  {/if}
   <SectionTitle text="人物背景" />
   <List footer="跟卡走的设定，和他聊时才进上下文，换世界也带着。">
     <Cell title="人物背景" value={`${loreCount.value} 条`} chevron onclick={() => nav.push('characters', 'lore', { id })} />
+  </List>
+  <SectionTitle text="历史版本" />
+  <List footer="改卡之前自动留一份，最多 30 份，随时能恢复。">
+    <Cell title="历史版本" value={versionCount.value ? `${versionCount.value} 份` : '还没有'} chevron onclick={() => nav.push('characters', 'versions', { id })} />
   </List>
   <SectionTitle text="开场白" />
   <List footer="酒馆卡的开场白多半是为酒馆场景写的，默认不自动发。写了适合手机聊天的再打开。">
