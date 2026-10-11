@@ -108,8 +108,11 @@ export default definePlugin({
   promptContributors: [{
     id: 'last-diary',
     async volatile(p: PromptContext) {
+      // 只带最近两天（剧情日期）的那篇，再早的他自己翻（diary_read）。这段每轮都是全价 token，不限时就一直带着一周前的日记
       const last = (await ctx.table<DiaryEntry>('entries').where('campaignId').equals(p.campaignId).reverse().sortBy('date'))[0];
       if (!last) return '';
+      const tz = (await ctx.data.character(p.characterIds[0]!))?.timeZone;
+      if (last.date < clock.dateKey(p.now - 2 * D, tz)) return '';
       return `<你最近一篇日记 ${last.date}>\n${last.text.slice(0, 400)}\n</你最近一篇日记>`;
     },
   }],

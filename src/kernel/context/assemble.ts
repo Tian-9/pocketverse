@@ -104,7 +104,7 @@ function stateText(c: Campaign, chars: Character[]): string {
 
 /**
  * 拼装请求。顺序固定：规则 → 用户 → 世界 → 角色 → 状态 → 世界书目录 → 近期要事 → 记忆目录 → 插件稳定部分。
- * 缓存断点两处：system 末尾、倒数第二条消息末尾。易变内容只进最后一条用户消息。
+ * 缓存断点两处：system 末尾、倒数第二条消息末尾。易变内容只进最后一条用户消息，排在用户的话前面。
  */
 export function assemble(input: AssembleInput): { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[] } {
   const { windowSize = 60, chapterTail = 6, scanDepth = 4, now = new Date() } = input;
@@ -157,11 +157,18 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
   if (tailStyle.length) tail.push('<尾部指令>\n' + tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n') + '\n</尾部指令>');
   tail.push(timeLine(now, input.characters[0]?.timeZone, undefined, input.story));
-  if (input.userText?.trim()) tail.push(input.userText.trim());
 
+  // 尾巴排在用户这轮的话前面：聊天引擎先把用户的消息存进历史再拼，所以它已经是最后一条用户消息；
+  // 他最后读到的几百字要是对方刚说的话，不是日记和时间行
+  const pre: TextBlock = { type: 'text', text: tail.join('\n\n') };
+  const userText = input.userText?.trim();
   const last = messages[messages.length - 1];
-  if (last?.role === 'user') last.content.push({ type: 'text', text: tail.join('\n\n') });
-  else messages.push({ role: 'user', content: [{ type: 'text', text: tail.join('\n\n') }] });
+  if (last?.role === 'user') {
+    last.content.unshift(pre);
+    if (userText) last.content.push({ type: 'text', text: userText });
+  } else {
+    messages.push({ role: 'user', content: [{ type: 'text', text: [pre.text, userText].filter(Boolean).join('\n\n') }] });
+  }
 
   if (messages[0]?.role === 'assistant') messages.unshift({ role: 'user', content: [{ type: 'text', text: '（对话开始）' }] });
 

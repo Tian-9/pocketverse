@@ -88,6 +88,18 @@ describe('tail style and chapter cut', () => {
     expect(last).toContain('<尾部指令>\n每条不超过十五个字。\n</尾部指令>');
     expect(last.indexOf('<尾部指令>')).toBeLessThan(last.indexOf('嗨'));
   });
+  it('puts the tail before the user message that is already in history, with the time line last before it', () => {
+    const r = assemble({ ...base, lore: [], history: [msg('assistant', '你来了', 1), msg('user', '[分享了一件商品给你看]', 2)], pluginVolatile: ['<你最近一篇日记>\n下雨\n</你最近一篇日记>'] });
+    const last = r.messages.at(-1)!;
+    expect(last.role).toBe('user');
+    const texts = last.content.map((b) => (b.type === 'text' ? b.text : ''));
+    expect(texts.at(-1)).toBe('[分享了一件商品给你看]');
+    expect(texts[0]).toContain('<你最近一篇日记>');
+    expect(texts[0]!.indexOf('</你最近一篇日记>')).toBeLessThan(texts[0]!.indexOf('现在是'));
+    // 断点还在他上一条回复上
+    const pb = r.messages.at(-2)!.content.at(-1)!;
+    expect(pb.type === 'text' && pb.cache).toBe(true);
+  });
   it('keeps only a few messages before the latest chapter marker', () => {
     const msg = (i: number, extra: Partial<Message> = {}): Message => ({ id: 'm' + i, conversationId: 'c', role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: '第' + i }], ts: i, ...extra });
     const history = [...Array.from({ length: 20 }, (_, i) => msg(i)), msg(20, { role: 'user', meta: { narration: true, chapter: true }, content: [{ type: 'text', text: '（时间来到：三天后）' }] }), msg(21), msg(22)];
