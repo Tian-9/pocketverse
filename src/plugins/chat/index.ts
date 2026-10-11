@@ -1,6 +1,7 @@
 import { definePlugin, icons, gradients } from '$kernel/api';
 import ChatList from './ChatList.svelte';
 import Conversation from './Conversation.svelte';
+import { setChatCtx } from './ctx';
 
 export default definePlugin({
   id: 'chat',
@@ -10,4 +11,5 @@ export default definePlugin({
   description: '和角色对话。内核级，不可关闭。',
   app: { screen: ChatList, icon: { paths: icons.chat, background: gradients.green } },
   screens: { conversation: Conversation },
+  setup(c) { setChatCtx(c); },
 });

@@ -20,6 +20,7 @@ export const icons = {
   forum: ['M3 5h13v9H8l-4 3v-3H3z', 'M16 9h5v9l-3-2h-6v-3'],
   sparkle: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z'],
   shop: ['M5 8h14l-1 12H6z', 'M9 8V6a3 3 0 0 1 6 0v2'],
+  calendar: ['M4 6h16v14H4z', 'M4 11h16', 'M8 3v5M16 3v5'],
   receipt: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6M9 12h6'],
 };
 

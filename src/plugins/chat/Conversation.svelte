@@ -12,13 +12,24 @@
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
   import { clock } from '$kernel/context/clock';
+  import { chatCtx } from './ctx';
   import type { ComposerAction, OutgoingMessage, MessageCard } from '$kernel/api';
 
-  let { id }: { id: string } = $props();
-  const conv = live(() => db().conversations.get(id), undefined);
-  const character = live(async () => { const c = await db().conversations.get(id); return c ? repo.characterOfConversation(c) : undefined; }, undefined);
-  const messages = live(() => repo.messagesOf(id), [] as Message[]);
-  const campaign = live(async () => { const c = await db().conversations.get(id); return c ? db().campaigns.get(c.campaignId) : undefined; }, undefined);
+  // 从别的插件（日历）过来时只带 campaignId：找这局的私聊；skipTo 是要推进到的时刻，进来就打开推进面板
+  let { id: givenId, campaignId: fromCampaign, skipTo }: { id?: string; campaignId?: string; skipTo?: number } = $props();
+  let resolved = $state<string | null>(null);
+  $effect(() => {
+    if (givenId || !fromCampaign) return;
+    db().campaigns.get(fromCampaign).then(async (cp) => {
+      const ch = cp?.characterIds[0] ? await db().characters.get(cp.characterIds[0]) : undefined;
+      if (ch) resolved = (await repo.directConversation(ch)).id;
+    });
+  });
+  const id = $derived(givenId ?? resolved ?? '');
+  const conv = live(() => (id ? db().conversations.get(id) : Promise.resolve(undefined)), undefined, () => [id]);
+  const character = live(async () => { const c = id ? await db().conversations.get(id) : undefined; return c ? repo.characterOfConversation(c) : undefined; }, undefined, () => [id]);
+  const messages = live(() => (id ? repo.messagesOf(id) : Promise.resolve([] as Message[])), [] as Message[], () => [id]);
+  const campaign = live(async () => { const c = id ? await db().conversations.get(id) : undefined; return c ? db().campaigns.get(c.campaignId) : undefined; }, undefined, () => [id]);
   const liveTurn = $derived(chat.live[id]);
   const status = $derived(liveTurn?.status ?? 'idle');
 
@@ -56,7 +67,19 @@
       { label: '下周', ts: at(n, 7, 9) },
     ];
   });
-  function openTimeSheet() { timeWhen = clock.toInput(storyNow() + H); timeSheet = true; }
+  function openTimeSheet(at = storyNow() + H) { timeWhen = clock.toInput(at); loadNext(); timeSheet = true; }
+  // 日历插件开着就多一个快捷项：到下一个安排
+  interface NextEvent { start: number; title: string }
+  interface CalendarService { next(campaignId: string, now: number): Promise<NextEvent | undefined> }
+  let nextEvent = $state<NextEvent | null>(null);
+  async function loadNext() {
+    nextEvent = null;
+    const cp = campaign.value; const svc = chatCtx?.service<CalendarService>('calendar');
+    if (!cp || !svc) return;
+    try { nextEvent = (await svc.next(cp.id, storyNow())) ?? null; } catch { nextEvent = null; }
+  }
+  let skipHandled = false;
+  $effect(() => { if (skipTo && campaign.value && !skipHandled) { skipHandled = true; openTimeSheet(skipTo); } });
   function advance(ts?: number) {
     const to = ts ?? clock.fromInput(timeWhen);
     if (to === null) return;
@@ -231,6 +254,7 @@
   <div onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); advance(); } }} role="presentation">
   <div class="quick">
     {#each quick as q (q.label)}<button onclick={() => advance(q.ts)}>{q.label}</button>{/each}
+    {#if nextEvent}<button onclick={() => advance(nextEvent!.start)}>到「{nextEvent.title}」{clock.formatShort(nextEvent.start)}</button>{/if}
   </div>
   <List footer={`这局现在是 ${clock.format(storyNow(), character.value?.timeZone)}。推进后会先整理记忆，插一条旁白，他接着那个时间点说话。想让他定住不走，去他的主页把这局停表。`}>
     <Field label="来到" type="datetime-local" bind:value={timeWhen} />

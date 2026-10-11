@@ -62,6 +62,7 @@ pocketverse/
       wechat/            示例：聊天换皮 + 转账/红包指令
       moments/           示例：朋友圈，注入提示词 + 解析 <moment>
       diary/             示例：定时写日记，作为记忆来源
+      calendar/          他的日程：挂在存档时钟上，按周自动排
       theme-*/           主题包也是插件
     app.ts               启动：加载内核 → 注册内置插件 → 挂载 shell
   public/                图标、manifest
@@ -332,6 +333,8 @@ L2 工具（内核提供）：
 - 聊天页样式在外观里切：iOS 信息 / 微信（绿白气泡、灰底、两边头像）。只是样式，功能一样。
 
 - **商店**（`shop` 插件，内核不认识商品）：一局一家店，货架是便宜模型按世界生成的（首次打开进货，分类能换一批，搜索本地没有就现编几件存起来），和论坛路人同一个办法。买东西的钱走 `services` 里的 `wallet`，钱包没开只能看、只能分享。商品分享走 `product` 解析器 + 通用分享卡；送礼（你送他、他送你）也是同一张卡，`subtype: 'gift'`，留言借 `quote` 行显示，送出去就到了，没有「收下」。他有的东西（他买的 + 你送的）是状态，每轮都进 volatile 一行，主页「他的东西」段和它是同一个查询；你给自己买的他默认不知道。
+
+- **日历**（`calendar` 插件，内核不认识日程）：挂在存档时钟上的事件表 `events`（`owner` 是角色 id 或 `user`，`source` plan / chat / manual，`status` planned / done / skipped）。他的安排由便宜模型按周排（`plan.ts`，和商店进货同一个办法）：打开日历或聊天时发现往后不足 3 天有安排就补一周，只补他还没排的日子。易变段一句「你今天的安排 … 现在正在 … 接下来 …」给作息感，约 60 token。工具 `calendar_add`（聊天里约的事，`together` 时你的日历也一条）、`calendar_read`。补发登记 `passed`（h6）：这段时间排了的事做了没做，写回 `status` / `note`。服务 `calendar`（`today` / `between` / `next`）给聊天页「到下一个安排」和以后的日记、朋友圈用。主页「他今天」段。日历里某一天「在聊天里推进到这天」走 `nav.push('chat', 'conversation', { campaignId, skipTo })`，聊天页带着时刻打开推进面板。
 
 联网：设置里的"允许角色上网"开关对应 Anthropic 服务端的 `web_search` / `web_fetch` 工具。搜索由 Anthropic 执行，按次计费（每次搜索 $0.01，另加搜到内容占的 token），计入用量。默认关。每轮各最多 3 次。
 
