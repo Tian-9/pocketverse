@@ -264,6 +264,8 @@ export interface DataView {
   memories(campaignId: string, opts?: { limit?: number; minImportance?: 1 | 2 | 3 }): Promise<MemoryView[]>;
   /** 这一局能用的条目目录（title + summary，带本局覆盖标注），和拼上下文用的是同一段文字；没有条目返回空串 */
   loreDirectory(campaignId: string): Promise<string>;
+  /** 你在哪座城市（设置里改）。没改过是默认值，不会是空 */
+  userPlace(): Promise<Place>;
 }
 
 export interface CampaignView {
@@ -287,7 +289,13 @@ export interface CampaignView {
   };
 }
 export interface WorldView { id: string; name: string; summary: string }
-export interface CharacterView { id: string; name: string; avatar?: Blob; core: string; timeZone?: string }
+export interface CharacterView { id: string; name: string; avatar?: Blob; core: string; timeZone?: string; place?: Place }
+
+/**
+ * 一个地方：城市级，够算时区和天气。角色卡上的「他在哪座城市」和设置里的「你在哪座城市」都是它。
+ * 时区、天气都从位置派生；以后日出日落、当地节假日、币种物价也读它，不另加字段。
+ */
+export interface Place { name: string; lat: number; lon: number; timeZone: string }
 export interface MemoryView { id: string; characterId?: string; when: string; text: string; importance: 1 | 2 | 3; createdAt: number }
 
 export interface PluginChatRequest {

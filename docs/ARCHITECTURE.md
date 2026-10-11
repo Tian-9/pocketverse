@@ -102,8 +102,13 @@ interface Character {
   full: string;          // 完整人设、示例对话等，L2 可拉取
   firstMessage?: string;
   timeZone?: string;                // 他所在的时区（IANA 名）。默认不填＝和你用同一个时间；出远门才填，时间行里多给一个"他那边几点"
+  place?: Place;                    // 他在哪座城市（data/place.ts）。不填＝和你在同一个地方；选了城市 timeZone 跟着填。时区、天气都从位置派生
   voice?: Record<string, unknown>;  // 插件自定义字段（口癖、语音等）
 }
+
+// 位置：城市级，够算时区和天气。角色卡的「他在哪座城市」和设置里的「你在哪座城市」（KV kernel.userPlace，代码默认伦敦）都是它。
+// 地理编码走 Open-Meteo（自带时区），定位走浏览器 Geolocation，坐标只留两位小数。插件读位置走 ctx.data（character().place / userPlace()），选城市用 PlacePicker。
+interface Place { name: string; lat: number; lon: number; timeZone: string }
 
 // 存档：一个世界 + 一组角色 的一次"游玩"，记忆的拥有者。
 // 每张卡有一个「当前这一局」（kv `kernel.currentCampaign.<characterId>`），聊天、主页、补发、朋友圈只看它；别的局先睡着，主页上能切换或新开。
@@ -335,6 +340,7 @@ L2 工具（内核提供）：
 
 - **商店**（`shop` 插件，内核不认识商品）：一局一家店，货架是便宜模型按世界生成的（首次打开进货，分类能换一批，搜索本地没有就现编几件存起来），和论坛路人同一个办法。买东西的钱走 `services` 里的 `wallet`，钱包没开只能看、只能分享。商品分享走 `product` 解析器 + 通用分享卡；送礼（你送他、他送你）也是同一张卡，`subtype: 'gift'`，留言借 `quote` 行显示，送出去就到了，没有「收下」。他有的东西（他买的 + 你送的）是状态，每轮都进 volatile 一行，主页「他的东西」段和它是同一个查询；你给自己买的他默认不知道。
 
+- **天气**（`weather` 插件，内核不认识天气）：照时区那套——他没选城市就和你在同一个地方。你那边的位置在设置里（和名字一起），他那边的在角色卡上；两边天气各查一次（同一个地方只查一次），Open-Meteo 免费无 Key，浏览器直接请求，30 分钟缓存，查不到就沉默。只在这局的钟和真实时间对齐（`CampaignView.aligned`）时给：易变段一句「你们这边现在：伦敦，多云，18°C；今天 12～21°C」或「你那边现在：东京，晴，22°C；对方那边：伦敦，多云，18°C，今天可能下雨」，约 60～80 token，不进 system。工具 `weather_forecast`（未来 7 天逐日，`whose` 选哪边）。服务 `weather.line(campaignId, characterId)` 给日记、朋友圈以后用。天气 App 显示你那边的现在和这几天，选了别的城市的角色列在「他们那边」。
 - **日历**（`calendar` 插件，内核不认识日程）：挂在存档时钟上的事件表 `events`（`owner` 是角色 id 或 `user`，`source` plan / chat / manual，`status` planned / done / skipped）。他的安排由便宜模型按周排（`plan.ts`，和商店进货同一个办法）：打开日历或聊天时发现往后不足 3 天有安排就补一周，只补他还没排的日子。易变段一句「你今天的安排 … 现在正在 … 接下来 …」给作息感，约 60 token。工具 `calendar_add`（聊天里约的事，`together` 时你的日历也一条）、`calendar_read`。补发登记 `passed`（h6）：这段时间排了的事做了没做，写回 `status` / `note`。服务 `calendar`（`today` / `between` / `next`）给聊天页「到下一个安排」和日记、朋友圈用：日记材料带那天他日历上的事（做没做、备注），朋友圈补发带这段时间排了的事，没开日历就没有这一段。日界和 HH:MM 都按他的时区。主页「他今天」段。日历里某一天「在聊天里推进到这天」走 `nav.push('chat', 'conversation', { campaignId, skipTo })`，聊天页带着时刻打开推进面板。
 
 联网：设置里的"允许角色上网"开关对应 Anthropic 服务端的 `web_search` / `web_fetch` 工具。搜索由 Anthropic 执行，按次计费（每次搜索 $0.01，另加搜到内容占的 token），计入用量。默认关。每轮各最多 3 次。

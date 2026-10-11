@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { NavBar, List, Cell, Field, SectionTitle, Toggle, Glyph, icons } from '$kernel/api';
+  import { NavBar, List, Cell, Field, SectionTitle, Toggle, Glyph, PlacePicker, icons, live, places } from '$kernel/api';
+  import type { Place } from '$kernel/api';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { MODELS } from '$kernel/llm/pricing';
   import { chat } from '$kernel/chat/engine.svelte';
@@ -7,6 +8,9 @@
   let key = $state(llm.settings.apiKey);
   let userName = $state(chat.userName);
   let userProfile = $state(chat.userProfile);
+  const userPlace = live(() => places.user(), places.DEFAULT_USER_PLACE);
+  let pickingPlace = $state(false);
+  const pickPlace = (p: Place | null) => { if (p) places.setUser(p); };
   let testing = $state(false);
   let testResult = $state('');
   const efforts: { id: typeof llm.settings.effort; label: string }[] = [
@@ -68,6 +72,10 @@
   <Field label="名字" bind:value={userName} placeholder="我" oninput={(v) => chat.setUserName(v)} />
   <Field multiline rows={3} bind:value={userProfile} placeholder="自我介绍，可选" oninput={(v) => chat.setUserProfile(v)} />
 </List>
+<List footer="天气、他那边几点都从这里算。默认伦敦，改成你所在的城市；只存在这台设备上，城市名会和天气一起出现在提示词里。">
+  <Cell title="你在哪座城市" value={userPlace.value.name} chevron onclick={() => (pickingPlace = true)} />
+</List>
+<PlacePicker bind:open={pickingPlace} title="你在哪座城市" allowLocate onpick={pickPlace} onclose={() => (pickingPlace = false)} />
 
 <SectionTitle text="用量" />
 <List footer={llm.stats.requests > 0 && llm.stats.hitRate < 0.7 ? '缓存命中率偏低。前几轮对话命中率低是正常的，持续偏低说明有东西在破坏缓存前缀。' : '缓存命中率是最重要的省钱指标，稳定聊天时应在 70% 以上。'}>

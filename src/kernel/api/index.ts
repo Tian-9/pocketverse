@@ -26,6 +26,9 @@ export function definePlugin(manifest: PluginManifest): PluginManifest {
 /** 存档时钟的纯函数（format / dateKey / now…）。插件拿到 ctx.data 或 PromptContext 里的 now 后用它格式化 */
 export { clock } from '../context/clock';
 
+/** 位置：地理编码、定位、你在哪座城市。界面选城市用 PlacePicker，插件读位置走 ctx.data */
+export { places } from '../data/place';
+
 /** 响应式查询：把 Dexie liveQuery 变成 Svelte 值。见 storage/live.svelte.ts 的注意事项 */
 export { live } from '../storage/live.svelte';
 
@@ -47,4 +50,5 @@ export { default as Field } from '../ui/Field.svelte';
 export { default as Avatar } from '../ui/Avatar.svelte';
 export { default as Glyph } from '../ui/Glyph.svelte';
 export { default as ShareCardView } from '../ui/ShareCard.svelte';
+export { default as PlacePicker } from '../ui/PlacePicker.svelte';
 export { icons, gradients } from '../ui/icons';

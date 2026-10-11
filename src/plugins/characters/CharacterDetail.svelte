@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { NavBar, List, Cell, Field, SectionTitle, Button, Avatar, Sheet, Toggle } from '$kernel/api';
+  import { NavBar, List, Cell, Field, SectionTitle, Button, Avatar, Sheet, Toggle, PlacePicker } from '$kernel/api';
+  import type { Place } from '$kernel/api';
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import { repo } from '$kernel/data/repo';
@@ -17,6 +18,8 @@
   let name = $state(''), core = $state(''), full = $state(''), firstMessage = $state('');
   let useFirst = $state(false);
   let timeZone = $state('');
+  let place = $state<Place | null>(null);
+  let pickingPlace = $state(false);
   let loaded = $state(false);
   let confirmDelete = $state(false);
   const versionCount = live(() => versionsTable().where('characterId').equals(id).count(), 0);
@@ -29,7 +32,7 @@
     const v = c.value;
     if (!v) return;
     if (loaded && (saveTimer !== undefined || (written && sameData(written, snapshotOf(v))))) return;
-    name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; timeZone = v.timeZone ?? '';
+    name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; timeZone = v.timeZone ?? ''; place = v.place ? { ...v.place } : null;
     loaded = true; original = $state.snapshot(v) as Character; written = snapshotOf(v);
   });
   // 时区：留空＝和你同一个时区；写了但不认识就当没写
@@ -39,10 +42,16 @@
     if (original) { backup(original, '编辑前').catch(() => {}); original = null; }
     saveTimer = setTimeout(() => {
       saveTimer = undefined;
-      const patch = { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst, timeZone: tzOk && timeZone.trim() ? timeZone.trim() : undefined };
+      const patch = { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst, timeZone: tzOk && timeZone.trim() ? timeZone.trim() : undefined, place: place ? $state.snapshot(place) : undefined };
       written = snapshotOf({ id, ...patch });
       repo.updateCharacter(id, patch);
     }, 400);
+  }
+  // 选了城市：时区跟着填；清掉就都跟你
+  function pickPlace(p: Place | null) {
+    place = p;
+    timeZone = p ? p.timeZone : '';
+    save();
   }
   async function startChat() {
     const ch = await db().characters.get(id);
@@ -92,8 +101,9 @@
   <List>
     <Field multiline rows={6} bind:value={full} placeholder="示例对话、细节背景" oninput={save} />
   </List>
-  <SectionTitle text="时间" />
-  <List footer={tzOk ? '默认他和你用同一个时间（你设备的时间）。他出远门、在另一个时区生活时才填，写法如 Asia/Tokyo、Europe/London，他会知道自己那边几点。这一局的剧情时间从哪天开始、要不要停表，在他的主页上改。' : '不认识这个时区，先按和你同一个时间算。写法如 Asia/Tokyo、America/New_York。'}>
+  <SectionTitle text="他在哪" />
+  <List footer={tzOk ? '默认他和你在同一个地方：同一个时间、同一片天气。他出远门、在另一座城市生活时才选，时区会跟着城市自动填，他会知道自己那边几点、什么天气。这一局的剧情时间从哪天开始、要不要停表，在他的主页上改。' : '不认识这个时区，先按和你同一个时间算。写法如 Asia/Tokyo、America/New_York。'}>
+    <Cell title="他在哪座城市" value={place?.name ?? '和你一样'} chevron onclick={() => (pickingPlace = true)} />
     <Field label="他所在的时区" bind:value={timeZone} placeholder="留空＝和你一样" oninput={save} />
   </List>
   <SectionTitle text="人物背景" />
@@ -118,6 +128,8 @@
   </div>
 {/if}
 <div style="height:40px"></div>
+
+<PlacePicker bind:open={pickingPlace} title="他在哪座城市" allowClear onpick={pickPlace} onclose={() => (pickingPlace = false)} />
 
 <Sheet bind:open={confirmDelete} title="删除角色？">
   <p class="warn">会一起删掉和这个角色的全部对话和记忆，不能恢复。</p>

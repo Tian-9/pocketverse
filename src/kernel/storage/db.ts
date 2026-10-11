@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { PluginManifest } from '../api/types';
+import type { PluginManifest, Place } from '../api/types';
 
 /** 内核表。字段定义见 docs/ARCHITECTURE.md 第 4 节。 */
 export interface World { id: string; name: string; summary: string; createdAt: number; updatedAt: number }
@@ -25,6 +25,8 @@ export interface Character {
   useFirstMessage?: boolean;
   /** 他所在的时区（IANA 名，如 Asia/Tokyo）。留空＝和你同一个时区；出远门才填，提示词里会多给一个"他那边的时间" */
   timeZone?: string;
+  /** 他在哪座城市。留空＝和你在同一个地方（天气、时区都跟你）；选了城市 timeZone 跟着填。见 data/place.ts */
+  place?: Place;
   voice?: Record<string, unknown>;
 }
 export interface CampaignState {

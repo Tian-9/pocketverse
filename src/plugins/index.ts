@@ -11,6 +11,7 @@ import redpacket from './redpacket';
 import forum from './forum';
 import shop from './shop';
 import calendar from './calendar';
+import weather from './weather';
 
 /** 内置插件清单。顺序决定桌面图标顺序。 */
-export const builtinPlugins: PluginManifest[] = [chat, characters, lore, style, settings, moments, diary, music, redpacket, forum, shop, calendar];
+export const builtinPlugins: PluginManifest[] = [chat, characters, lore, style, settings, moments, diary, music, redpacket, forum, shop, calendar, weather];

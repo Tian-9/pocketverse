@@ -4,6 +4,7 @@ import { repo } from './repo';
 import { loreApplies } from './lore';
 import { loreDirectory } from '../context/assemble';
 import { clock } from '../context/clock';
+import { places } from './place';
 import type { DataView, CampaignView, CharacterView } from '../api/types';
 
 async function toView(c: Campaign): Promise<CampaignView | undefined> {
@@ -16,7 +17,7 @@ async function toView(c: Campaign): Promise<CampaignView | undefined> {
   };
 }
 
-const charView = (c: Character): CharacterView => ({ id: c.id, name: c.name, avatar: c.avatar, core: c.core, ...(c.timeZone ? { timeZone: c.timeZone } : {}) });
+const charView = (c: Character): CharacterView => ({ id: c.id, name: c.name, avatar: c.avatar, core: c.core, ...(c.timeZone ? { timeZone: c.timeZone } : {}), ...(c.place ? { place: { ...c.place } } : {}) });
 
 /** PluginContext.data 的实现：插件读内核数据的唯一入口，只读。 */
 export const dataView: DataView = {
@@ -55,4 +56,5 @@ export const dataView: DataView = {
     ]);
     return loreDirectory(lore, overlays);
   },
+  userPlace: () => places.user(),
 };
