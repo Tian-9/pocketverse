@@ -38,15 +38,16 @@ describe('gateway model roles', () => {
     ]);
   });
 
-  it('adds thinking room on top of the caller\'s text budget, scaled by effort', async () => {
-    kv.set('kernel.llm', { apiKey: 'k', efforts: { chat: 'high', consolidate: 'low', bulk: 'low' } });
+  it('max_tokens = max(caller budget, 4096) + thinking room by effort, clamped to the model limit when known', async () => {
+    kv.set('kernel.llm', { apiKey: 'k', models: { chat: 'big', consolidate: 'small', bulk: 'mid' }, efforts: { chat: 'high', consolidate: 'low', bulk: 'low' } });
+    kv.set('kernel.llm.models', { at: 1, models: [{ id: 'big', label: 'Big', maxTokens: 10000 }, { id: 'mid', label: 'Mid' }] });
     const { llm } = await import('./gateway.svelte');
     await llm.boot();
     await llm.chat({ ...base, purpose: 'plugin:diary', maxTokens: 600 });
     await llm.chat({ ...base, purpose: 'plugin:shop', role: 'bulk', maxTokens: 6000 });
     await llm.chat({ ...base, purpose: 'chat' });
     await llm.chat({ ...base, purpose: 'chat', effort: 'max', maxTokens: 100 });
-    expect(seen.map((r) => (r as { maxTokens: number }).maxTokens)).toEqual([600 + 4096, 6000 + 1024, 4096 + 4096, 100 + 16384]);
+    expect(seen.map((r) => (r as { maxTokens: number }).maxTokens)).toEqual([4096 + 4096, 6000 + 1024, 4096 + 4096, 10000]);
   });
 
   it('migrates the old single model/effort into the chat tier and drops the old keys on save', async () => {

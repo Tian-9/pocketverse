@@ -54,4 +54,4 @@ export function normalizeRoles(raw: { models?: Partial<Record<ModelRole, string>
 }
 
 /** 从 API 拉到的模型（没有价格），或内置兜底表里的一项。 */
-export interface ModelInfo { id: string; label: string; createdAt?: string }
+export interface ModelInfo { id: string; label: string; createdAt?: string; /** 该模型 max_tokens 的上限，API 列表给的；内置表没有 */ maxTokens?: number }

@@ -53,8 +53,20 @@ class Gateway {
     void _m; void _e;
     this.settings = { ...DEFAULTS, ...rest, ...normalizeRoles(raw) };
     const cached = await db().getKV<{ at: number; models: ModelInfo[] } | null>('kernel.llm.models', null);
-    if (cached?.models?.length) { this.models = cached.models; this.modelsFetchedAt = cached.at; }
+    this.models = cached?.models?.length ? cached.models : MODELS;
+    this.modelsFetchedAt = cached?.models?.length ? cached.at : 0;
     await this.refreshStats();
+  }
+
+  /**
+   * max_tokens 只是上限不是花费，留小了只会截断。所以：正文预算取调用方给的和设置里的（默认 4096）之中大的，
+   * 思考另加一截（按思考深度），再按 API 列表里该模型的上限夹住，免得超了被拒。
+   */
+  cap(model: string, textBudget: number | undefined, effort: Effort): number {
+    const text = Math.max(textBudget ?? 0, this.settings.maxTokens);
+    const want = text + thinkingRoom(effort);
+    const limit = this.models.find((m) => m.id === model)?.maxTokens;
+    return limit ? Math.min(want, limit) : want;
   }
 
   /** 某一档的模型 / 思考深度 */
@@ -100,15 +112,15 @@ class Gateway {
   async chat(req: Omit<ChatRequest, 'model' | 'maxTokens' | 'effort'> & Partial<Pick<ChatRequest, 'model' | 'maxTokens' | 'effort'>>, hooks?: StreamHooks): Promise<ChatResult> {
     const role = roleOf(req.purpose, req.role);
     const effort = req.effort ?? this.effortFor(role);
+    const model = req.model ?? this.modelFor(role);
     const full: ChatRequest = {
       showThinking: req.purpose === 'chat' ? !!this.settings.showThinking : false,
       web: req.purpose === 'chat' && !!this.settings.web && this.settings.tools !== false,
       ...req,
       role,
-      model: req.model ?? this.modelFor(role),
+      model,
       effort,
-      // 调用方的 maxTokens 是正文预算，思考另算，不然思考深度一高正文就被截
-      maxTokens: (req.maxTokens ?? this.settings.maxTokens) + thinkingRoom(effort),
+      maxTokens: this.cap(model, req.maxTokens, effort),
     };
     if (this.settings.preview) {
       log.info('llm', `预览：${full.purpose} 请求等你确认（${full.model}）`, { conversationId: full.conversationId });

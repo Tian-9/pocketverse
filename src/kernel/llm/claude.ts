@@ -29,7 +29,7 @@ export class ClaudeProvider implements LlmProvider {
     const out: ModelInfo[] = [];
     for await (const m of this.client.models.list({ limit: 100 })) {
       if (m.lifecycle === 'retired') continue;
-      out.push({ id: m.id, label: m.display_name, createdAt: m.created_at });
+      out.push({ id: m.id, label: m.display_name, createdAt: m.created_at, ...(m.max_tokens ? { maxTokens: m.max_tokens } : {}) });
     }
     return out.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   }
