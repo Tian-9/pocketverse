@@ -40,6 +40,7 @@ export const CROWD_SYSTEM = `你在模拟一个本地论坛上的一群路人网
 - 像真实论坛：标题短，正文口语、一两段，有的在问、有的在吐槽、有的在传小道消息，立场各异，会跑题、会抬杠，偶尔有人说错。
 - 每个发帖人、回帖人用不同的网名，网名要符合这个世界的气质，不要带编号。
 - 可以聊世界设定里的东西，也可以聊柴米油盐。最近发生的事可以作为传闻出现，但路人不知道内情，只能猜。
+- 话题要散开：一批新帖里最多一两个和「最近发生的事」沾边，其余聊设定里别的地方、物件、行当和日常琐事。已经有人发过的事别再发一遍，换个角度也不行。
 - 不要出现「用户」「角色」「AI」「模型」这些词，不要解释，不要加表情符号堆砌。
 - 严格按给定的 JSON 结构输出。`;
 
@@ -51,7 +52,7 @@ export function crowdUser(m: CrowdMaterial): string {
   ];
   if (m.loreDirectory) parts.push(`# 设定目录（可聊可不聊）\n${m.loreDirectory}`);
   parts.push(`# 现在\n时间：${m.time}${m.location ? '\n大家主要在聊的地方：' + m.location : ''}\n最近发生的事（路人只知道个大概）：\n${list(m.happenings, '（没什么大事）')}`);
-  if (m.newPosts > 0) parts.push(`# 新帖\n写 ${m.newPosts} 个新帖，每个带 2 到 4 条回复。这些标题已经有了，别重复：\n${list(m.recentTitles, '（无）')}`);
+  if (m.newPosts > 0) parts.push(`# 新帖\n写 ${m.newPosts} 个新帖，每个带 2 到 4 条回复。下面这些帖子论坛上已经有了，标题和事情都别重复，另找话题：\n${list(m.recentTitles, '（无）')}`);
   if (m.waiting.length) {
     const lines = m.waiting.map((w) => `${w.n}. 《${w.title}》\n   正文：${w.body}\n   已有回复：${w.replies.length ? w.replies.map((r) => `${r.name}「${r.body}」`).join('；') : '（还没有）'}`);
     parts.push(`# 等人接话的帖子\n网名「${m.nickname}」是个普通网友，和别人一样对待。下面这些帖子最后一条是他发的或他回的，给每个写 1 到 3 条路人回复，接着话茬：\n${lines.join('\n')}`);

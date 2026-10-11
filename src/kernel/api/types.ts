@@ -109,6 +109,8 @@ export interface OutgoingMessage {
   cards?: { tag: string; body: string; attrs?: Record<string, string>; alt?: string }[];
   /** 只显示卡片，不显示 text 气泡 */
   cardOnly?: boolean;
+  /** 用户随卡片说的一句（像微信转发时的留言）：界面上卡片下面单独一个气泡，模型在 text 后面看到「并说：「…」」。由内核统一处理，面板组件只管收集 */
+  note?: string;
 }
 
 export interface ComposerActionProps {

@@ -193,10 +193,21 @@ export function quoteOf(m: Message): MessageQuote | undefined {
   return q && q.text ? q : undefined;
 }
 
-/** 聊天列表里的一行预览：有卡片 alt 用 alt，否则用正文 */
+/** 用户随卡片说的那句（meta.note），「+」面板发东西时附的；界面上是卡片下面的气泡 */
+export function noteOf(m: Message): string | undefined {
+  const n = m.meta?.note;
+  return typeof n === 'string' && n.trim() ? n : undefined;
+}
+/** 给模型的 text 后面接上那句话：所有「+」面板发的东西都走这一处，格式才一致 */
+export function withNote(text: string, note: string | undefined): string {
+  const n = note?.trim();
+  return n ? `${text}\n并说：「${n}」` : text;
+}
+
+/** 聊天列表里的一行预览：有卡片 alt 用 alt，否则用正文；随卡片说的那句跟在后面 */
 export function previewOf(m: Message): string {
   const alts = cardsOf(m).map((c) => c.alt?.trim()).filter((s): s is string => !!s);
   const text = textOf(m).trim();
-  if (m.meta?.cardOnly) return alts.join(' ') || text;
+  if (m.meta?.cardOnly) return [alts.join(' ') || text, noteOf(m)].filter(Boolean).join(' ');
   return text || alts.join(' ');
 }

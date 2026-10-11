@@ -29,7 +29,8 @@
   async function show() {
     const p = picked; if (!p) return;
     await shopApi.products().update(p.id, { keep: true } as Partial<Product>);
-    onsend({ text: `[分享了一件商品给你看]\n${forModel(p)}`, cards: [{ tag: 'share', body: JSON.stringify(buildCard(p)), alt: `[商品] ${p.name}` }], cardOnly: true });
+    // 只发给他看：留言不上卡片，走内核的 note（卡片下面一个气泡，模型看到「并说：…」）
+    onsend({ text: `[分享了一件商品给你看]\n${forModel(p)}`, cards: [{ tag: 'share', body: JSON.stringify(buildCard(p)), alt: `[商品] ${p.name}` }], cardOnly: true, note: note.trim().slice(0, 60) || undefined });
   }
   async function gift() {
     const p = picked; if (!p || busy) return;
@@ -67,7 +68,7 @@
 {:else}
   <div class="preview"><ShareCardView body={JSON.stringify(buildCard(picked, { gift: true, note: note.trim() || undefined }))} /></div>
   <List footer={wallet ? `买下送他要 ${yuan(picked.price)}${balance === null ? '' : '，你这局有 ' + yuan(balance)}。` : '钱包插件没开，只能发给他看。'}>
-    <Field label="留言" bind:value={note} placeholder="送礼附一句，可不填" />
+    <Field label="留言" bind:value={note} placeholder="附一句给他，可不填" />
   </List>
   <div class="actions">
     <Button onclick={gift} disabled={busy || !wallet || (balance !== null && balance < picked.price)}>{busy ? '付款中…' : '买下送给他'}</Button>

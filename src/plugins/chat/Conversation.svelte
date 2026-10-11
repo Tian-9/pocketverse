@@ -3,7 +3,7 @@
   import { live } from '$kernel/storage/live.svelte';
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
-  import { repo, textOf, cardsOf, quoteOf, type MessageQuote } from '$kernel/data/repo';
+  import { repo, textOf, cardsOf, quoteOf, noteOf, withNote, type MessageQuote } from '$kernel/data/repo';
   import { chat } from '$kernel/chat/engine.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
@@ -46,7 +46,10 @@
     const meta: Record<string, unknown> = {};
     if (msg.cards?.length) meta.cards = msg.cards.map((c): MessageCard => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {}, ...(c.alt ? { alt: c.alt } : {}) }));
     if (msg.cardOnly) meta.cardOnly = true;
-    await chat.send(id, msg.text, Object.keys(meta).length ? { meta } : {});
+    // 随卡片说的一句：单独存着给界面当气泡，模型看到的 text 后面接一行
+    const note = msg.note?.trim();
+    if (note) meta.note = note;
+    await chat.send(id, withNote(msg.text, note), Object.keys(meta).length ? { meta } : {});
   }
   const wechat = $derived(theme.chatStyle === 'wechat');
   // 推进时间：快捷项按这局的钟算，也能自己选一个时刻
@@ -189,6 +192,7 @@
               {@const Card = cardComponent(c)}
               {#if Card}<Card body={c.body} attrs={c.attrs} />{/if}
             {/each}
+            {#if noteOf(m)}<div class="bubble">{noteOf(m)}</div>{/if}
             {#if caption(m)}<div class="caption">{caption(m)}</div>{/if}
             {#if m.meta?.thinking}
               <button class="think-toggle" onclick={() => (openThinking[m.id] = !openThinking[m.id])}>{openThinking[m.id] ? '收起' : '他在想什么 ›'}</button>

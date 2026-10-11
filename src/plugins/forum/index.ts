@@ -41,6 +41,8 @@ const NEW_POSTS = 5;
 const DEFAULT_NICKNAME = '路过的人';
 
 const refreshing = new Set<string>();
+/** 比标题用：去掉书名号、引号和空白，不分大小写 */
+const normTitle = (s: string) => s.replace(/[《》「」""''\s]/g, '').toLowerCase();
 
 export const forumApi = {
   ctx: () => ctx,
@@ -117,22 +119,34 @@ export const forumApi = {
       }
       const newPosts = opts.threadId ? 0 : NEW_POSTS;
       if (!newPosts && !waiting.length) return { posts: 0, replies: 0 };
-      const { text } = await ctx.llm.chat({
-        system: CROWD_SYSTEM,
-        user: crowdUser({
-          worldName: world?.name ?? cp.worldName, worldSummary: world?.summary ?? '', loreDirectory: dir.slice(0, 3000),
-          time: clock.format(cp.now), location: cp.state.location,
-          happenings: [...cp.state.facts, ...mems.map((m) => m.text)].slice(0, 10),
-          recentTitles: all.slice(0, 12).map((t) => t.title), newPosts, waiting, nickname,
-        }),
-        cheap: true, effort: 'low', maxTokens: 2500, jsonSchema: crowdSchema(newPosts > 0, waiting.length > 0),
-      });
+      // 先把 refreshedAt 占上再去调模型：另一个页签（或等模型这几十秒里又打开一次论坛）就不会再刷一批一样的；没刷成再还回去
+      const now = Date.now();
+      const claimed = await this.refreshedAt(campaignId);
+      if (!opts.threadId) await ctx.settings.set(`refreshedAt.${campaignId}`, now);
+      let text: string;
+      try {
+        ({ text } = await ctx.llm.chat({
+          system: CROWD_SYSTEM,
+          user: crowdUser({
+            worldName: world?.name ?? cp.worldName, worldSummary: world?.summary ?? '', loreDirectory: dir.slice(0, 3000),
+            time: clock.format(cp.now), location: cp.state.location,
+            happenings: [...cp.state.facts, ...mems.map((m) => m.text)].slice(0, 10),
+            recentTitles: all.slice(0, 20).map((t) => t.title), newPosts, waiting, nickname,
+          }),
+          cheap: true, effort: 'low', maxTokens: 2500, jsonSchema: crowdSchema(newPosts > 0, waiting.length > 0),
+        }));
+      } catch (e) {
+        if (!opts.threadId) await ctx.settings.set(`refreshedAt.${campaignId}`, claimed);
+        throw e;
+      }
       const out = parseCrowd(text);
+      // 模型偶尔不听话，把已有的帖子又发一遍：标题撞上的丢掉（同一批里重复的也丢）
+      const seen = new Set((await this.threads().where('campaignId').equals(campaignId).toArray()).map((t) => normTitle(t.title)));
+      const fresh = out.posts.filter((p) => { const k = normTitle(p.title); if (seen.has(k)) return false; seen.add(k); return true; });
       let replies = 0;
       // 新帖的回复时间往前错开一点，列表里看着像陆续发的
-      const now = Date.now();
-      for (const [i, p] of out.posts.entries()) {
-        const at = now - (out.posts.length - i) * 7 * 60_000;
+      for (const [i, p] of fresh.entries()) {
+        const at = now - (fresh.length - i) * 7 * 60_000;
         const t = await this.post(campaignId, { kind: 'npc', name: p.name }, p.title, p.body, 'crowd', { tag: p.tag, createdAt: at, lastReplyAt: at });
         let cur = t;
         for (const [j, r] of p.replies.entries()) {
@@ -151,11 +165,8 @@ export const forumApi = {
       }
       // 没人接话的也别一直挂着，下次刷新再说
       for (const t of waitingThreads) if (!out.replies.some((r) => r.n === waitingThreads.indexOf(t) + 1)) await this.threads().update(t.id, { awaitingCrowd: false });
-      if (!opts.threadId) {
-        await ctx.settings.set(`refreshedAt.${campaignId}`, now);
-        await this.prune(campaignId);
-      }
-      return { posts: out.posts.length, replies };
+      if (!opts.threadId) await this.prune(campaignId);
+      return { posts: fresh.length, replies };
     } finally { refreshing.delete(campaignId); }
   },
 

@@ -69,3 +69,21 @@ describe('repo (story clock)', () => {
     await repo.deleteCharacter(c.id);
   });
 });
+
+describe('repo (note on a card message)', () => {
+  it('withNote appends the user line once; noteOf / previewOf / modelTextOf carry it', async () => {
+    const { withNote, noteOf, previewOf, modelTextOf } = await import('./repo');
+    expect(withNote('[分享了一件商品给你看]\n《吉他入门教程DVD》', '  你要不要学这个  ')).toBe('[分享了一件商品给你看]\n《吉他入门教程DVD》\n并说：「你要不要学这个」');
+    expect(withNote('x', '')).toBe('x');
+    expect(withNote('x', undefined)).toBe('x');
+    const m = {
+      id: 'm', conversationId: 'c', role: 'user' as const, ts: 1,
+      content: [{ type: 'text', text: withNote('[分享了一件商品给你看]\n《吉他入门教程DVD》', '你要不要学这个') }],
+      meta: { cardOnly: true, note: '你要不要学这个', cards: [{ pluginId: 'shop', tag: 'share', body: '{}', attrs: {}, alt: '[商品] 吉他入门教程DVD' }] },
+    };
+    expect(noteOf(m)).toBe('你要不要学这个');
+    expect(previewOf(m)).toBe('[商品] 吉他入门教程DVD 你要不要学这个');
+    expect(modelTextOf(m)).toContain('并说：「你要不要学这个」');
+    expect(noteOf({ ...m, meta: { cardOnly: true } })).toBeUndefined();
+  });
+});

@@ -11,6 +11,8 @@ const campaign: CampaignView = {
 };
 let answer = '';
 let lastUser = '';
+/** 模型调用中途要做的事（测占位、测失败） */
+let onChat: (() => Promise<void>) | null = null;
 const kv = new Map<string, unknown>();
 
 beforeAll(async () => {
@@ -20,7 +22,7 @@ beforeAll(async () => {
     emit() {}, navigate() {}, back() {}, notify() {},
     settings: { async get(k: string, f: unknown) { return kv.has(k) ? kv.get(k) : f; }, async set(k: string, v: unknown) { kv.set(k, v); } },
     table: (name: string) => db().table(pluginTable('forum', name)),
-    llm: { configured: true, async chat(req: { user: string }) { lastUser = req.user; return { text: answer }; } },
+    llm: { configured: true, async chat(req: { user: string }) { lastUser = req.user; if (onChat) await onChat(); return { text: answer }; } },
     data: {
       async currentCampaigns() { return [campaign]; },
       async campaign(id: string) { return id === campaign.id ? campaign : undefined; },
@@ -70,6 +72,38 @@ describe('forum refresh', () => {
     expect(lastUser).not.toContain('# 新帖');
     expect(lastUser).toContain('问个路');
     expect(await forumApi.refreshedAt('cp1')).toBe(0);
+  });
+
+  it('claims refreshedAt before calling the model, so a second opening does not refresh again; gives it back when the call fails', async () => {
+    kv.delete('refreshedAt.cp1');
+    expect(await forumApi.refreshDue('cp1')).toBe(true);
+    let dueDuringCall: boolean | null = null;
+    onChat = async () => { dueDuringCall = await forumApi.refreshDue('cp1'); };
+    answer = JSON.stringify({ posts: [{ name: '更夫', title: '夜里谁在敲锣', body: '吵死了', tag: '吐槽', replies: [] }] });
+    expect(await forumApi.refresh('cp1')).toEqual({ posts: 1, replies: 0 });
+    expect(dueDuringCall).toBe(false);
+
+    kv.set('refreshedAt.cp1', 123);
+    onChat = async () => { throw new Error('断网了'); };
+    await expect(forumApi.refresh('cp1')).rejects.toThrow('断网了');
+    expect(await forumApi.refreshedAt('cp1')).toBe(123);
+    onChat = null;
+  });
+
+  it('drops posts whose title the forum already has, and duplicates inside one batch', async () => {
+    kv.delete('refreshedAt.cp1');
+    const before = await forumApi.threads().where('campaignId').equals('cp1').count();
+    answer = JSON.stringify({ posts: [
+      { name: '甲', title: '《面包又涨价了》', body: '又来', tag: '吐槽', replies: [] },
+      { name: '乙', title: '井水变咸了', body: '谁知道', tag: '求助', replies: [{ name: '丙', body: '我家也是' }] },
+      { name: '丁', title: '井水变咸了', body: '再问一遍', tag: '求助', replies: [] },
+    ] });
+    expect(await forumApi.refresh('cp1')).toEqual({ posts: 1, replies: 0 });
+    const after = await forumApi.threads().where('campaignId').equals('cp1').toArray();
+    expect(after.length - before).toBe(1);
+    expect(after.filter((t) => t.title === '井水变咸了')).toHaveLength(1);
+    expect(after.filter((t) => t.title.includes('面包又涨价了'))).toHaveLength(1);
+    expect(lastUser).toContain('标题和事情都别重复');
   });
 
   it('a reply on his thread is flagged for him; user reply re-opens awaiting', async () => {

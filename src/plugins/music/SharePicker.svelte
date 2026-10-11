@@ -9,6 +9,7 @@
   let busy = $state(false);
   let card = $state<ShareCard | null>(null);
   let note = $state('');
+  let say = $state('');
   async function find() {
     if (!title.trim() || busy) return;
     busy = true; card = null; note = '';
@@ -22,7 +23,7 @@
     if (!card) return;
     const head = card.extra?.lyricsHead as string | undefined;
     const text = `[分享了一首歌：《${card.title}》${card.subtitle ? ' - ' + card.subtitle : ''}]${head ? '\n歌词开头：\n' + head : ''}`;
-    onsend({ text, cards: [{ tag: 'share', body: JSON.stringify(card), alt: `[歌曲] ${card.title}${card.subtitle ? ' - ' + card.subtitle : ''}` }], cardOnly: true });
+    onsend({ text, cards: [{ tag: 'share', body: JSON.stringify(card), alt: `[歌曲] ${card.title}${card.subtitle ? ' - ' + card.subtitle : ''}` }], cardOnly: true, note: say.trim().slice(0, 60) || undefined });
   }
 </script>
 
@@ -34,6 +35,7 @@
 </div>
 {#if card}
   <div class="preview"><ShareCardView body={JSON.stringify(card)} /></div>
+  <List><Field label="留言" bind:value={say} placeholder="附一句给他，可不填" /></List>
 {/if}
 {#if note}<p class="note">{note}</p>{/if}
 <div class="actions">
