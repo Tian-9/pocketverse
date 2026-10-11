@@ -133,3 +133,15 @@ describe('card alt in history', () => {
     expect(texts[4]).toContain('（引用自己之前的话「知道了」）\n没事');
   });
 });
+
+describe('assemble (story clock)', () => {
+  it('keeps time out of the state block and flags story time only in the tail line', () => {
+    const r = assemble({ ...base, history: [], userText: '嗨', story: true });
+    expect(r.system.find((b) => b.text.startsWith('# 当前状态'))!.text).not.toContain('剧情时间');
+    const last = r.messages.at(-1)!;
+    const text = last.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toContain('（剧情时间）');
+    const real = assemble({ ...base, history: [], userText: '嗨' });
+    expect(real.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n')).not.toContain('剧情时间');
+  });
+});

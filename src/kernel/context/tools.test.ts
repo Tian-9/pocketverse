@@ -69,3 +69,23 @@ describe('wake_later tool', () => {
     expect(catchup.armWake).toHaveBeenCalled();
   });
 });
+
+describe('state_update tool', () => {
+  it('moves the campaign clock forward by advance minutes, capped at a day, never backwards', async () => {
+    const { clock, MAX_ADVANCE_MINUTES } = await import('./clock');
+    const t = kernelTools.find((x) => x.spec.name === 'state_update')!;
+    await db().campaigns.put({ id: 'cp-adv', worldId: 'w', characterIds: ['c1'], name: 'x', createdAt: 0, lastPlayedAt: 0, state: { relations: {}, mood: {}, facts: [] } });
+    const campaign = (await db().campaigns.get('cp-adv'))!;
+    const ctx = { campaign, characters: [{ id: 'c1', name: '阿一' }] as any, lore: [], overlays: [], cards: [] as any[], attached: [] as any[] };
+    const before = Date.now();
+    expect(await t.handler({ mood: '困', advance: 90 }, ctx as any)).toContain('时间来到');
+    const c1 = (await db().campaigns.get('cp-adv'))!;
+    expect(c1.state.mood.c1).toBe('困');
+    expect(clock.now(c1.clock) - Date.now()).toBeGreaterThan(89 * 60_000 - (Date.now() - before));
+    expect(await t.handler({ advance: -500 }, ctx as any)).toBe('已更新状态。');
+    expect((await db().campaigns.get('cp-adv'))!.clock).toEqual(c1.clock);
+    await t.handler({ advance: 10 * MAX_ADVANCE_MINUTES }, ctx as any);
+    const c2 = (await db().campaigns.get('cp-adv'))!;
+    expect(clock.now(c2.clock) - clock.now(c1.clock)).toBeLessThanOrEqual(MAX_ADVANCE_MINUTES * 60_000 + 1000);
+  });
+});

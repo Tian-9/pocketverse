@@ -23,6 +23,9 @@ export function definePlugin(manifest: PluginManifest): PluginManifest {
   return manifest;
 }
 
+/** 存档时钟的纯函数（format / dateKey / now…）。插件拿到 ctx.data 或 PromptContext 里的 now 后用它格式化 */
+export { clock } from '../context/clock';
+
 /** 响应式查询：把 Dexie liveQuery 变成 Svelte 值。见 storage/live.svelte.ts 的注意事项 */
 export { live } from '../storage/live.svelte';
 

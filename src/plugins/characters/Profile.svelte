@@ -3,7 +3,7 @@
    * 角色主页：这一局里的他。身份（名字、头像）只读角色卡；状态、钱包、朋友圈、记忆都按存档。
    * 插件通过 profileSections 往这里挂段，主页本身不认识段的内容。
    */
-  import { NavBar, List, Cell, Field, SectionTitle, Placeholder, Button, Sheet, Avatar, icons } from '$kernel/api';
+  import { NavBar, List, Cell, Field, SectionTitle, Placeholder, Button, Sheet, Avatar, Toggle, icons } from '$kernel/api';
   import type { ProfileSection } from '$kernel/api';
   import type { EpisodicMemory, MemFile, CampaignState, Campaign, World } from '$kernel/storage/db';
   import { registry } from '$kernel/registry/registry.svelte';
@@ -13,6 +13,7 @@
   import { chat } from '$kernel/chat/engine.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
   import { bus } from '$kernel/bus/bus';
+  import { clock } from '$kernel/context/clock';
   import { ulid } from 'ulid';
 
   let { id }: { id: string } = $props();
@@ -26,12 +27,36 @@
   const worlds = live(() => db().worlds.orderBy('createdAt').toArray(), [] as World[]);
   let savesOpen = $state(false);
   let pickWorld = $state(false);
+  // 新开一局从哪天开始：默认今天；选了别的日子就从那天的这个钟点开始（走表）
+  let startDate = $state('');
   async function switchTo(cpId: string) { await repo.setCurrentCampaign(id, cpId); campaignId = cpId; savesOpen = false; }
   async function startIn(worldId: string) {
     const ch = character.value; if (!ch) return;
-    const c = await repo.newCampaign(ch, worldId);
-    campaignId = c.id; pickWorld = false; savesOpen = false;
+    const c = await repo.newCampaign(ch, worldId, startTsOf(startDate));
+    campaignId = c.id; pickWorld = false; savesOpen = false; startDate = '';
   }
+  function startTsOf(date: string): number | undefined {
+    const day = clock.fromInput(date);
+    if (day === null) return undefined;
+    const d = new Date(day), n = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), n.getHours(), n.getMinutes()).getTime();
+  }
+
+  // ---- 编辑：这一局的时钟 ----
+  let editingClock = $state(false);
+  let clockAt = $state(''), clockPaused = $state(false);
+  function openClock() {
+    const cp = campaign.value; if (!cp) return;
+    clockAt = clock.toInput(clock.now(cp.clock)); clockPaused = cp.clock?.running === false; editingClock = true;
+  }
+  async function saveClock() {
+    const cp = campaign.value; if (!cp) return;
+    const ts = clock.fromInput(clockAt);
+    if (ts === null) return;
+    await repo.setClock(cp.id, clock.setRunning(clock.skipTo(cp.clock, ts), !clockPaused));
+    editingClock = false;
+  }
+  const clockText = (cp: Campaign) => `${clock.format(clock.now(cp.clock), character.value?.timeZone)}${cp.clock?.running === false ? ' · 停表' : ''}`;
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
   type Section = ProfileSection & { pluginId: string };
   const sections = $derived<Section[]>(registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.profileSections ?? []).map((s) => ({ ...s, pluginId: p.id }))));
@@ -64,17 +89,17 @@
 
   // ---- 编辑：状态 ----
   let editingState = $state(false);
-  let st = $state({ inWorldTime: '', location: '', relation: '', mood: '', facts: '', me: '' });
+  let st = $state({ location: '', relation: '', mood: '', facts: '', me: '' });
   function openState() {
     const cp = campaign.value; const s = cp?.state; if (!cp || !s) return;
-    st = { inWorldTime: s.inWorldTime ?? '', location: s.location ?? '', relation: s.relations[id] ?? '', mood: s.mood[id] ?? '', facts: s.facts.join('\n'), me: cp.userPersona ?? '' };
+    st = { location: s.location ?? '', relation: s.relations[id] ?? '', mood: s.mood[id] ?? '', facts: s.facts.join('\n'), me: cp.userPersona ?? '' };
     editingState = true;
   }
   async function saveState() {
     const cp = campaign.value; if (!cp) return;
     const base = $state.snapshot(cp.state);
     const s: CampaignState = { ...base, relations: { ...base.relations }, mood: { ...base.mood } };
-    s.inWorldTime = st.inWorldTime.trim() || undefined; s.location = st.location.trim() || undefined;
+    s.location = st.location.trim() || undefined;
     if (st.relation.trim()) s.relations[id] = st.relation.trim(); else delete s.relations[id];
     if (st.mood.trim()) s.mood[id] = st.mood.trim(); else delete s.mood[id];
     s.facts = st.facts.split('\n').map((f) => f.trim()).filter(Boolean).slice(0, 20);
@@ -115,8 +140,10 @@
     <Cell title="地点" value={s.location || '—'} onclick={openState} />
     <Cell title="和你" subtitle={s.relations[id] || '—'} onclick={openState} />
     <Cell title="你在这局里" subtitle={cp.userPersona || '—'} onclick={openState} />
-    <Cell title="剧情时间" value={s.inWorldTime || '—'} onclick={openState} />
     {#each s.facts as f, i (i)}<Cell title={f} onclick={openState} />{/each}
+  </List>
+  <List footer={cp.clock?.running === false ? '停表：你不来他就定在这一刻，只有推进才动。' : cp.clock ? '这局的时间和真实时间一起走，只是不在同一天。' : '和真实时间一样。在聊天里「推进时间」可以往前跳，这里能改成任何时候或停表。'}>
+    <Cell title="这局的时间" value={clockText(cp)} onclick={openClock} />
   </List>
   {#each sections as sec (sec.pluginId + '/' + sec.id)}
     {@const Comp = sec.component}
@@ -175,13 +202,22 @@
   <div class="actions"><Button kind="tinted" onclick={() => (pickWorld = true)}>换个世界新开一局</Button></div>
 </Sheet>
 <Sheet bind:open={pickWorld} title="选一个世界">
+  <List footer="不改就从今天开始。他的故事发生在别的年代就改这里，之后时间照样一天一天过。">
+    <Field label="从哪天开始" type="date" bind:value={startDate} />
+  </List>
   <List footer="没有想要的世界，去「世界」App 建一个。">
     {#each worlds.value as w (w.id)}<Cell title={w.name} subtitle={w.summary || undefined} onclick={() => startIn(w.id)} />{/each}
   </List>
 </Sheet>
+<Sheet bind:open={editingClock} title="这局的时间">
+  <List footer="停表：他定在这一刻，离开多久都不会有变化，只有你推进才动。走表：和真实时间一起过。">
+    <Field label="现在是" type="datetime-local" bind:value={clockAt} />
+    <Cell title="停表" subtitle={clockPaused ? '现在：定住，只有推进才动' : '现在：和真实时间一起走'}>{#snippet right()}<Toggle bind:checked={clockPaused} label="停表" />{/snippet}</Cell>
+  </List>
+  <div class="actions"><Button onclick={saveClock}>保存</Button></div>
+</Sheet>
 <Sheet bind:open={editingState} title="当前状态">
   <List footer="事实一行一条，最多 20 条。">
-    <Field label="剧情时间" bind:value={st.inWorldTime} placeholder="可空" />
     <Field label="地点" bind:value={st.location} placeholder="可空" />
     <Field multiline rows={2} bind:value={st.mood} placeholder="状态：他现在的情绪，一句话" />
     <Field multiline rows={2} bind:value={st.relation} placeholder="和你：他和你现在的关系，一句话" />

@@ -6,6 +6,7 @@ import { search } from './search';
 import { runMemoryCommand, type MemCommand } from './memfs';
 import { bus } from '../bus/bus';
 import { expandMacros } from './macros';
+import { clock, MAX_ADVANCE_MINUTES } from './clock';
 import { chat } from '../chat/engine.svelte';
 import { registry } from '../registry/registry.svelte';
 import type { ShareCard, ShareResolver } from '../share/types';
@@ -91,9 +92,10 @@ export const kernelTools: KernelTool[] = [
     label: '记下变化',
     spec: {
       name: 'state_update',
-      description: '更新当前状态：剧情时间、地点、角色与用户的关系、角色情绪、当前事实。只在有明确变化时调用。facts 是替换而不是追加，传完整列表（最多 20 条）。',
+      description: '更新当前状态：地点、角色与用户的关系、角色情绪、当前事实，以及把剧情时间往前拨。只在有明确变化时调用。facts 是替换而不是追加，传完整列表（最多 20 条）。',
       inputSchema: { type: 'object', properties: {
-        inWorldTime: { type: 'string' }, location: { type: 'string' },
+        advance: { type: 'integer', minimum: 1, maximum: MAX_ADVANCE_MINUTES, description: '剧情时间往前拨多少分钟（最多一天）。只在对话里明确过了一段时间时用，比如说了「明早见」之后对方接着说；只能往前，大跳由对方推进' },
+        location: { type: 'string' },
         relation: { type: 'string', description: '你扮演的角色与用户现在的关系，一句话' },
         mood: { type: 'string', description: '你扮演的角色现在的情绪，一句话' },
         facts: { type: 'array', items: { type: 'string' }, maxItems: 20 },
@@ -102,15 +104,17 @@ export const kernelTools: KernelTool[] = [
     async handler(input, ctx) {
       const me = ctx.characters[0]?.id;
       const s = { ...ctx.campaign.state, relations: { ...ctx.campaign.state.relations }, mood: { ...ctx.campaign.state.mood } };
-      if (typeof input?.inWorldTime === 'string') s.inWorldTime = input.inWorldTime.slice(0, 80);
       if (typeof input?.location === 'string') s.location = input.location.slice(0, 80);
       if (me && typeof input?.relation === 'string') s.relations[me] = input.relation.slice(0, 120);
       if (me && typeof input?.mood === 'string') s.mood[me] = input.mood.slice(0, 120);
       if (Array.isArray(input?.facts)) s.facts = input.facts.filter((f: unknown) => typeof f === 'string').map((f: string) => f.slice(0, 160)).slice(0, 20);
-      await db().campaigns.update(ctx.campaign.id, { state: s });
+      const patch: Partial<Campaign> = { state: s };
+      const minutes = typeof input?.advance === 'number' ? Math.min(Math.max(0, Math.floor(input.advance)), MAX_ADVANCE_MINUTES) : 0;
+      if (minutes > 0) { patch.clock = clock.skipBy(ctx.campaign.clock, minutes * 60_000); ctx.campaign.clock = patch.clock; }
+      await db().campaigns.update(ctx.campaign.id, patch);
       ctx.campaign.state = s;
       bus.emit('memory.written', { kind: 'state', id: ctx.campaign.id });
-      return '已更新状态。';
+      return minutes > 0 ? `已更新状态，时间来到 ${clock.format(clock.now(patch.clock), ctx.characters[0]?.timeZone)}。` : '已更新状态。';
     },
   },
   {

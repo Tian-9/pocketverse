@@ -46,3 +46,26 @@ describe('repo', () => {
     await repo.deleteCharacter(c.id);
   });
 });
+
+describe('repo (story clock)', () => {
+  it('stamps every message with the campaign clock and starts a save on a chosen day', async () => {
+    const { clock } = await import('../context/clock');
+    const c = await repo.createCharacter({ name: '时钟', core: 'x', full: 'x' });
+    const w = await repo.createWorld('旧日', '');
+    const D = 86400_000;
+    const cp = await repo.newCampaign(c, w.id, Date.now() - 30 * D);
+    expect(cp.clock?.running).toBe(true);
+    expect(Math.abs(clock.now(cp.clock) - (Date.now() - 30 * D))).toBeLessThan(5000);
+    const conv = await repo.directConversation(c);
+    const m = await repo.addMessage(conv.id, 'user', '嗨');
+    expect(m.storyTs).toBeDefined();
+    expect(Math.abs(m.storyTs! - (m.ts - 30 * D))).toBeLessThan(5000);
+    // 起点就是现在：不设时钟，和真实时间一样
+    const cp2 = await repo.newCampaign(c, w.id, Date.now());
+    expect(cp2.clock).toBeUndefined();
+    const conv2 = await repo.directConversation(c);
+    const m2 = await repo.addMessage(conv2.id, 'user', '嗨');
+    expect(m2.storyTs).toBe(m2.ts);
+    await repo.deleteCharacter(c.id);
+  });
+});

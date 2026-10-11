@@ -84,6 +84,8 @@ export interface PromptContext {
   campaignId: string;
   conversationId: string;
   characterIds: string[];
+  /** 这一轮的剧情此刻（存档时钟，毫秒）。插件要「现在几点」用它，不要自己 Date.now() */
+  now: number;
   /**
    * 工具处理时可用：往这一轮回复里加一张卡片，由本插件 outputHandlers 里同名 tag 的组件渲染。
    * alt 是这张卡的一句话文字版（如「[发了一个红包：¥8.88「生日快乐」]」），进后续轮次的历史和聊天列表预览；不给的话模型下一轮就不记得发过。
@@ -267,8 +269,12 @@ export interface CampaignView {
   characterId: string;
   characterName: string;
   lastPlayedAt: number;
+  /** 剧情此刻（存档时钟，毫秒）；没设时钟的局就是真实的现在。格式化用 $kernel/api 的 clock */
+  now: number;
+  /** 这局的钟和真实时间是否对齐（走表、没跳过）。真实天气之类只在对齐时给 */
+  aligned: boolean;
   state: {
-    inWorldTime?: string; location?: string;
+    location?: string;
     relations: Record<string, string>; mood: Record<string, string>; facts: string[];
   };
 }

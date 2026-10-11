@@ -5,7 +5,7 @@ import plugin, { shopApi, KEEP_PRODUCTS, type Product, type ShopWallet } from '.
 
 const campaign: CampaignView = {
   id: 'cp1', name: '王都', worldId: 'w1', worldName: '王都', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1,
-  state: { inWorldTime: '春分', location: '东市', relations: {}, mood: {}, facts: ['城门塌了'] },
+  now: Date.UTC(2026, 2, 20, 4, 0), aligned: false, state: { location: '东市', relations: {}, mood: {}, facts: ['城门塌了'] },
 };
 let answer = '';
 let lastUser = '';
@@ -44,7 +44,7 @@ describe('shop stock and search', () => {
     answer = JSON.stringify({ items: [item('吃的', '黑麦面包', 3), item('穿的', '羊毛斗篷', 40), item('吃的', '蜂蜜酒', 8)] });
     const out = await shopApi.stock('cp1');
     expect(out).toHaveLength(3);
-    for (const s of ['王都：中世纪', '王宫：很大', '春分', '东市', '城门塌了', '国王病了', '上架']) expect(lastUser).toContain(s);
+    for (const s of ['王都：中世纪', '王宫：很大', '2026/3/20', '东市', '城门塌了', '国王病了', '上架']) expect(lastUser).toContain(s);
     expect(await shopApi.categories('cp1')).toEqual(['吃的', '穿的']);
     expect(await shopApi.stockedAt('cp1')).toBeGreaterThan(0);
     expect(await shopApi.stock('cp1')).toBeNull();

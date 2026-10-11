@@ -7,7 +7,7 @@ import { productResolver, buildCard, validQuote } from './share';
 
 const campaign: CampaignView = {
   id: 'cp1', name: '王都', worldId: 'w1', worldName: '王都', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1,
-  state: { inWorldTime: '春分', location: '东市', relations: {}, mood: {}, facts: [] },
+  now: Date.UTC(2026, 2, 20, 4, 0), aligned: false, state: { location: '东市', relations: {}, mood: {}, facts: [] },
 };
 const balances: Record<string, number> = { user: 100, ch1: 50 };
 const wallet: ShopWallet = {
@@ -17,7 +17,7 @@ const wallet: ShopWallet = {
 const kv = new Map<string, unknown>();
 let answer = '';
 const notices: string[] = [];
-const pc = (addCard?: PromptContext['addCard']): PromptContext => ({ campaignId: 'cp1', conversationId: 'cv1', characterIds: ['ch1'], addCard });
+const pc = (addCard?: PromptContext['addCard']): PromptContext => ({ campaignId: 'cp1', conversationId: 'cv1', characterIds: ['ch1'], now: Date.now(), addCard });
 const tool = (name: string) => tools.find((t) => t.name === name)!;
 const cc: CatchupContext = { campaignId: 'cp1', characterId: 'ch1', characterName: '阿一', elapsedMs: 7 * 3600_000, days: 0, tier: 'h6', elapsedText: '大约 7 小时' };
 

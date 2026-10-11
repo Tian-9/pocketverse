@@ -20,7 +20,7 @@
     const v = picked, c = character.value;
     if (!v || !c) return;
     await backup(c, '恢复前');
-    await repo.updateCharacter(id, { ...v.data, firstMessage: v.data.firstMessage, useFirstMessage: !!v.data.useFirstMessage, timeMode: v.data.timeMode ?? 'real', timeZone: v.data.timeZone });
+    await repo.updateCharacter(id, { ...v.data, firstMessage: v.data.firstMessage, useFirstMessage: !!v.data.useFirstMessage, timeZone: v.data.timeZone });
     picked = null;
     bus.emit('notify', { title: `已恢复到 ${fmt(v.createdAt)} 的版本` });
     await nav.pop();
@@ -45,7 +45,7 @@
   {#if picked}
     <List>
       <Cell title="名字" value={picked.data.name} />
-      <Cell title="时间" value={`${picked.data.timeMode === 'story' ? '剧情时间' : '真实时间'}${picked.data.timeZone ? ' · ' + picked.data.timeZone : ''}`} />
+      <Cell title="他所在的时区" value={picked.data.timeZone || '和你一样'} />
     </List>
     <SectionTitle text="核心设定" />
     <div class="box">{picked.data.core || '（空）'}</div>

@@ -16,7 +16,6 @@
   const loreCount = live(() => db().lore.filter((e) => e.kind !== 'style' && e.scope !== 'world' && !!e.characterIds?.includes(id)).count(), 0);
   let name = $state(''), core = $state(''), full = $state(''), firstMessage = $state('');
   let useFirst = $state(false);
-  let storyTime = $state(false);
   let timeZone = $state('');
   let loaded = $state(false);
   let confirmDelete = $state(false);
@@ -30,7 +29,7 @@
     const v = c.value;
     if (!v) return;
     if (loaded && (saveTimer !== undefined || (written && sameData(written, snapshotOf(v))))) return;
-    name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; storyTime = v.timeMode === 'story'; timeZone = v.timeZone ?? '';
+    name = v.name; core = v.core; full = v.full; firstMessage = v.firstMessage ?? ''; useFirst = !!v.useFirstMessage; timeZone = v.timeZone ?? '';
     loaded = true; original = $state.snapshot(v) as Character; written = snapshotOf(v);
   });
   // 时区：留空＝和你同一个时区；写了但不认识就当没写
@@ -40,7 +39,7 @@
     if (original) { backup(original, '编辑前').catch(() => {}); original = null; }
     saveTimer = setTimeout(() => {
       saveTimer = undefined;
-      const patch = { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst, timeMode: storyTime ? 'story' as const : 'real' as const, timeZone: tzOk && timeZone.trim() ? timeZone.trim() : undefined };
+      const patch = { name: name.trim() || '未命名', core, full, firstMessage: firstMessage || undefined, useFirstMessage: useFirst, timeZone: tzOk && timeZone.trim() ? timeZone.trim() : undefined };
       written = snapshotOf({ id, ...patch });
       repo.updateCharacter(id, patch);
     }, 400);
@@ -94,14 +93,9 @@
     <Field multiline rows={6} bind:value={full} placeholder="示例对话、细节背景" oninput={save} />
   </List>
   <SectionTitle text="时间" />
-  <List footer="跟随真实时间：角色知道现在几点，适合日常陪聊。剧情时间：不给真实时钟，时间由角色和你用「推进时间」推进，适合推长线剧情。">
-    <Cell title="剧情时间模式" subtitle={storyTime ? '当前：剧情时间' : '当前：跟随真实时间'}>{#snippet right()}<Toggle bind:checked={storyTime} onchange={save} label="剧情时间" />{/snippet}</Cell>
+  <List footer={tzOk ? '默认他和你用同一个时间（你设备的时间）。他出远门、在另一个时区生活时才填，写法如 Asia/Tokyo、Europe/London，他会知道自己那边几点。这一局的剧情时间从哪天开始、要不要停表，在他的主页上改。' : '不认识这个时区，先按和你同一个时间算。写法如 Asia/Tokyo、America/New_York。'}>
+    <Field label="他所在的时区" bind:value={timeZone} placeholder="留空＝和你一样" oninput={save} />
   </List>
-  {#if !storyTime}
-    <List footer={tzOk ? '默认他和你用同一个时间（你设备的时间）。他出远门、在另一个时区生活时才填，写法如 Asia/Tokyo、Europe/London，他会知道自己那边几点。' : '不认识这个时区，先按和你同一个时间算。写法如 Asia/Tokyo、America/New_York。'}>
-      <Field label="他所在的时区" bind:value={timeZone} placeholder="留空＝和你一样" oninput={save} />
-    </List>
-  {/if}
   <SectionTitle text="人物背景" />
   <List footer="跟卡走的设定，和他聊时才进上下文，换世界也带着。">
     <Cell title="人物背景" value={`${loreCount.value} 条`} chevron onclick={() => nav.push('characters', 'lore', { id })} />

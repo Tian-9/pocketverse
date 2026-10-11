@@ -3,6 +3,7 @@ import type { Campaign } from '../storage/db';
 import { repo } from './repo';
 import { loreApplies } from './lore';
 import { loreDirectory } from '../context/assemble';
+import { clock } from '../context/clock';
 import type { DataView, CampaignView } from '../api/types';
 
 async function toView(c: Campaign): Promise<CampaignView | undefined> {
@@ -11,7 +12,7 @@ async function toView(c: Campaign): Promise<CampaignView | undefined> {
   if (!ch) return undefined;
   return {
     id: c.id, name: c.name, worldId: c.worldId, worldName: world?.name ?? '', characterId: ch.id, characterName: ch.name,
-    lastPlayedAt: c.lastPlayedAt, state: structuredClone(c.state),
+    lastPlayedAt: c.lastPlayedAt, now: clock.now(c.clock), aligned: clock.aligned(c.clock), state: structuredClone(c.state),
   };
 }
 

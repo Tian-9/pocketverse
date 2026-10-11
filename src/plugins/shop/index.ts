@@ -1,4 +1,4 @@
-import { definePlugin, icons, gradients } from '$kernel/api';
+import { definePlugin, icons, gradients, clock } from '$kernel/api';
 import type { PluginContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Shop from './Shop.svelte';
@@ -105,7 +105,7 @@ export const shopApi = {
         system: CATALOG_SYSTEM,
         user: catalogUser({
           worldName: world?.name ?? cp.worldName, worldSummary: world?.summary ?? '', loreDirectory: dir.slice(0, 3000),
-          time: cp.state.inWorldTime || new Date().toLocaleString('zh-CN', { hour12: false }), location: cp.state.location,
+          time: clock.format(cp.now), location: cp.state.location,
           happenings: [...cp.state.facts, ...mems.map((m) => m.text)].slice(0, 10),
           existing: relevant.slice(0, 40).map((p) => p.name), categories, mode,
         }),

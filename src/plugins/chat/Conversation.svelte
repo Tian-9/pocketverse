@@ -11,12 +11,14 @@
   import { toolLabel } from '$kernel/context/tools';
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
+  import { clock } from '$kernel/context/clock';
   import type { ComposerAction, OutgoingMessage, MessageCard } from '$kernel/api';
 
   let { id }: { id: string } = $props();
   const conv = live(() => db().conversations.get(id), undefined);
   const character = live(async () => { const c = await db().conversations.get(id); return c ? repo.characterOfConversation(c) : undefined; }, undefined);
   const messages = live(() => repo.messagesOf(id), [] as Message[]);
+  const campaign = live(async () => { const c = await db().conversations.get(id); return c ? db().campaigns.get(c.campaignId) : undefined; }, undefined);
   const liveTurn = $derived(chat.live[id]);
   const status = $derived(liveTurn?.status ?? 'idle');
 
@@ -36,13 +38,30 @@
     await chat.send(id, msg.text, Object.keys(meta).length ? { meta } : {});
   }
   const wechat = $derived(theme.chatStyle === 'wechat');
+  // 推进时间：快捷项按这局的钟算，也能自己选一个时刻
   let timeSheet = $state(false);
   let timeWhen = $state('');
   let timeNote = $state('');
-  function advance() {
-    const w = timeWhen.trim(); if (!w) return;
+  const H = 3600_000, D = 24 * H;
+  const storyNow = () => clock.now(campaign.value?.clock);
+  const at = (base: number, dayOffset: number, hour: number) => { const d = new Date(base); d.setDate(d.getDate() + dayOffset); d.setHours(hour, 0, 0, 0); return d.getTime(); };
+  const quick = $derived.by(() => {
+    const n = storyNow();
+    const tonight = at(n, 0, 20);
+    return [
+      { label: '一小时后', ts: n + H },
+      { label: '今晚', ts: tonight > n ? tonight : at(n, 1, 20) },
+      { label: '明早', ts: at(n, 1, 8) },
+      { label: '三天后', ts: at(n, 3, 9) },
+      { label: '下周', ts: at(n, 7, 9) },
+    ];
+  });
+  function openTimeSheet() { timeWhen = clock.toInput(storyNow() + H); timeSheet = true; }
+  function advance(ts?: number) {
+    const to = ts ?? clock.fromInput(timeWhen);
+    if (to === null) return;
     timeSheet = false;
-    chat.advanceTime(id, w, timeNote.trim() || undefined);
+    chat.advanceTime(id, to, timeNote.trim() || undefined);
     timeWhen = ''; timeNote = '';
   }
   let picked = $state<Message | null>(null);
@@ -110,14 +129,18 @@
     if (tools?.length) parts.push('用了 ' + [...new Set(tools)].map(toolLabel).join('、'));
     return parts.join(' · ');
   }
-  function fmt(ts: number) { return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }); }
+  // 分隔线按剧情时刻：隔了十分钟以上就显示；不是今天的（或跳过了时间的）带日期
+  const tsOf = (m: Message) => m.storyTs ?? m.ts;
   function showTime(i: number) {
     const m = messages.value[i]!, p = messages.value[i - 1];
     if (!p) return true;
-    if (m.inWorldTs || p.inWorldTs) return m.inWorldTs !== p.inWorldTs; // 剧情时间变了才显示
-    return m.ts - p.ts > 10 * 60 * 1000;
+    return tsOf(m) - tsOf(p) > 10 * 60 * 1000 || !!m.meta?.chapter;
   }
-  function timeLabel(m: Message) { return m.inWorldTs ?? fmt(m.ts); }
+  function timeLabel(m: Message) {
+    const t = tsOf(m), tz = character.value?.timeZone;
+    if (clock.dateKey(t, tz) === clock.dateKey(Date.now(), tz) && clock.aligned(campaign.value?.clock)) return new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, ...(tz ? { timeZone: tz } : {}) });
+    return clock.formatShort(t, tz);
+  }
 </script>
 
 <div class="conv" class:wechat>
@@ -198,7 +221,7 @@
 <Sheet bind:open={menu} title={character.value?.name}>
   <List>
     <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
-    <Cell title="推进时间…" subtitle="比如「三天后的早上」，角色会接着这个时间点说话" onclick={() => { menu = false; timeSheet = true; }} />
+    <Cell title="推进时间…" subtitle="跳到明早、三天后，角色会接着那个时间点说话" onclick={() => { menu = false; openTimeSheet(); }} />
     <Cell title="他的主页" subtitle="状态、钱包、朋友圈、他记得什么" onclick={() => { menu = false; openProfile(); }} />
     <Cell title="编辑角色卡" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
     <Cell title="清空对话" onclick={clearAll} />
@@ -206,11 +229,14 @@
 </Sheet>
 <Sheet bind:open={timeSheet} title="推进时间">
   <div onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); advance(); } }} role="presentation">
-  <List footer="会在对话里插一条旁白，并把剧情时间更新成你写的。真实时间模式下也能用，只是下一轮角色仍会看到真实时钟；想完全按剧情走，去角色页打开「剧情时间模式」。">
-    <Field label="来到" bind:value={timeWhen} placeholder="三天后的早上" />
+  <div class="quick">
+    {#each quick as q (q.label)}<button onclick={() => advance(q.ts)}>{q.label}</button>{/each}
+  </div>
+  <List footer={`这局现在是 ${clock.format(storyNow(), character.value?.timeZone)}。推进后会先整理记忆，插一条旁白，他接着那个时间点说话。想让他定住不走，去他的主页把这局停表。`}>
+    <Field label="来到" type="datetime-local" bind:value={timeWhen} />
     <Field multiline rows={2} bind:value={timeNote} placeholder="这段时间发生了什么，可选" />
   </List>
-  <div class="actions"><Button onclick={advance}>推进</Button></div>
+  <div class="actions"><Button onclick={() => advance()}>推进</Button></div>
   </div>
 </Sheet>
 <Sheet open={!!picked} onclose={() => (picked = null)} title="这条消息">
@@ -225,6 +251,8 @@
 
 <style>
   .conv { display: flex; flex-direction: column; height: 100%; }
+  .quick { display: flex; gap: 8px; margin: 0 16px 12px; overflow-x: auto; }
+  .quick button { flex: 0 0 auto; padding: 7px 14px; border-radius: 999px; background: var(--fill-2); color: var(--label); font-size: 14px; }
   .conv :global(.nav) { background: var(--bg-surface); border-bottom: 0; }
   .status { font-size: 12px; color: var(--label-2); text-align: center; height: 16px; line-height: 16px; background: var(--bg-surface); border-bottom: 0.5px solid var(--separator); }
   .iconbtn { padding: 8px; display: inline-flex; }

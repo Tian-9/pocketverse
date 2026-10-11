@@ -8,6 +8,7 @@ import { catchup } from '../catchup/catchup';
 import { wakes, wakeNotice } from '../catchup/wake';
 import type { ToolContext } from '../context/tools';
 import { memoryIndex } from '../context/memfs';
+import { clock } from '../context/clock';
 import { runToolLoop, type LoopTool } from './loop';
 import { extractTags } from './tags';
 import { llm } from '../llm/gateway.svelte';
@@ -43,20 +44,11 @@ class ChatEngine {
 
   async send(conversationId: string, text: string, extra: Partial<Message> = {}) {
     if (this.live[conversationId]) return;
-    await repo.addMessage(conversationId, 'user', text, { ...(await this.stamp(conversationId)), ...extra });
+    await repo.addMessage(conversationId, 'user', text, extra);
     // 他定的"没回就追一句"：你回了就作废
     const conv = await db().conversations.get(conversationId);
     if (conv) { const w = await wakes.get(conv.campaignId); if (w?.onlyIfSilent) await wakes.clear(conv.campaignId); }
     await this.runTurn(conversationId);
-  }
-
-  /** 剧情时间模式下，消息带上当时的剧情时间，聊天界面按它显示分隔线 */
-  private async stamp(conversationId: string): Promise<Partial<Message>> {
-    const conv = await db().conversations.get(conversationId);
-    const ch = conv && (await repo.characterOfConversation(conv));
-    const cp = conv && (await db().campaigns.get(conv.campaignId));
-    if (ch?.timeMode === 'story' && cp?.state.inWorldTime) return { inWorldTs: cp.state.inWorldTime };
-    return {};
   }
 
   async regenerate(conversationId: string) {
@@ -75,19 +67,20 @@ class ChatEngine {
   }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
-  /** 推进剧情时间：写一条旁白，更新状态，然后让角色接着说 */
-  async advanceTime(conversationId: string, when: string, note?: string) {
+  /** 推进剧情时间到 toTs（剧情时刻）：整理记忆，拨时钟，写一条旁白，然后让角色接着说 */
+  async advanceTime(conversationId: string, toTs: number, note?: string) {
     if (this.live[conversationId]) return;
     const conv = await db().conversations.get(conversationId);
     const campaign = conv && (await db().campaigns.get(conv.campaignId));
+    const character = conv && (await repo.characterOfConversation(conv));
     if (!conv || !campaign) return;
     // 推进时间是章节分隔：先把之前的事整理成记忆，之后的上下文只带分隔点附近几条原话
     this.live[conversationId] = { conversationId, status: 'thinking', statusText: '正在整理之前的事…', text: '', abort: new AbortController() };
     try { await consolidate(conversationId, { force: true, reason: '推进时间' }); }
     catch { /* 已记日志，整理失败不挡推进 */ }
     finally { delete this.live[conversationId]; }
-    await db().campaigns.update(campaign.id, { state: { ...campaign.state, inWorldTime: when } });
-    await repo.addMessage(conversationId, 'user', `（时间来到：${when}${note ? '。' + note : ''}。之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, inWorldTs: when });
+    await repo.setClock(campaign.id, clock.skipTo(campaign.clock, toTs));
+    await repo.addMessage(conversationId, 'user', `（时间来到：${clock.format(toTs, character?.timeZone)}${note ? '。' + note : ''}。之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, storyTs: toTs });
     await this.runTurn(conversationId);
   }
 
@@ -115,7 +108,8 @@ class ChatEngine {
       memoryIndex(campaign.id),
     ]);
 
-    const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id] };
+    const storyNow = clock.now(campaign.clock);
+    const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow };
     const plugins = registry.plugins.filter((p) => registry.isEnabled(p.id));
     const pluginStable: string[] = [], pluginVolatile: string[] = [];
     for (const p of plugins) for (const c of p.promptContributors ?? []) {
@@ -151,7 +145,8 @@ class ChatEngine {
     const { system, messages, l1Hits } = assemble({
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
       lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
-      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules, storyTime: character.timeMode === 'story',
+      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
+      now: new Date(storyNow), story: !clock.aligned(campaign.clock),
     });
 
     const abort = new AbortController();
@@ -204,7 +199,7 @@ class ChatEngine {
           const isFirst = i === 0, isLast = i === parts.length - 1;
           const { cards: metaCards, ...rest } = meta;
           const mine: Record<string, unknown> = { ...(isFirst && metaCards ? { cards: metaCards } : {}), ...(isLast ? rest : {}) };
-          await repo.addMessage(conversationId, 'assistant', parts[i]!, { ...(await this.stamp(conversationId)), ...(Object.keys(mine).length ? { meta: mine } : {}) });
+          await repo.addMessage(conversationId, 'assistant', parts[i]!, Object.keys(mine).length ? { meta: mine } : {});
         }
         if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }

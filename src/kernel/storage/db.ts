@@ -23,19 +23,25 @@ export interface Character {
   core: string; full: string; firstMessage?: string;
   /** 新对话是否自动发开场白；酒馆卡的开场白多半不合小手机场景，默认不发 */
   useFirstMessage?: boolean;
-  /** 时间模式：real 跟随真实时间（默认）；story 只用剧情时间，由角色和用户推进 */
-  timeMode?: 'real' | 'story';
   /** 他所在的时区（IANA 名，如 Asia/Tokyo）。留空＝和你同一个时区；出远门才填，提示词里会多给一个"他那边的时间" */
   timeZone?: string;
   voice?: Record<string, unknown>;
 }
 export interface CampaignState {
-  inWorldTime?: string; location?: string;
+  location?: string;
   relations: Record<string, string>; mood: Record<string, string>; facts: string[];
+}
+/** 存档时钟：这一局「现在几点」。见 context/clock.ts；没有＝和真实时间一样 */
+export interface CampaignClock {
+  /** 锚点：真实时刻 anchorRealTs 时，剧情时刻是 anchorStoryTs */
+  anchorStoryTs: number; anchorRealTs: number;
+  /** 走表（剧情时间随真实时间流逝）还是停表（只有推进才动） */
+  running: boolean;
 }
 export interface Campaign {
   id: string; worldId: string; characterIds: string[]; name: string;
   createdAt: number; lastPlayedAt: number; state: CampaignState;
+  clock?: CampaignClock;
   /** 你在这个世界里是谁（一两句话）。按存档分：修仙世界里是师弟，校园里是同桌。没有就只用全局的用户画像 */
   userPersona?: string;
   /** 上次合并处理到的消息 ts */
@@ -48,7 +54,9 @@ export interface Campaign {
 export interface Conversation { id: string; campaignId: string; kind: string; participantIds: string[]; pluginId: string }
 export interface Message {
   id: string; conversationId: string; role: 'user' | 'assistant' | 'system';
-  content: unknown[]; ts: number; inWorldTs?: string; tokens?: number;
+  content: unknown[]; ts: number; tokens?: number;
+  /** 这条消息时的剧情时刻（存档时钟），没时钟的局等于 ts */
+  storyTs?: number;
   /** 附加信息：用过的工具名、补发标记等 */
   meta?: Record<string, unknown>;
 }
@@ -87,7 +95,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 5;
+const KERNEL_VERSION = 6;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -111,7 +119,15 @@ export class PocketDB extends Dexie {
     }
     // 版本号 = 内核版本 * 100 + 插件表数量：内核改表或加插件表都会触发升级，Dexie 会补建新表。
     const pluginTables = Object.keys(schema).length - Object.keys(KERNEL_SCHEMA).length;
-    this.version(KERNEL_VERSION * 100 + pluginTables).stores(schema);
+    this.version(KERNEL_VERSION * 100 + pluginTables).stores(schema).upgrade(async (tx) => {
+      // v6：剧情时间从自由文本换成存档时钟。旧的「剧情时间」字符串解析不了，塞进事实里不丢
+      await tx.table('campaigns').toCollection().modify((c: Campaign & { state: CampaignState & { inWorldTime?: string } }) => {
+        const t = c.state?.inWorldTime;
+        if (!t) return;
+        delete c.state.inWorldTime;
+        c.state.facts = [`之前记的剧情时间：${t}`, ...(c.state.facts ?? [])].slice(0, 20);
+      });
+    });
   }
 
   async getKV<T>(key: string, fallback: T): Promise<T> {

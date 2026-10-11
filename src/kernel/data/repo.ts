@@ -1,8 +1,9 @@
 import { ulid } from 'ulid';
 import { db } from '../storage/db';
-import type { World, Character, Campaign, Conversation, Message } from '../storage/db';
+import type { World, Character, Campaign, CampaignClock, Conversation, Message } from '../storage/db';
 import type { MessageCard } from '../api/types';
 import { expandMacros } from '../context/macros';
+import { clock } from '../context/clock';
 
 /** 当前存档的指针：kv 里 `kernel.currentCampaign.<characterId>` */
 const currentKey = (characterId: string) => `kernel.currentCampaign.${characterId}`;
@@ -89,13 +90,15 @@ export const repo = {
     return this.newCampaign(character, (await this.ensureDefaultWorld()).id);
   },
 
-  /** 给这张卡在某个世界新开一局，并切成当前这一局 */
-  async newCampaign(character: Character, worldId: string): Promise<Campaign> {
+  /** 给这张卡在某个世界新开一局，并切成当前这一局。startTs：这局从什么时候开始（剧情时刻），不给就是现在 */
+  async newCampaign(character: Character, worldId: string, startTs?: number): Promise<Campaign> {
     const world = await db().worlds.get(worldId);
+    const now = Date.now();
     const c: Campaign = {
       id: ulid(), worldId, characterIds: [character.id], name: world?.name ?? character.name,
-      createdAt: Date.now(), lastPlayedAt: Date.now(),
+      createdAt: now, lastPlayedAt: now,
       state: { relations: {}, mood: {}, facts: [] },
+      ...(startTs !== undefined && Math.abs(startTs - now) >= 60_000 ? { clock: clock.skipTo(undefined, startTs, now) } : {}),
     };
     await db().campaigns.add(c);
     await db().setKV(currentKey(character.id), c.id);
@@ -132,12 +135,20 @@ export const repo = {
     return conv;
   },
 
+  /** 每条消息都盖上剧情时刻 storyTs（存档时钟），没时钟的局就等于 ts */
   async addMessage(conversationId: string, role: Message['role'], text: string, extra: Partial<Message> = {}): Promise<Message> {
-    const m: Message = { id: ulid(), conversationId, role, content: [{ type: 'text', text }], ts: Date.now(), ...extra };
-    await db().messages.add(m);
     const conv = await db().conversations.get(conversationId);
-    if (conv) await db().campaigns.update(conv.campaignId, { lastPlayedAt: Date.now() });
+    const cp = conv && (await db().campaigns.get(conv.campaignId));
+    const ts = Date.now();
+    const m: Message = { id: ulid(), conversationId, role, content: [{ type: 'text', text }], ts, storyTs: clock.now(cp?.clock, ts), ...extra };
+    await db().messages.add(m);
+    if (conv) await db().campaigns.update(conv.campaignId, { lastPlayedAt: ts });
     return m;
+  },
+
+  /** 改这一局的时钟（推进、停表 / 走表） */
+  async setClock(campaignId: string, c: CampaignClock) {
+    await db().campaigns.update(campaignId, { clock: c });
   },
 
   async messagesOf(conversationId: string): Promise<Message[]> {

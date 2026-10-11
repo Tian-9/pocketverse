@@ -22,3 +22,12 @@ describe('timeLine', () => {
     expect(isValidTimeZone('')).toBe(false);
   });
 });
+
+describe('timeLine (story clock)', () => {
+  it('marks story time only when asked, with and without a zone', () => {
+    expect(timeLine(d, undefined, 'UTC', false)).not.toContain('剧情时间');
+    expect(timeLine(d, undefined, 'UTC', true)).toBe(`现在是 ${d.toLocaleString('zh-CN', { hour12: false })}（剧情时间）。`);
+    const z = timeLine(d, 'Asia/Tokyo', 'UTC', true);
+    expect(z).toContain('（剧情时间；你在 Asia/Tokyo，那边是 ');
+  });
+});

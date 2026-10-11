@@ -100,7 +100,6 @@ interface Character {
   core: string;          // 精简版人设，进 L0，目标 ≤ 800 token
   full: string;          // 完整人设、示例对话等，L2 可拉取
   firstMessage?: string;
-  timeMode?: 'real' | 'story';      // 跟随真实时间（默认）还是剧情时间
   timeZone?: string;                // 他所在的时区（IANA 名）。默认不填＝和你用同一个时间；出远门才填，时间行里多给一个"他那边几点"
   voice?: Record<string, unknown>;  // 插件自定义字段（口癖、语音等）
 }
@@ -112,9 +111,15 @@ interface Campaign {
   name: string; createdAt: number; lastPlayedAt: number;
   state: CampaignState;                        // 当前状态，进 L0
   userPersona?: string;                        // 你在这局里是谁（修仙世界里是师弟，校园里是同桌），进 system 的「用户」段；没有就只用全局画像
+  clock?: CampaignClock;                       // 存档时钟：这局「现在几点」。没有＝和真实时间一样
 }
+// 存档时钟（context/clock.ts，设计见 designs/clock-and-calendar.md）：剧情时刻是普通毫秒时间戳，显示时套角色时区。
+// now = running ? anchorStoryTs + (真实现在 - anchorRealTs) : anchorStoryTs。走表：剧情时间随真实时间流逝；停表：只有推进才动。
+// 谁能动：用户（聊天页「推进时间」、主页「这局的时间」，新开一局可选起始日期）；模型（state_update 的 advance，只往前、一次 ≤ 24 小时）。
+// 每条消息盖 storyTs；插件要「现在几点」拿 ctx.data / PromptContext 里的 now，不自己 Date.now()。
+interface CampaignClock { anchorStoryTs: number; anchorRealTs: number; running: boolean }
 interface CampaignState {
-  inWorldTime?: string; location?: string;
+  location?: string;
   relations: Record<string, string>;           // characterId -> 一句话关系
   mood: Record<string, string>;                // characterId -> 一句话情绪
   facts: string[];                             // 最多 20 条当前事实，超出进记忆
@@ -133,7 +138,7 @@ interface Message {
   role: 'user' | 'assistant' | 'system';
   content: ContentBlock[];   // 文本、插件卡片、工具调用记录
   ts: number;                // 真实时间
-  inWorldTs?: string;        // 剧情时间（补发时与 ts 不同）
+  storyTs?: number;          // 这条消息时的剧情时刻（存档时钟），没时钟的局等于 ts；聊天页分隔线按它
   tokens?: number;
 }
 ```
@@ -258,7 +263,7 @@ Gemini、OpenAI 兼容适配器：只实现 `chat` 和流式，其他能力标 f
   最后一条用户消息：
     - L1 命中的世界书正文（按 order 排序）
     - 插件 promptContributors（易变部分，如"刚发了一条朋友圈"）
-    - 当前真实时间与剧情时间（角色设了别的时区就多一句"你在 Asia/Tokyo，那边是 …"；`context/time.ts`）
+    - 时间那一行：存档时钟的「现在」（`context/time.ts`）。钟和真实时间对不上（跳过了、停表）就标「剧情时间」；角色设了别的时区就多一句"你在 Asia/Tokyo，那边是 …"
     - 用户输入
 ```
 
@@ -273,7 +278,7 @@ L2 工具（内核提供）：
 | `memory_search(query, characterId?)` | 搜情节记忆 |
 | `memory_recent(n)` | 最近 n 条情节记忆 |
 | `character_read(id)` | 读角色 full 人设 |
-| `state_update(patch)` | 更新 CampaignState（关系、情绪、地点、事实） |
+| `state_update(patch)` | 更新 CampaignState（关系、情绪、地点、事实）；`advance` 把剧情时间往前拨几分钟（≤ 一天，只往前，「明早见」之后接着说用） |
 | `overlay_write(entry)` | 写一条世界覆盖 |
 | `wake_later(afterMinutes, intent, onlyIfSilent?)` | 给自己定"稍后联系"：真实时间几分钟后拿起手机决定发不发消息（见 5.11）。一局只记一件，新的覆盖旧的 |
 
@@ -287,7 +292,7 @@ L2 工具（内核提供）：
 
 **尾部指令**：`position: 'tail'` 的常驻风格条目不进 system，放在最后一条用户消息里、时间行之前。模型对最后几百字最敏感，管输出格式和口吻放这里。
 
-**章节分隔**：推进时间先强制整理记忆，再写一条带 `meta.chapter` 的旁白。拼装时最近一次分隔点之前只保留几条原话衔接（`chapterTail`，默认 6），之前的事靠记忆而不是复读，防止模型抓着旧梗不放。
+**章节分隔**：推进时间（用户在聊天页选一个时刻，快捷项按这局的钟算）先强制整理记忆，拨时钟，再写一条带 `meta.chapter` 的旁白。拼装时最近一次分隔点之前只保留几条原话衔接（`chapterTail`，默认 6），之前的事靠记忆而不是复读，防止模型抓着旧梗不放。
 
 ### 5.7 Theme
 
@@ -298,7 +303,7 @@ L2 工具（内核提供）：
 ### 5.8 Scheduler
 
 - 前台：`setInterval` 包一层（`every`），页面不可见时暂停，可见时恢复；另有一次性的 `after`，给角色定的"稍后联系"用，同样切后台清掉、回前台重排。
-- 补发：`app.resumed(elapsedMs)` 事件带上离开时长，插件自行决定补什么（朋友圈插件可能补一条动态，日记插件可能补一篇日记）。补发生成的消息 `inWorldTs` 设为应该发生的时间。
+- 补发：`app.resumed(elapsedMs)` 事件带上离开时长，插件自行决定补什么（朋友圈插件可能补一条动态，日记插件可能补一篇日记）。补发生成的消息 `storyTs` 设为应该发生的时间。
 - 补发有预算：一次最多补 3 条，避免离开三天回来被刷屏和烧钱。
 - 前台开着的时候也每小时查一次补发（`catchup.TICK`），不然网页挂一天谁也不会动；切到后台定时器清掉，回到前台先补一次再重新上表。
 

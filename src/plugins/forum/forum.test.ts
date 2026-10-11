@@ -7,7 +7,7 @@ import type { PromptContext, CatchupContext } from '$kernel/api';
 
 const campaign: CampaignView = {
   id: 'cp1', name: '王都', worldId: 'w1', worldName: '王都', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1,
-  state: { inWorldTime: '春分', location: '东市', relations: {}, mood: {}, facts: ['城门塌了'] },
+  now: Date.UTC(2026, 2, 20, 4, 0), aligned: false, state: { location: '东市', relations: {}, mood: {}, facts: ['城门塌了'] },
 };
 let answer = '';
 let lastUser = '';
@@ -44,7 +44,7 @@ describe('forum refresh', () => {
     });
     const r = await forumApi.refresh('cp1');
     expect(r).toEqual({ posts: 1, replies: 1 });
-    for (const s of ['王都：中世纪', '王宫：很大', '春分', '东市', '城门塌了', '国王病了', '有人见过黑猫吗', '路过的人']) expect(lastUser).toContain(s);
+    for (const s of ['王都：中世纪', '王宫：很大', '2026/3/20', '东市', '城门塌了', '国王病了', '有人见过黑猫吗', '路过的人']) expect(lastUser).toContain(s);
 
     const threads = await forumApi.threads().where('campaignId').equals('cp1').sortBy('createdAt');
     const crowd = threads.find((t) => t.source === 'crowd')!;
@@ -93,7 +93,7 @@ describe('forum refresh', () => {
   });
 });
 
-const pctx: PromptContext = { campaignId: 'cp3', conversationId: 'cv', characterIds: ['ch1'] };
+const pctx: PromptContext = { campaignId: 'cp3', conversationId: 'cv', characterIds: ['ch1'], now: Date.now() };
 const cctx: CatchupContext = { campaignId: 'cp3', characterId: 'ch1', characterName: '阿一', elapsedMs: 8 * 3600_000, days: 0, tier: 'h6', elapsedText: '大约 8 小时' };
 const tool = (name: string) => tools.find((t) => t.name === name)!;
 

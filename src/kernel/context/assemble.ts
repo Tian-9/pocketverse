@@ -40,8 +40,8 @@ export interface AssembleInput {
   hasAttach?: boolean;
   /** 自定义对话规则，空则用默认 */
   rules?: string;
-  /** 剧情时间模式：不给真实时钟 */
-  storyTime?: boolean;
+  /** 这局的钟和真实时间对不上（跳过了、或停表）：时间行标「剧情时间」 */
+  story?: boolean;
 }
 
 export const DEFAULT_RULES = [
@@ -59,7 +59,7 @@ const TOOL_RULES = [
   '你有一些工具可以查资料和记事：',
   '- 世界书目录列在下面。目录里有的条目，当对话确实需要细节时用 lore_read 读正文，不要每轮都查。',
   '- 想不起来以前发生过什么时用 memory_search 或 memory_recent。',
-  '- 关系、情绪、地点或当前事实发生明确变化时，用 state_update 记下来。',
+  '- 关系、情绪、地点或当前事实发生明确变化时，用 state_update 记下来。对话里明确过了一段时间（说了「明早见」然后对方接着说）就把 advance 一起填上，把时间往前拨。',
   '- 剧情让世界本身发生了变化（某个地方毁了、某条规则被打破）时，用 overlay_write 记下来，不要假装世界书没变。',
   '- /memories 是你的笔记本，用 memory 工具维护。只记长期有用的事：对方的偏好、约定、重要的身份信息、你们关系的里程碑。不要记聊天进度和流水账，对话记录本来就在。目录每轮都给你了，只在确实相关时才打开文件，不要每轮都翻。',
   '查完资料后正常回复，不要向用户复述你查了什么。',
@@ -95,7 +95,6 @@ function stateText(c: Campaign, chars: Character[]): string {
   const s = c.state;
   const name = (id: string) => chars.find((x) => x.id === id)?.name ?? id;
   const parts: string[] = [];
-  if (s.inWorldTime) parts.push(`剧情时间：${s.inWorldTime}`);
   if (s.location) parts.push(`地点：${s.location}`);
   for (const [id, v] of Object.entries(s.relations)) parts.push(`${name(id)} 与用户的关系：${v}`);
   for (const [id, v] of Object.entries(s.mood)) parts.push(`${name(id)} 现在的情绪：${v}`);
@@ -157,8 +156,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   if (loreHits.length) tail.push('<世界书>\n' + loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n') + '\n</世界书>');
   tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
   if (tailStyle.length) tail.push('<尾部指令>\n' + tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n') + '\n</尾部指令>');
-  if (input.storyTime) tail.push(`（剧情时间模式：现在的剧情时间是「${input.campaign.state.inWorldTime || '未设定，由你根据对话决定'}」。时间推进时用 state_update 更新。）`);
-  else tail.push(timeLine(now, input.characters[0]?.timeZone));
+  tail.push(timeLine(now, input.characters[0]?.timeZone, undefined, input.story));
   if (input.userText?.trim()) tail.push(input.userText.trim());
 
   const last = messages[messages.length - 1];

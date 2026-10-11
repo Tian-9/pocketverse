@@ -9,11 +9,11 @@ beforeAll(async () => {
   await plugin.setup!({ id: 'characters', table: (name: string) => db().table(pluginTable('characters', name)) } as unknown as PluginContext);
 });
 
-const ch = { id: 'c1', name: '阿一', core: '一个人', full: '', useFirstMessage: false, timeMode: 'real' as const };
+const ch = { id: 'c1', name: '阿一', core: '一个人', full: '', useFirstMessage: false };
 
 describe('character versions', () => {
   it('snapshots only card text and treats defaults as equal', () => {
-    expect(snapshotOf({ ...ch, avatar: new Blob(['x']) })).toEqual({ name: '阿一', core: '一个人', full: '', timeMode: 'real' });
+    expect(snapshotOf({ ...ch, avatar: new Blob(['x']) })).toEqual({ name: '阿一', core: '一个人', full: '' });
     expect(sameData(snapshotOf(ch), { name: '阿一', core: '一个人', full: '' })).toBe(true);
     expect(sameData(snapshotOf(ch), { name: '阿一', core: '另一个人', full: '' })).toBe(false);
   });
