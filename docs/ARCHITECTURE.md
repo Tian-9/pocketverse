@@ -241,7 +241,7 @@ Claude 适配器要做的事：
 - 浏览器直连：SDK 开 `dangerouslyAllowBrowser`，Key 存本地（可选加 PIN 加密）。
 - **模型分三档**（`llm/roles.ts`）：请求按用途归档，每档在设置里选一个模型和一个思考深度。`chat` 对话档（`chat`、`catchup`、插件默认调用；默认 Opus 5.5 / medium）吃缓存，贵模型命中缓存可能比便宜模型没命中还便宜；`consolidate` 整理档（记忆合并；默认 Haiku 5.5 / low）和 `bulk` 批量档（插件 `cheap: true`：论坛路人、货架、搜索、日程；默认 Haiku 5.5 / low）都是一次性输入。网关按 `req.role ?? roleOf(purpose)` 填 `model` 和 `effort`，调用方不写死模型名，也不写死 effort（显式给 `effort` 才覆盖档位设置）。模型升级只改 `DEFAULT_MODELS`。老设置的单个 `model` / `effort` 迁移成对话档。
 - 模型列表从 API 拉（`client.models.list()`，只有 id 和名字），存 KV，拉不到用 `pricing.ts` 的内置表兜底。价格 API 不给，`PRICES` 表继续维护，只用来记账；表里没有的模型照样能选，标「价格未知」，用量按 $0 记。
-- adaptive thinking，效果用 `output_config.effort` 控。流式输出。
+- adaptive thinking，效果用 `output_config.effort` 控。思考和正文共用 `max_tokens`，所以调用方给的 `maxTokens` 只算正文预算，网关按 effort 再加一截思考额度（`THINKING_ROOM`，低 1k 到最高 16k），不然思考深度一高正文就被截断。流式输出。
 - **缓存**：`tools → system → messages` 顺序固定。断点两处：system 末尾（L0），倒数第二条消息末尾。时间戳、L1 命中、随机内容一律放在最后一条用户消息里，绝不进 system。
 - **工具循环**：最多 N 轮（默认 4），每轮发 `llm.turn.tool` 事件给 UI 显示"正在翻日记"之类的状态。工具结果带 `is_error` 返回，不吞异常。
 - **上下文编辑**：开 `clear_tool_uses`，旧的工具结果自动清掉，历史不被查过的世界书撑肥。

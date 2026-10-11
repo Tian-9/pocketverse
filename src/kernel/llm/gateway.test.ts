@@ -38,6 +38,17 @@ describe('gateway model roles', () => {
     ]);
   });
 
+  it('adds thinking room on top of the caller\'s text budget, scaled by effort', async () => {
+    kv.set('kernel.llm', { apiKey: 'k', efforts: { chat: 'high', consolidate: 'low', bulk: 'low' } });
+    const { llm } = await import('./gateway.svelte');
+    await llm.boot();
+    await llm.chat({ ...base, purpose: 'plugin:diary', maxTokens: 600 });
+    await llm.chat({ ...base, purpose: 'plugin:shop', role: 'bulk', maxTokens: 6000 });
+    await llm.chat({ ...base, purpose: 'chat' });
+    await llm.chat({ ...base, purpose: 'chat', effort: 'max', maxTokens: 100 });
+    expect(seen.map((r) => (r as { maxTokens: number }).maxTokens)).toEqual([600 + 4096, 6000 + 1024, 4096 + 4096, 100 + 16384]);
+  });
+
   it('migrates the old single model/effort into the chat tier and drops the old keys on save', async () => {
     kv.set('kernel.llm', { apiKey: 'k', model: 'claude-fable-5-1', effort: 'xhigh' });
     const { llm } = await import('./gateway.svelte');

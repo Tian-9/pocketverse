@@ -28,6 +28,14 @@ export const EFFORTS: { id: Effort; label: string }[] = [
 
 export const effortLabel = (e: Effort) => EFFORTS.find((x) => x.id === e)?.label ?? e;
 
+/**
+ * 思考占的 max_tokens。API 把 thinking 和正文算在同一个 max_tokens 里，调用方给的 maxTokens 只是正文预算
+ * （日记 600、动态 200），思考深度一调高，思考就把正文的额度吃光，正文写到一半 stop_reason 变 max_tokens。
+ * 网关按 effort 在调用方的预算上加这一截；这只是上限，不是花费。
+ */
+export const THINKING_ROOM: Record<Effort, number> = { low: 1024, medium: 2048, high: 4096, xhigh: 8192, max: 16384 };
+export const thinkingRoom = (e: Effort | undefined) => THINKING_ROOM[e ?? 'medium'];
+
 /** 没显式给档位的请求按用途归档：只有记忆整理是整理档，其余（聊天、补发、插件）都是对话档；插件 `cheap` 在注册表里映射成批量档。 */
 export function roleOf(purpose: string, role?: ModelRole): ModelRole {
   if (role) return role;

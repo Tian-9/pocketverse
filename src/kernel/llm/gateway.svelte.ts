@@ -3,7 +3,7 @@ import { db } from '../storage/db';
 import type { UsageRecord } from '../storage/db';
 import { ClaudeProvider } from './claude';
 import { costUsd, MODELS } from './pricing';
-import { DEFAULT_EFFORTS, DEFAULT_MODELS, normalizeRoles, roleOf } from './roles';
+import { DEFAULT_EFFORTS, DEFAULT_MODELS, normalizeRoles, roleOf, thinkingRoom } from './roles';
 import type { Effort, ModelInfo, ModelRole } from './roles';
 import type { ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
 import { LlmError } from './types';
@@ -99,14 +99,16 @@ class Gateway {
 
   async chat(req: Omit<ChatRequest, 'model' | 'maxTokens' | 'effort'> & Partial<Pick<ChatRequest, 'model' | 'maxTokens' | 'effort'>>, hooks?: StreamHooks): Promise<ChatResult> {
     const role = roleOf(req.purpose, req.role);
+    const effort = req.effort ?? this.effortFor(role);
     const full: ChatRequest = {
-      role,
-      model: req.model ?? this.modelFor(role),
-      maxTokens: req.maxTokens ?? this.settings.maxTokens,
-      effort: req.effort ?? this.effortFor(role),
       showThinking: req.purpose === 'chat' ? !!this.settings.showThinking : false,
       web: req.purpose === 'chat' && !!this.settings.web && this.settings.tools !== false,
       ...req,
+      role,
+      model: req.model ?? this.modelFor(role),
+      effort,
+      // 调用方的 maxTokens 是正文预算，思考另算，不然思考深度一高正文就被截
+      maxTokens: (req.maxTokens ?? this.settings.maxTokens) + thinkingRoom(effort),
     };
     if (this.settings.preview) {
       log.info('llm', `预览：${full.purpose} 请求等你确认（${full.model}）`, { conversationId: full.conversationId });
