@@ -259,7 +259,7 @@
     {#each quick as q (q.label)}<button onclick={() => advance(q.ts)}>{q.label}</button>{/each}
     {#if nextEvent}<button onclick={() => advance(nextEvent!.start)}>到「{nextEvent.title}」{clock.formatShort(nextEvent.start, character.value?.timeZone)}</button>{/if}
   </div>
-  <List footer={`这局现在是 ${clock.format(storyNow(), character.value?.timeZone)}。推进后会先整理记忆，插一条旁白，他接着那个时间点说话。想让他定住不走，去他的主页把这局停表。`}>
+  <List footer={`这局现在是 ${clock.format(storyNow(), character.value?.timeZone)}。推进后会先整理记忆，他把这段时间过完，再插一条旁白；他不会马上开口，你下一条消息发出去他才接着那个时间点说话。想让他定住不走，去他的主页把这局停表。`}>
     <Field label="来到" type="datetime-local" bind:value={timeWhen} />
     <Field multiline rows={2} bind:value={timeNote} placeholder="这段时间发生了什么，可选" />
   </List>

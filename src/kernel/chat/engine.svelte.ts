@@ -63,7 +63,10 @@ class ChatEngine {
   async deleteMessage(id: string) { await db().messages.delete(id); }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
-  /** 推进剧情时间到 toTs（剧情时刻）：整理记忆，拨时钟，写一条旁白，然后让角色接着说 */
+  /**
+   * 推进剧情时间到 toTs（剧情时刻）：整理记忆，拨时钟，他把这段时间过完（补发），写一条旁白。
+   * 不让他马上开口：旁白存成用户侧的一条，你下一条消息发出去时和它合成一轮一起给模型（拼装时连着的用户消息会并成一条）。
+   */
   async advanceTime(conversationId: string, toTs: number, note?: string) {
     if (this.live[conversationId]) return;
     const conv = await db().conversations.get(conversationId);
@@ -87,7 +90,6 @@ class ChatEngine {
     // 跳过的时间是两个人各自照常过的，不是「对方消失了」：同学照常上课碰面，没特别的事
     const passed = toTs - fromTs >= 3600_000 ? `这${elapsedText(toTs - fromTs)}你们各自照常过，按你们的关系该见面就见了面，${note ? '除了上面说的' : ''}没发生特别的事，别当成一直没见到对方。` : '';
     await repo.addMessage(conversationId, 'user', `（时间来到：${clock.format(toTs, character?.timeZone)}${note ? '。' + note : ''}。${passed}之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, storyTs: toTs });
-    await this.runTurn(conversationId);
   }
 
   /** 手动触发一次合并（设置或角色页用） */
