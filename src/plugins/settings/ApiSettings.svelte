@@ -15,6 +15,8 @@
   let testing = $state(false);
   let testResult = $state('');
   const modelLabel = (id: string) => llm.models.find((m) => m.id === id)?.label ?? id;
+  const caps = [2048, 4096, 8192, 16384, 32768];
+  const k = (n: number) => `${n / 1024}k`;
   async function test() {
     testing = true; testResult = '';
     try { await llm.save({ apiKey: key }); testResult = '连接正常：' + (await llm.ping()); }
@@ -37,6 +39,14 @@
   {#each ROLES as r (r.id)}
     <Cell title={r.label} value={modelLabel(llm.modelFor(r.id))} subtitle={`思考深度 ${effortLabel(llm.effortFor(r.id))}`} chevron onclick={() => nav.push('settings', 'models', { role: r.id })} />
   {/each}
+</List>
+<SectionTitle text="正文上限" />
+<List footer="一次回复最多写多少 token，思考另外加。这是上限不是花费，钱按实际写了多少算；设小了只会把长回复、长日记截断。货架这类自己要得更多的不受它限制。">
+  <div class="seg">
+    {#each caps as c (c)}
+      <button class:on={llm.settings.maxTokens === c} onclick={() => llm.save({ maxTokens: c })}>{k(c)}</button>
+    {/each}
+  </div>
 </List>
 
 <SectionTitle text="安全" />
@@ -77,4 +87,7 @@
 <style>
   .result { margin: 8px 32px 0; font-size: 13px; color: var(--green); }
   .result.bad { color: var(--red); }
+  .seg { display: flex; gap: 4px; padding: 8px; background: var(--bg-surface); }
+  .seg button { flex: 1; padding: 8px; border-radius: 8px; font-size: 15px; color: var(--label); background: var(--fill-2); }
+  .seg button.on { background: var(--tint); color: var(--tint-fg); font-weight: 600; }
 </style>
