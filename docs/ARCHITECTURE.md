@@ -264,6 +264,7 @@ Gemini、OpenAI 兼容适配器：只实现 `chat` 和流式，其他能力标 f
   5. 存档状态 CampaignState
   6. 世界书目录（title + summary，带覆盖标注）
   7. 近期要事（importance=3 的情节记忆，最近 10 条）
+  7b. 他的笔记 /memories 正文（memory 工具维护的文件，单文件 1500 字、总共 4000 字以内，超了截断并提示用工具看全文。放这里是因为他几乎每轮都要看，进 system 走缓存比每轮多一次 view 调用便宜；他写笔记时 system 变一次、前缀重写一次，和 state_update 改状态是同一回事）
   8. 各插件的 promptContributors（固定部分）
 [messages]
   历史消息（最近 N 条原文，更早的由压缩块代替）  ← 缓存断点 2

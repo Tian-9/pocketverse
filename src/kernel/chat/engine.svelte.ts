@@ -7,7 +7,7 @@ import { kernelTools, shareTool, attachedTool, attachedPrompt, toolLabel } from 
 import { catchup, elapsedText } from '../catchup/catchup';
 import { wakes, wakeNotice } from '../catchup/wake';
 import type { ToolContext } from '../context/tools';
-import { memoryIndex } from '../context/memfs';
+import { memoryNotes } from '../context/memfs';
 import { clock } from '../context/clock';
 import { runToolLoop, type LoopTool } from './loop';
 import { extractTags } from './tags';
@@ -110,12 +110,12 @@ class ChatEngine {
     const world = campaign && (await db().worlds.get(campaign.worldId));
     if (!conv || !character || !campaign || !world) throw new Error('会话、角色或世界不存在');
 
-    const [history, lore, overlays, memories, memIndex] = await Promise.all([
+    const [history, lore, overlays, memories, notes] = await Promise.all([
       repo.messagesOf(conversationId),
       db().lore.filter((e) => loreApplies(e, world.id, [character.id])).toArray(),
       db().overlays.where('campaignId').equals(campaign.id).toArray(),
       db().memories.where('campaignId').equals(campaign.id).filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
-      memoryIndex(campaign.id),
+      memoryNotes(campaign.id),
     ]);
 
     const storyNow = clock.now(campaign.clock);
@@ -154,7 +154,7 @@ class ChatEngine {
 
     const { system, messages, l1Hits } = assemble({
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
-      lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryIndex: memIndex, history,
+      lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryNotes: notes, history,
       pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
       now: new Date(storyNow), story: !clock.aligned(campaign.clock),
     });

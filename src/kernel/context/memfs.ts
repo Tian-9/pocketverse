@@ -74,9 +74,22 @@ export async function runMemoryCommand(campaignId: string, cmd: MemCommand): Pro
   }
 }
 
-/** 给 L0 用：列出记忆目录里的文件名和首行，让模型知道有什么可以看。 */
-export async function memoryIndex(campaignId: string): Promise<string> {
-  const files = await db().memfs.where('campaignId').equals(campaignId).toArray();
+/**
+ * 给 L0 用：笔记正文直接进 system（缓存的），模型不用每轮 view 一遍。
+ * 单个文件超过 perFile 字截断、总量超过 total 字之后只列文件名，都提示用 memory 工具看全文。
+ */
+export async function memoryNotes(campaignId: string, { perFile = 1500, total = 4000 } = {}): Promise<string> {
+  const files = (await db().memfs.where('campaignId').equals(campaignId).toArray()).sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
-  return files.sort((a, b) => a.path.localeCompare(b.path)).map((f) => `- ${f.path}：${f.content.split('\n')[0]?.slice(0, 60) ?? ''}`).join('\n');
+  const out: string[] = [];
+  let used = 0;
+  for (const f of files) {
+    const text = f.content.trim();
+    if (used >= total) { out.push(`## ${f.path}\n（${text.length} 字，没放下，用 memory 工具 view 看）`); continue; }
+    const limit = Math.min(perFile, total - used);
+    const body = text.length > limit ? text.slice(0, limit) + `\n……（还有 ${text.length - limit} 字，用 memory 工具 view 看全文）` : text;
+    used += Math.min(text.length, limit);
+    out.push(`## ${f.path}\n${body || '（空）'}`);
+  }
+  return out.join('\n\n');
 }

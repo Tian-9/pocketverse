@@ -16,8 +16,8 @@ export interface AssembleInput {
   overlays: LoreOverlay[];
   /** 近期要事（importance 高的情节记忆，已按时间排序） */
   highlights: EpisodicMemory[];
-  /** memory 工具目录（空字符串表示没有） */
-  memoryIndex?: string;
+  /** /memories 笔记正文（memfs.memoryNotes 拼好的，空字符串表示没有） */
+  memoryNotes?: string;
   history: Message[];
   /** 本轮用户输入；为空表示让角色接着说（重新生成） */
   userText?: string;
@@ -61,7 +61,7 @@ const TOOL_RULES = [
   '- 想不起来以前发生过什么时用 memory_search 或 memory_recent。',
   '- 关系、情绪、地点或当前事实发生明确变化时，用 state_update 记下来。对话里明确过了一段时间（说了「明早见」然后对方接着说）就把 advance 一起填上，把时间往前拨。',
   '- 剧情让世界本身发生了变化（某个地方毁了、某条规则被打破）时，用 overlay_write 记下来，不要假装世界书没变。',
-  '- /memories 是你的笔记本，用 memory 工具维护。只记长期有用的事：对方的偏好、约定、重要的身份信息、你们关系的里程碑。不要记聊天进度和流水账，对话记录本来就在。目录每轮都给你了，只在确实相关时才打开文件，不要每轮都翻。',
+  '- /memories 是你的笔记本，用 memory 工具维护。只记长期有用的事：对方的偏好、约定、重要的身份信息、你们关系的里程碑。不要记聊天进度和流水账，对话记录本来就在。笔记正文每轮都在上面了，不用再 view；只在要记新东西或改东西时才用 memory 工具写。',
   '查完资料后正常回复，不要向用户复述你查了什么。',
 ].join('\n');
 const SHARE_RULE = '- 想给对方分享一首歌、一部电影之类的东西时用 share 工具，它会查真实资料返回给你，并把卡片发给对方。引用歌词或台词只能引工具返回的原句，查不到就不引，不要编。';
@@ -103,7 +103,7 @@ function stateText(c: Campaign, chars: Character[]): string {
 }
 
 /**
- * 拼装请求。顺序固定：规则 → 用户 → 世界 → 角色 → 状态 → 世界书目录 → 近期要事 → 记忆目录 → 插件稳定部分。
+ * 拼装请求。顺序固定：规则 → 用户 → 世界 → 角色 → 状态 → 世界书目录 → 近期要事 → 笔记正文 → 插件稳定部分。
  * 缓存断点两处：system 末尾、倒数第二条消息末尾。易变内容只进最后一条用户消息，排在用户的话前面。
  */
 export function assemble(input: AssembleInput): { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[] } {
@@ -125,7 +125,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
     constant.length ? section('世界书（常驻）', constant.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
     section('世界书目录', loreDirectory(loreOnly.filter((e) => !e.constant), input.overlays)),
     input.highlights.length ? section('近期要事', input.highlights.map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n')) : null,
-    section('你的记忆目录 /memories', input.memoryIndex),
+    section('你的笔记 /memories', input.memoryNotes),
     ...(input.pluginStable ?? []).map((t) => (t.trim() ? ({ type: 'text', text: t } as TextBlock) : null)),
   ].filter((b): b is TextBlock => !!b);
   system[system.length - 1]!.cache = true;
