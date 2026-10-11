@@ -46,7 +46,9 @@ export const calendarApi = {
 
   /** [from, to) 之间的，按开始时间排 */
   async between(campaignId: string, from: number, to: number): Promise<CalendarEvent[]> {
-    return (await this.events().where('campaignId').equals(campaignId).filter((e) => e.start >= from && e.start < to).toArray()).sort((a, b) => a.start - b.start);
+    // 同一时刻：他的在前，再按 id，顺序稳定（约好的事两人各一条，start 一样）
+    return (await this.events().where('campaignId').equals(campaignId).filter((e) => e.start >= from && e.start < to).toArray())
+      .sort((a, b) => a.start - b.start || Number(a.owner === 'user') - Number(b.owner === 'user') || a.id.localeCompare(b.id));
   },
   async onDay(campaignId: string, key: string) { const [s, e] = dayRange(key); return this.between(campaignId, s, e); },
   async today(campaignId: string, now: number) { return this.onDay(campaignId, clock.dateKey(now)); },
