@@ -89,10 +89,10 @@
 
   // ---- 编辑：状态 ----
   let editingState = $state(false);
-  let st = $state({ location: '', relation: '', mood: '', facts: '', me: '' });
+  let st = $state({ location: '', relation: '', mood: '', facts: '', me: '', nudge: '' });
   function openState() {
     const cp = campaign.value; const s = cp?.state; if (!cp || !s) return;
-    st = { location: s.location ?? '', relation: s.relations[id] ?? '', mood: s.mood[id] ?? '', facts: s.facts.join('\n'), me: cp.userPersona ?? '' };
+    st = { location: s.location ?? '', relation: s.relations[id] ?? '', mood: s.mood[id] ?? '', facts: s.facts.join('\n'), me: cp.userPersona ?? '', nudge: s.nudge?.[id] ?? '' };
     editingState = true;
   }
   async function saveState() {
@@ -102,6 +102,8 @@
     s.location = st.location.trim() || undefined;
     if (st.relation.trim()) s.relations[id] = st.relation.trim(); else delete s.relations[id];
     if (st.mood.trim()) s.mood[id] = st.mood.trim(); else delete s.mood[id];
+    s.nudge = { ...(base.nudge ?? {}) };
+    if (st.nudge.trim()) s.nudge[id] = st.nudge.trim().slice(0, 20); else delete s.nudge[id];
     s.facts = st.facts.split('\n').map((f) => f.trim()).filter(Boolean).slice(0, 20);
     // 「我在这局里是谁」也按存档存：修仙世界里是师弟，校园里是同桌
     await db().campaigns.update(cp.id, { state: s, userPersona: st.me.trim().slice(0, 300) || undefined }); editingState = false;
@@ -139,6 +141,7 @@
     <Cell title="状态" subtitle={s.mood[id] || '—'} onclick={openState} />
     <Cell title="地点" value={s.location || '—'} onclick={openState} />
     <Cell title="和你" subtitle={s.relations[id] || '—'} onclick={openState} />
+    <Cell title="拍一拍" value={s.nudge?.[id] ? '拍了拍他' + s.nudge[id] : '—'} onclick={openState} />
     <Cell title="你在这局里" subtitle={cp.userPersona || '—'} onclick={openState} />
     {#each s.facts as f, i (i)}<Cell title={f} onclick={openState} />{/each}
   </List>
@@ -221,6 +224,7 @@
     <Field label="地点" bind:value={st.location} placeholder="可空" />
     <Field multiline rows={2} bind:value={st.mood} placeholder="状态：他现在的情绪，一句话" />
     <Field multiline rows={2} bind:value={st.relation} placeholder="和你：他和你现在的关系，一句话" />
+    <Field label="拍一拍" bind:value={st.nudge} placeholder="后缀，如「的小脑袋」；他自己也会定" />
     <Field multiline rows={2} bind:value={st.me} placeholder="你在这局里是谁：一两句话，如「刚入门的师弟」。空着就只用设置里的用户画像" />
     <Field multiline rows={5} bind:value={st.facts} placeholder="当前事实，一行一条" />
   </List>

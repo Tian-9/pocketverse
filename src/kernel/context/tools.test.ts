@@ -89,3 +89,26 @@ describe('state_update tool', () => {
     expect(clock.now(c2.clock) - clock.now(c1.clock)).toBeLessThanOrEqual(MAX_ADVANCE_MINUTES * 60_000 + 1000);
   });
 });
+
+describe('nudge', () => {
+  it('state_update stores the character\'s nudge suffix per character', async () => {
+    const t = kernelTools.find((x) => x.spec.name === 'state_update')!;
+    await db().campaigns.put({ id: 'cp-nudge', worldId: 'w', characterIds: ['c1'], name: 'x', createdAt: 0, lastPlayedAt: 0, state: { relations: {}, mood: {}, facts: [] } });
+    const campaign = (await db().campaigns.get('cp-nudge'))!;
+    const ctx = { campaign, characters: [{ id: 'c1', name: '阿一' }] as any, lore: [], overlays: [], cards: [] as any[], attached: [] as any[], events: [] as any[] };
+    await t.handler({ nudge: ' 的小脑袋 ' }, ctx as any);
+    expect((await db().campaigns.get('cp-nudge'))!.state.nudge).toEqual({ c1: '的小脑袋' });
+  });
+
+  it('nudge tool queues an event narration: a line for the user, another for the model', async () => {
+    const t = kernelTools.find((x) => x.spec.name === 'nudge')!;
+    const campaign = (await db().campaigns.get('cp-nudge'))!;
+    const ctx = { campaign, characters: [{ id: 'c1', name: '阿一' }] as any, lore: [], overlays: [], cards: [] as any[], attached: [] as any[], events: [] as { text: string; modelText: string }[] };
+    await t.handler({ times: 3 }, ctx as any);
+    await t.handler({}, ctx as any);
+    expect(ctx.events).toEqual([
+      { text: '阿一拍了拍你，拍了 3 次', modelText: '（你拍了拍{{user}}，拍了 3 次）' },
+      { text: '阿一拍了拍你', modelText: '（你拍了拍{{user}}）' },
+    ]);
+  });
+});

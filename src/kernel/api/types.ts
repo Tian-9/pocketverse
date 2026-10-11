@@ -111,6 +111,8 @@ export interface OutgoingMessage {
   cardOnly?: boolean;
   /** 用户随卡片说的一句（像微信转发时的留言）：界面上卡片下面单独一个气泡，模型在 text 后面看到「并说：「…」」。由内核统一处理，面板组件只管收集 */
   note?: string;
+  /** 作为一行小灰字「事件」发出（撤回、拍一拍）：narration 是界面显示的那行，text 是给模型看的（可用 {{user}}）。有它就没有气泡和卡片 */
+  narration?: string;
 }
 
 export interface ComposerActionProps {

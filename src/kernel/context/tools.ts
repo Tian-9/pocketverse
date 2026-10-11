@@ -23,6 +23,8 @@ export interface ToolContext {
   cards: ShareCard[];
   /** 挂在这一轮上顺手处理的事（如回朋友圈评论），材料在最后一条用户消息里 */
   attached: AttachedTask[];
+  /** 本轮工具产生的「事件」旁白（拍一拍），引擎在回复前写成小灰字：text 给人看，modelText 给模型看（可用 {{user}}） */
+  events: { text: string; modelText: string }[];
 }
 export type ToolHandler = (input: any, ctx: ToolContext) => Promise<string>;
 export interface KernelTool { spec: ToolSpec; handler: ToolHandler; /** UI 状态文案 */ label: string }
@@ -100,6 +102,7 @@ export const kernelTools: KernelTool[] = [
         relation: { type: 'string', description: '你扮演的角色与用户现在的关系，一句话' },
         mood: { type: 'string', description: '你扮演的角色现在的情绪，一句话' },
         facts: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        nudge: { type: 'string', maxLength: 20, description: '你的拍一拍后缀：对方拍你时显示「拍了拍你 + 后缀」，比如「的小脑袋」「的肩膀」。想定或想换才传' },
       } },
     },
     async handler(input, ctx) {
@@ -109,6 +112,7 @@ export const kernelTools: KernelTool[] = [
       if (me && typeof input?.relation === 'string') s.relations[me] = input.relation.slice(0, 120);
       if (me && typeof input?.mood === 'string') s.mood[me] = input.mood.slice(0, 120);
       if (Array.isArray(input?.facts)) s.facts = input.facts.filter((f: unknown) => typeof f === 'string').map((f: string) => f.slice(0, 160)).slice(0, 20);
+      if (me && typeof input?.nudge === 'string') s.nudge = { ...(s.nudge ?? {}), [me]: input.nudge.trim().slice(0, 20) };
       const patch: Partial<Campaign> = { state: s };
       const minutes = typeof input?.advance === 'number' ? Math.min(Math.max(0, Math.floor(input.advance)), MAX_ADVANCE_MINUTES) : 0;
       if (minutes > 0) { patch.clock = clock.skipBy(ctx.campaign.clock, minutes * 60_000); ctx.campaign.clock = patch.clock; }
@@ -116,6 +120,20 @@ export const kernelTools: KernelTool[] = [
       ctx.campaign.state = s;
       bus.emit('memory.written', { kind: 'state', id: ctx.campaign.id });
       return minutes > 0 ? `已更新状态，时间来到 ${clock.format(clock.now(patch.clock), ctx.characters[0]?.timeZone)}。` : '已更新状态。';
+    },
+  },
+  {
+    label: '拍一拍',
+    spec: {
+      name: 'nudge',
+      description: '拍一拍对方（像微信的拍一拍）：一个轻轻的、不用说话的动作，提醒、撒娇、催、逗都行。对话里会出现一行「他拍了拍你」，然后你照常说话。别每轮都用。',
+      inputSchema: { type: 'object', properties: { times: { type: 'integer', minimum: 1, maximum: 5, description: '拍几下，默认 1' } } },
+    },
+    async handler(input, ctx) {
+      const n = Math.min(5, Math.max(1, Math.floor(Number(input?.times) || 1)));
+      const times = n > 1 ? `，拍了 ${n} 次` : '';
+      ctx.events.push({ text: `${ctx.characters[0]?.name ?? '他'}拍了拍你${times}`, modelText: `（你拍了拍{{user}}${times}）` });
+      return '拍了，对话里会出现这一行。接着说你的话就行，不用再描述这个动作。';
     },
   },
   {

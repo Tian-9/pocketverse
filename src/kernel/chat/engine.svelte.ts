@@ -61,10 +61,6 @@ class ChatEngine {
 
   stop(conversationId: string) { this.live[conversationId]?.abort.abort(); }
   async deleteMessage(id: string) { await db().messages.delete(id); }
-  /** 撤回：原消息原地改成一行小灰字，正文和卡片都不留；模型下一轮只看到「撤回了一条消息」（见 modelTextOf） */
-  async recallMessage(id: string) {
-    await db().messages.update(id, { content: [{ type: 'text', text: '你撤回了一条消息' }], meta: { narration: true, recalled: true } });
-  }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
   /** 推进剧情时间到 toTs（剧情时刻）：整理记忆，拨时钟，写一条旁白，然后让角色接着说 */
@@ -136,7 +132,7 @@ class ChatEngine {
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
     const attached = useTools && catchup.hasAttach() ? await catchup.collectAttached(campaign, character) : [];
     if (attached.length) pluginVolatile.push(attachedPrompt(attached));
-    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached };
+    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [] };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
     const pluginCards: MessageCard[] = [];
@@ -194,6 +190,8 @@ class ChatEngine {
       if (l1Hits.length) meta.lore = l1Hits;
       if (cards.length) meta.cards = cards;
       if (thinking) meta.thinking = thinking;
+      // 工具产生的事件旁白（他拍了拍你）：发生在回复之前，先写
+      for (const ev of tctx.events) await repo.addMessage(conversationId, 'assistant', ev.text, { meta: { narration: true, modelText: ev.modelText } });
       if (r.refusal) {
         await repo.addMessage(conversationId, 'system', `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）`);
       } else if (text || cards.length) {

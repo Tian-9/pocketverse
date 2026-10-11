@@ -32,6 +32,8 @@ export interface Character {
 export interface CampaignState {
   location?: string;
   relations: Record<string, string>; mood: Record<string, string>; facts: string[];
+  /** 每个角色的拍一拍后缀（像微信「拍了拍我的小脑袋」），他自己用 state_update 定 */
+  nudge?: Record<string, string>;
 }
 /** 存档时钟：这一局「现在几点」。见 context/clock.ts；没有＝和真实时间一样 */
 export interface CampaignClock {

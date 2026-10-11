@@ -98,6 +98,7 @@ function stateText(c: Campaign, chars: Character[]): string {
   if (s.location) parts.push(`地点：${s.location}`);
   for (const [id, v] of Object.entries(s.relations)) parts.push(`${name(id)} 与用户的关系：${v}`);
   for (const [id, v] of Object.entries(s.mood)) parts.push(`${name(id)} 现在的情绪：${v}`);
+  for (const [id, v] of Object.entries(s.nudge ?? {})) parts.push(`${name(id)} 的拍一拍后缀：${v}`);
   if (s.facts.length) parts.push('当前事实：\n' + s.facts.map((f) => `- ${f}`).join('\n'));
   return parts.join('\n');
 }

@@ -175,8 +175,9 @@ export function cardsOf(m: Message): MessageCard[] {
  * 用户从「+」面板发的 cardOnly 消息，text 本身就是给模型的描述，不再追加 alt。
  */
 export function modelTextOf(m: Message): string {
-  // 撤回：界面上是一行小灰字，模型只知道撤回了，看不到原文（{{user}} 在拼装时换成名字）
-  if (m.meta?.recalled) return '（{{user}}撤回了一条消息）';
+  // 事件旁白（撤回、拍一拍）：界面一行小灰字，模型看另一句（{{user}} 在拼装时换成名字）
+  if (typeof m.meta?.modelText === 'string') return m.meta.modelText;
+  if (m.meta?.recalled) return '（{{user}}撤回了一条消息）'; // 旧数据：长按撤回的那版
   const text = textOf(m).trim();
   const q = quoteOf(m);
   // 引用：在正文前写明引的是谁的哪句。引自己的是「自己之前的话」，引对方的是「你的话」，两个方向都成立

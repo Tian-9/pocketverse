@@ -144,6 +144,18 @@ describe('card alt in history', () => {
     expect(texts[2]).not.toContain('你撤回了');
     expect(texts[4]).toContain('（引用自己之前的话「知道了」）\n没事');
   });
+
+  it('event narrations show modelText to the model, with {{user}} expanded', () => {
+    const history: Message[] = [
+      { ...msg('user', '你撤回了 2 条消息', 1), meta: { narration: true, modelText: '（{{user}}撤回了 2 条消息，你看不到内容）' } },
+      { ...msg('assistant', '林晚秋拍了拍你', 2), meta: { narration: true, modelText: '（你拍了拍{{user}}）' } },
+    ];
+    const r = assemble({ ...base, history, userText: '哼' });
+    const texts = r.messages.map((m) => m.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n'));
+    expect(texts[0]).toBe('（我撤回了 2 条消息，你看不到内容）');
+    expect(texts[1]).toBe('（你拍了拍我）');
+    expect(texts.join()).not.toContain('林晚秋拍了拍你');
+  });
 });
 
 describe('assemble (story clock)', () => {

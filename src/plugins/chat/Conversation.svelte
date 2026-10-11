@@ -43,6 +43,8 @@
   async function sendOutgoing(a: Action, msg: OutgoingMessage) {
     active = null; panel = false;
     if (!llm.configured) { nav.push('settings', 'api'); return; }
+    // 事件（撤回、拍一拍）：一行小灰字，text 只给模型看
+    if (msg.narration) { await chat.send(id, msg.narration, { meta: { narration: true, modelText: msg.text } }); return; }
     const meta: Record<string, unknown> = {};
     if (msg.cards?.length) meta.cards = msg.cards.map((c): MessageCard => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {}, ...(c.alt ? { alt: c.alt } : {}) }));
     if (msg.cardOnly) meta.cardOnly = true;
@@ -130,9 +132,6 @@
     if (picked) quoting = { id: picked.id, role: picked.role, text: textOf(picked).trim().replace(/\s+/g, ' ').slice(0, 80) };
     picked = null; textarea?.focus();
   }
-  /** 只能撤回你自己的文字消息：卡片（红包、转账）钱已经动了，旁白没有撤回的意义 */
-  const canRecall = (m: Message) => m.role === 'user' && !m.meta?.narration && !cardsOf(m).length;
-  async function recallPicked() { if (picked) await chat.recallMessage(picked.id); picked = null; }
   /** 点头像进他的主页（角色插件的 profile 页） */
   function openProfile() { if (character.value) nav.push('characters', 'profile', { id: character.value.id }); }
   async function clearAll() {
@@ -271,7 +270,6 @@
   <List>
     <Cell title="复制" onclick={copyPicked} />
     {#if picked && textOf(picked).trim()}<Cell title="引用" onclick={quotePicked} />{/if}
-    {#if picked && canRecall(picked)}<Cell title="撤回" subtitle="他那边会变成「撤回了一条消息」，看不到内容" onclick={recallPicked} />{/if}
     <Cell title="删除" onclick={deletePicked} />
     <Cell title="取消" onclick={() => (picked = null)} />
   </List>
