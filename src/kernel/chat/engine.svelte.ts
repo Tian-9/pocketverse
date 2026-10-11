@@ -4,7 +4,7 @@ import { repo } from '../data/repo';
 import { loreApplies } from '../data/lore';
 import { assemble } from '../context/assemble';
 import { kernelTools, shareTool, attachedTool, attachedPrompt, toolLabel } from '../context/tools';
-import { catchup } from '../catchup/catchup';
+import { catchup, elapsedText } from '../catchup/catchup';
 import { wakes, wakeNotice } from '../catchup/wake';
 import type { ToolContext } from '../context/tools';
 import { memoryIndex } from '../context/memfs';
@@ -88,7 +88,9 @@ class ChatEngine {
       catch { /* 已记日志 */ }
       finally { delete this.live[conversationId]; }
     }
-    await repo.addMessage(conversationId, 'user', `（时间来到：${clock.format(toTs, character?.timeZone)}${note ? '。' + note : ''}。之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, storyTs: toTs });
+    // 跳过的时间是两个人各自照常过的，不是「对方消失了」：同学照常上课碰面，没特别的事
+    const passed = toTs - fromTs >= 3600_000 ? `这${elapsedText(toTs - fromTs)}你们各自照常过，按你们的关系该见面就见了面，${note ? '除了上面说的' : ''}没发生特别的事，别当成一直没见到对方。` : '';
+    await repo.addMessage(conversationId, 'user', `（时间来到：${clock.format(toTs, character?.timeZone)}${note ? '。' + note : ''}。${passed}之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, storyTs: toTs });
     await this.runTurn(conversationId);
   }
 

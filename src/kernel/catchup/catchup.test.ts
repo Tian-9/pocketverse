@@ -161,7 +161,8 @@ describe('catchup on the story clock', () => {
     await catchup.skipped('cs', story, story + 3 * D, now);
     expect(chat).toHaveBeenCalledTimes(1);
     const u = chat.mock.calls[0]![0].messages[0].content[0].text as string;
-    expect(u).toContain('过去了3 天');
+    expect(u).toContain('过去了3 天。这段时间你们各自照常过日子');
+    expect(u).not.toContain('对方离开了');
     expect(u).toContain('（剧情时间）');
     expect(seen[0]).toMatchObject({ tier: 'days', days: 3, from: story, to: story + 3 * D, now: story + 3 * D, skipped: true });
     const cp = (await db().campaigns.get('cs'))!;

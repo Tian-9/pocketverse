@@ -86,7 +86,7 @@ async function collectWrite(c: CatchupContext) {
   const m = await diaryApi.material(c.campaignId, c.characterId, date);
   if (!m) return null;
   if (!m.talked && !c.skipped) return null;
-  const gap = c.skipped && !m.talked ? `这段时间（从 ${clock.format(c.from, tz)} 到 ${clock.format(c.to, tz)}）你们没有说话，写你自己过的日子。` : '';
+  const gap = c.skipped && !m.talked ? `这段时间（从 ${clock.format(c.from, tz)} 到 ${clock.format(c.to, tz)}）你们没在手机上说话，但日子是照常过的，按你们的关系该见面就见了面；写你自己过的日子，别写成一直没见到对方。` : '';
   return {
     label: '日记',
     prompt: `补写昨天（${date}）的日记。${m.rules}${gap}不想写就 text 留空。\n${m.text}`,
