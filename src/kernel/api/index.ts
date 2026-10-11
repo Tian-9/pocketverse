@@ -12,6 +12,9 @@ export function definePlugin(manifest: PluginManifest): PluginManifest {
   for (const r of manifest.shares ?? []) {
     if (!/^[a-z][a-z0-9_-]*$/.test(r.type)) throw new Error(`插件 ${manifest.id} 的分享类型不合法: ${r.type}`);
   }
+  for (const n of Object.keys(manifest.services ?? {})) {
+    if (!/^[a-z][a-z0-9-]*$/.test(n)) throw new Error(`插件 ${manifest.id} 的服务名不合法: ${n}`);
+  }
   if (manifest.storage) {
     for (const t of Object.keys(manifest.storage.tables)) {
       if (!/^[a-z][a-z0-9_]*$/.test(t)) throw new Error(`插件 ${manifest.id} 的表名不合法: ${t}`);

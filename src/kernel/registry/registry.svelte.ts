@@ -43,6 +43,12 @@ class Registry {
     return this.plugins.find((p) => p.id === id);
   }
 
+  /** 已启用插件提供的服务；重名以先注册的为准 */
+  service<T = unknown>(name: string): T | undefined {
+    for (const p of this.plugins) if (this.isEnabled(p.id) && p.services && name in p.services) return p.services[name] as T;
+    return undefined;
+  }
+
   isEnabled(id: string) {
     const p = this.get(id);
     if (!p) return false;
@@ -127,6 +133,7 @@ function makeContext(id: string): PluginContext {
       },
     },
     data: dataView,
+    service: (name) => registry.service(name),
   };
 }
 

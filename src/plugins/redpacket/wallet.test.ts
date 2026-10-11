@@ -65,3 +65,20 @@ describe('transfers share the wallet with red packets', () => {
     expect(r).toContain('转不出');
   });
 });
+
+describe('wallet service for other plugins', () => {
+  it('charge refuses overspend without touching the balance; credit adds', async () => {
+    const { walletService } = await import('./index');
+    const cp = 'cp-svc';
+    expect(await walletService.balance(cp, 'user')).toBe(DEFAULT_WALLET);
+    expect(await walletService.charge(cp, 'user', DEFAULT_WALLET + 1, '买东西')).toBe(false);
+    expect(await walletService.balance(cp, 'user')).toBe(DEFAULT_WALLET);
+    expect(await walletService.charge(cp, 'user', 88, '买东西')).toBe(true);
+    expect(await walletService.balance(cp, 'user')).toBe(DEFAULT_WALLET - 88);
+    expect(await walletService.charge(cp, 'user', 0, '')).toBe(false);
+    expect(await walletService.charge(cp, 'user', -5, '')).toBe(false);
+    await walletService.credit(cp, me, 10, '退款');
+    expect(await walletService.balance(cp, me)).toBe(DEFAULT_CHAR_WALLET + 10);
+    expect(plugin.services?.wallet).toBe(walletService);
+  });
+});

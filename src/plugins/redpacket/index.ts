@@ -92,6 +92,34 @@ export const redpacketApi = {
   },
 };
 
+/**
+ * 给别的插件用的钱包服务：`ctx.service<WalletService>('wallet')`。这个类型只在这里，不进 $kernel/api，内核继续不认识钱。
+ * 调用方自己声明一个一样形状的最小接口。没有裸的 adjust：setBalance 会把负数截成 0，超支会悄悄清空钱包，所以扣钱只能走 charge。
+ */
+export interface WalletService {
+  /** 某一局里某人（'user' 或角色 id）的余额 */
+  balance(campaignId: string, ownerId: string): Promise<number>;
+  /** 扣钱。不够返回 false，一分不动 */
+  charge(campaignId: string, ownerId: string, amount: number, reason: string): Promise<boolean>;
+  /** 进账 */
+  credit(campaignId: string, ownerId: string, amount: number, reason: string): Promise<void>;
+}
+
+export const walletService: WalletService = {
+  balance: (campaignId, ownerId) => redpacketApi.wallet(campaignId, ownerId),
+  async charge(campaignId, ownerId, amount, _reason) {
+    const n = round(amount);
+    if (!(n > 0)) return false;
+    if ((await redpacketApi.wallet(campaignId, ownerId)) < n) return false;
+    await redpacketApi.adjust(campaignId, ownerId, -n);
+    return true;
+  },
+  async credit(campaignId, ownerId, amount, _reason) {
+    const n = round(amount);
+    if (n > 0) await redpacketApi.adjust(campaignId, ownerId, n);
+  },
+};
+
 export default definePlugin({
   id: 'redpacket',
   name: '钱包',
@@ -103,6 +131,7 @@ export default definePlugin({
     { id: 'transfer', label: '转账', icon: { paths: icons.transfer, background: gradients.orange }, component: SendTransfer },
   ],
   profileSections: [{ id: 'wallet', label: '钱包', component: WalletSection }],
+  services: { wallet: walletService },
   tools: [{
     name: 'redpacket_send',
     label: '发红包',

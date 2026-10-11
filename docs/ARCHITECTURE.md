@@ -67,7 +67,7 @@ pocketverse/
   public/                图标、manifest
 ```
 
-规则：`plugins/*` 只能 import `kernel/api`（公开接口），不能 import 内核内部模块，也不能互相 import。插件间通信走事件总线或注册表。
+规则：`plugins/*` 只能 import `kernel/api`（公开接口），不能 import 内核内部模块，也不能互相 import。插件间通信走事件总线（通知）或 `services`（要返回值的，如扣钱）。
 
 ## 4. 核心数据模型
 
@@ -364,6 +364,7 @@ export default definePlugin({
   catchup?: CatchupContributor[],             // 补发登记：离开一段时间回来，内核按档位统一调模型
   composerActions?: ComposerAction[],         // 聊天输入框「+」面板里的项：用户主动发东西（歌、红包…）
   profileSections?: ProfileSection[],         // 角色主页上挂的段：按存档读自己的表（钱包余额、最近一条朋友圈…）
+  services?: Record<string, unknown>,         // 给别的插件用的服务，按名字取；插件不能互相 import，跨插件调东西只能走这里
   // 数据与事件
   storage?: { tables: Record<string, string> },
   onEvent?: Partial<EventHandlers>,
@@ -376,6 +377,8 @@ export default definePlugin({
 ```
 
 `PluginContext` 暴露：`table`（限本插件表）、`data`（内核数据的只读视图：当前存档、存档状态、世界、角色卡、情节记忆、条目目录，返回快照）、`settings`（本插件 KV）、`emit`、`navigate` / `back`、`notify`、`llm`（带配额记账，支持 `cheap` 和 `jsonSchema`）。
+
+`ctx.service<T>(name)` 取别的插件登记的服务，提供它的插件没开就是 `undefined`，调用方要能退化（商店没钱包就只能看不能买）。服务的形状只写在提供方的 `index.ts` 里，不进 `$kernel/api`：内核不认识钱包是什么，调用方自己声明一个一样形状的最小接口。第一个服务是钱包插件的 `wallet`（`balance` / `charge` / `credit`，`charge` 不够钱返回 false、一分不动，不暴露裸的加减）。
 
 `$kernel/api` 另外导出界面要用的 `live`（响应式查询）和 `nav`（只有 `push` / `pop` / `home`）。插件读内核数据只有 `ctx.data` 一条路；它没有的东西先加到它上面，不要去 import `storage/db`。
 

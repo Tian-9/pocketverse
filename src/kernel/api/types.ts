@@ -32,6 +32,11 @@ export interface PluginManifest {
   composerActions?: ComposerAction[];
   /** 角色主页上挂的段（钱包余额、最近一条朋友圈…）：按存档读自己的表 */
   profileSections?: ProfileSection[];
+  /**
+   * 给别的插件用的服务，按名字取（`ctx.service('wallet')`）。插件不能互相 import，跨插件要调东西只能走这里。
+   * 形状由提供方在自己的 index.ts 里写注释说明，不进 $kernel/api：内核不认识服务的内容。
+   */
+  services?: Record<string, unknown>;
   /** 自有数据表：表名 -> Dexie schema 字符串，内核会加 p_<id>_ 前缀 */
   storage?: { tables: Record<string, string> };
   /** 事件订阅 */
@@ -232,6 +237,8 @@ export interface PluginContext {
   };
   /** 内核数据的只读视图：存档、世界、角色、记忆、条目目录。插件读这些一律走这里，不直接碰库 */
   data: DataView;
+  /** 别的插件提供的服务；提供它的插件没开就是 undefined，调用方要能退化 */
+  service<T = unknown>(name: string): T | undefined;
 }
 
 /**
