@@ -239,7 +239,9 @@ interface LlmProvider {
 Claude 适配器要做的事：
 
 - 浏览器直连：SDK 开 `dangerouslyAllowBrowser`，Key 存本地（可选加 PIN 加密）。
-- 默认模型 `claude-opus-5-5`，adaptive thinking，效果用 `output_config.effort` 控（默认 `medium`，用户可调）。流式输出。
+- **模型分三档**（`llm/roles.ts`）：请求按用途归档，每档在设置里选一个模型和一个思考深度。`chat` 对话档（`chat`、`catchup`、插件默认调用；默认 Opus 5.5 / medium）吃缓存，贵模型命中缓存可能比便宜模型没命中还便宜；`consolidate` 整理档（记忆合并；默认 Haiku 5.5 / low）和 `bulk` 批量档（插件 `cheap: true`：论坛路人、货架、搜索、日程；默认 Haiku 5.5 / low）都是一次性输入。网关按 `req.role ?? roleOf(purpose)` 填 `model` 和 `effort`，调用方不写死模型名，也不写死 effort（显式给 `effort` 才覆盖档位设置）。模型升级只改 `DEFAULT_MODELS`。老设置的单个 `model` / `effort` 迁移成对话档。
+- 模型列表从 API 拉（`client.models.list()`，只有 id 和名字），存 KV，拉不到用 `pricing.ts` 的内置表兜底。价格 API 不给，`PRICES` 表继续维护，只用来记账；表里没有的模型照样能选，标「价格未知」，用量按 $0 记。
+- adaptive thinking，效果用 `output_config.effort` 控。流式输出。
 - **缓存**：`tools → system → messages` 顺序固定。断点两处：system 末尾（L0），倒数第二条消息末尾。时间戳、L1 命中、随机内容一律放在最后一条用户消息里，绝不进 system。
 - **工具循环**：最多 N 轮（默认 4），每轮发 `llm.turn.tool` 事件给 UI 显示"正在翻日记"之类的状态。工具结果带 `is_error` 返回，不吞异常。
 - **上下文编辑**：开 `clear_tool_uses`，旧的工具结果自动清掉，历史不被查过的世界书撑肥。
@@ -295,7 +297,7 @@ L2 工具（内核提供）：
 写回（消息驱动 + 定时）：
 
 - 每轮结束：若模型调过 `state_update` / `overlay_write` / memory 工具，直接落库。
-- 每 N 轮（默认 12）或切出 App 时：用 `claude-haiku-5-5` 跑一次合并，输入是上次合并后的消息，输出结构化 JSON：新增情节记忆（带 importance）、状态变化、世界覆盖候选。覆盖候选默认需要用户确认（通知条一键采纳），避免模型瞎改世界。
+- 每 N 轮（默认 12）或切出 App 时：用整理档模型（默认 Haiku 5.5）跑一次合并，输入是上次合并后的消息，输出结构化 JSON：新增情节记忆（带 importance）、状态变化、世界覆盖候选。覆盖候选默认需要用户确认（通知条一键采纳），避免模型瞎改世界。
 - 情节记忆超过 200 条时，对 importance=1 的做二次合并（十条并一条）。
 
 **尾部指令**：`position: 'tail'` 的常驻风格条目不进 system，放在最后一条用户消息里、时间行之前。模型对最后几百字最敏感，管输出格式和口吻放这里。
@@ -402,7 +404,7 @@ export default definePlugin({
 })
 ```
 
-`PluginContext` 暴露：`table`（限本插件表）、`data`（内核数据的只读视图：当前存档、存档状态、世界、角色卡、情节记忆、条目目录，返回快照）、`settings`（本插件 KV）、`emit`、`navigate` / `back`、`notify`、`llm`（带配额记账，支持 `cheap` 和 `jsonSchema`）。
+`PluginContext` 暴露：`table`（限本插件表）、`data`（内核数据的只读视图：当前存档、存档状态、世界、角色卡、情节记忆、条目目录，返回快照）、`settings`（本插件 KV）、`emit`、`navigate` / `back`、`notify`、`llm`（带配额记账，`cheap: true` 走批量档，否则走对话档，模型和思考深度都按档位设置来；支持 `jsonSchema`）。
 
 `ctx.service<T>(name)` 取别的插件登记的服务，提供它的插件没开就是 `undefined`，调用方要能退化（商店没钱包就只能看不能买）。服务的形状只写在提供方的 `index.ts` 里，不进 `$kernel/api`：内核不认识钱包是什么，调用方自己声明一个一样形状的最小接口。第一个服务是钱包插件的 `wallet`（`balance` / `charge` / `credit`，`charge` 不够钱返回 false、一分不动，不暴露裸的加减）。
 

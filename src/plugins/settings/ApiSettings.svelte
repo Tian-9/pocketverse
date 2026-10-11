@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { NavBar, List, Cell, Field, SectionTitle, Toggle, Glyph, PlacePicker, icons, live, places } from '$kernel/api';
+  import { NavBar, List, Cell, Field, SectionTitle, Toggle, PlacePicker, icons, live, places } from '$kernel/api';
   import type { Place } from '$kernel/api';
+  import { nav } from '$kernel/nav/nav.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
-  import { MODELS } from '$kernel/llm/pricing';
+  import { ROLES, effortLabel } from '$kernel/llm/roles';
   import { chat } from '$kernel/chat/engine.svelte';
 
   let key = $state(llm.settings.apiKey);
@@ -13,9 +14,7 @@
   const pickPlace = (p: Place | null) => { if (p) places.setUser(p); };
   let testing = $state(false);
   let testResult = $state('');
-  const efforts: { id: typeof llm.settings.effort; label: string }[] = [
-    { id: 'low', label: '低' }, { id: 'medium', label: '中' }, { id: 'high', label: '高' }, { id: 'xhigh', label: '很高' },
-  ];
+  const modelLabel = (id: string) => llm.models.find((m) => m.id === id)?.label ?? id;
   async function test() {
     testing = true; testResult = '';
     try { await llm.save({ apiKey: key }); testResult = '连接正常：' + (await llm.ping()); }
@@ -34,20 +33,10 @@
 {#if testResult}<p class="result" class:bad={!testResult.startsWith('连接正常')}>{testResult}</p>{/if}
 
 <SectionTitle text="模型" />
-<List>
-  {#each MODELS as m (m.id)}
-    <Cell title={m.label} subtitle={m.note} onclick={() => llm.save({ model: m.id })}>
-      {#snippet right()}{#if llm.settings.model === m.id}<Glyph paths={icons.check} size={20} color="var(--tint)" width={2.6} />{/if}{/snippet}
-    </Cell>
+<List footer="按用途分三档，每档选模型和思考深度。对话吃缓存，贵模型命中缓存可能比便宜模型没命中还便宜；整理和批量都是一次性输入，便宜的看效果选。">
+  {#each ROLES as r (r.id)}
+    <Cell title={r.label} value={modelLabel(llm.modelFor(r.id))} subtitle={`思考深度 ${effortLabel(llm.effortFor(r.id))}`} chevron onclick={() => nav.push('settings', 'models', { role: r.id })} />
   {/each}
-</List>
-<SectionTitle text="思考深度" />
-<List footer="越高回复越慢也越贵。聊天用中就够，复杂剧情再调高。">
-  <div class="seg">
-    {#each efforts as e (e.id)}
-      <button class:on={llm.settings.effort === e.id} onclick={() => llm.save({ effort: e.id })}>{e.label}</button>
-    {/each}
-  </div>
 </List>
 
 <SectionTitle text="安全" />
@@ -88,7 +77,4 @@
 <style>
   .result { margin: 8px 32px 0; font-size: 13px; color: var(--green); }
   .result.bad { color: var(--red); }
-  .seg { display: flex; gap: 4px; padding: 8px; background: var(--bg-surface); }
-  .seg button { flex: 1; padding: 8px; border-radius: 8px; font-size: 15px; color: var(--label); background: var(--fill-2); }
-  .seg button.on { background: var(--tint); color: var(--tint-fg); font-weight: 600; }
 </style>

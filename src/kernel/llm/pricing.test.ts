@@ -20,3 +20,12 @@ describe('web search pricing', () => {
     expect(costUsd('nope', { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, webSearches: 2 })).toBeCloseTo(0.02, 6);
   });
 });
+
+describe('priceNote', () => {
+  it('formats known prices and flags unknown models', async () => {
+    const { priceNote } = await import('./pricing');
+    expect(priceNote('claude-opus-5-5')).toBe('输入 $4 / 输出 $20 每百万 token');
+    expect(priceNote('claude-haiku-5-5')).toBe('输入 $0.1 / 输出 $0.5 每百万 token');
+    expect(priceNote('claude-next')).toContain('价格未知');
+  });
+});

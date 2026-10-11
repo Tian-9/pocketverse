@@ -20,6 +20,7 @@
 - 用户主动发的东西（歌、红包…）走「+」面板 `composerActions`，产出 `OutgoingMessage`；插件工具往回复里放卡片用 `ctx.addCard`，不要新造消息类型。
 - 插件只能 import `$kernel/api`，不能 import 内核内部模块或其他插件；跨插件跳转走 `nav.push(pluginId, screen, params)`。读存档、世界、角色、记忆、条目目录走 `ctx.data`（只读快照），界面响应式查询用 `$kernel/api` 的 `live`。`ctx.data` 缺什么就加到它上面，别绕过去读 `db()`。
 - 「现在几点」一律问存档时钟：插件用 `ctx.data.campaign().now` / `PromptContext.now`，内核用 `clock.now(cp.clock)`，不要 `Date.now()`（真实局两者一样，跳过时间或停表的局就不一样了）。
+- 调模型不要写死模型名和 effort：内核按 `purpose` 归档（`llm/roles.ts`），插件用 `cheap: true` 选批量档，用户在设置里按档位选模型和思考深度。
 - 模型写的 SVG 一律先 `sanitizeSvg`（`$kernel/api`）再存，显示只用 `Picture` 组件或分享卡 `cover`，不要把模型给的字符串内联进页面。
 - 开发机可能是 macOS（文件系统不区分大小写）：两个文件名不能只差大小写。`inspect.svelte.ts` 和 `Inspect.svelte` 曾经撞车，在 Mac 上直接 29 个类型错误。
 

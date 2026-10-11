@@ -1,3 +1,5 @@
+import type { Effort, ModelInfo, ModelRole } from './roles';
+
 export type Role = 'user' | 'assistant';
 
 export interface TextBlock { type: 'text'; text: string; cache?: boolean }
@@ -23,7 +25,9 @@ export interface ChatRequest {
   messages: ChatMessage[];
   tools?: ToolSpec[];
   maxTokens: number;
-  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  effort?: Effort;
+  /** 模型档位；不给就按 purpose 归档（见 roles.ts），网关据此填 model 和 effort */
+  role?: ModelRole;
   /** 结构化输出的 JSON schema */
   jsonSchema?: Record<string, unknown>;
   /** 记账用途标签，如 'chat' | 'consolidate' */
@@ -63,6 +67,8 @@ export interface LlmProvider {
   id: string;
   capabilities: { tools: boolean; caching: boolean; contextEditing: boolean; memoryTool: boolean };
   chat(req: ChatRequest, hooks?: StreamHooks): Promise<ChatResult>;
+  /** 可选：列出账号能用的模型（没有价格），最新的在前 */
+  listModels?(): Promise<ModelInfo[]>;
 }
 
 export class LlmError extends Error {

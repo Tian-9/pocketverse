@@ -113,7 +113,7 @@ export const calendarApi = {
           location: cp.state.location, mood: cp.state.mood[characterId], happenings: [...cp.state.facts, ...mems.map((m) => m.text)].slice(0, 10),
           days: days.map(dayLabel), existing,
         }),
-        cheap: true, effort: 'low', maxTokens: 2500, jsonSchema: planSchema(),
+        cheap: true, maxTokens: 2500, jsonSchema: planSchema(),
       });
       const items = parsePlan(text, days);
       const at = (date: string, time: string) => clock.zoned(date, time, tz);

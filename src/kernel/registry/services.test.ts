@@ -3,7 +3,6 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../storage/db', () => ({ db: () => ({}), pluginTable: (id: string, n: string) => `p_${id}_${n}` }));
 vi.mock('../data/view', () => ({ dataView: {} }));
 vi.mock('../llm/gateway.svelte', () => ({ llm: { configured: false, chat: async () => ({ text: '' }) } }));
-vi.mock('../memory/consolidate', () => ({ CONSOLIDATE_MODEL: 'x' }));
 vi.mock('../nav/nav.svelte', () => ({ nav: { push() {}, pop() {} } }));
 
 describe('plugin services', () => {

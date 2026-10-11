@@ -200,7 +200,7 @@ ${tier ? '你有一阵没碰手机了，现在拿起手机处理几件事。' : 
       properties: Object.fromEntries(items.map((i) => [i.key, i.item.schema])),
     };
     const r = await llm.chat({
-      purpose: 'catchup', effort: 'low', maxTokens: 1500, jsonSchema: schema,
+      purpose: 'catchup', maxTokens: 1500, jsonSchema: schema,
       system: [{ type: 'text', text: system }], messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
     });
     let out: Record<string, unknown>;

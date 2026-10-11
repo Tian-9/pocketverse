@@ -5,9 +5,8 @@
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
-  import { MODELS } from '$kernel/llm/pricing';
   import { chat } from '$kernel/chat/engine.svelte';
-  const modelLabel = $derived(MODELS.find((m) => m.id === llm.settings.model)?.label ?? llm.settings.model);
+  const modelLabel = $derived(llm.models.find((m) => m.id === llm.modelFor('chat'))?.label ?? llm.modelFor('chat'));
   const modeLabel = $derived({ system: '跟随系统', light: '浅色', dark: '深色' }[theme.mode]);
   const enabledCount = $derived(registry.plugins.filter((p) => !p.core && registry.isEnabled(p.id)).length);
 </script>

@@ -3,6 +3,7 @@ import type {
   BetaMessageParam, BetaTextBlockParam, BetaContentBlockParam, BetaToolUnion, BetaContentBlock, BetaTool,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Block, ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
+import type { ModelInfo } from './roles';
 import { LlmError } from './types';
 import { rawlog } from './rawlog.svelte';
 
@@ -21,6 +22,16 @@ export class ClaudeProvider implements LlmProvider {
 
   constructor(apiKey: string) {
     this.client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, timeout: 10 * 60 * 1000 });
+  }
+
+  /** 模型列表：只要还在服务的，按发布时间倒序。价格 API 不给，记账仍查本地表。 */
+  async listModels(): Promise<ModelInfo[]> {
+    const out: ModelInfo[] = [];
+    for await (const m of this.client.models.list({ limit: 100 })) {
+      if (m.lifecycle === 'retired') continue;
+      out.push({ id: m.id, label: m.display_name, createdAt: m.created_at });
+    }
+    return out.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   }
 
   async chat(req: ChatRequest, hooks: StreamHooks = {}): Promise<ChatResult> {

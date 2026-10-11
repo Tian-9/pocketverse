@@ -116,7 +116,7 @@ export const shopApi = {
           happenings: [...cp.state.facts, ...mems.map((m) => m.text)].slice(0, 10),
           existing: relevant.slice(0, 40).map((p) => p.name), categories, mode,
         }),
-        cheap: true, effort: 'low', maxTokens: mode.kind === 'shelf' ? 16000 : 6000, jsonSchema: catalogSchema(),
+        cheap: true, maxTokens: mode.kind === 'shelf' ? 16000 : 6000, jsonSchema: catalogSchema(),
       });
       const items = parseCatalog(text);
       const now = Date.now();

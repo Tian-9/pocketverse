@@ -3,7 +3,6 @@ import { bus } from '../bus/bus';
 import { db, pluginTable } from '../storage/db';
 import { dataView } from '../data/view';
 import { llm } from '../llm/gateway.svelte';
-import { CONSOLIDATE_MODEL } from '../memory/consolidate';
 import { nav } from '../nav/nav.svelte';
 
 export interface DockSlot { pluginId: string; shortcutId: string }
@@ -125,8 +124,8 @@ function makeContext(id: string): PluginContext {
         const r = await llm.chat({
           system: [{ type: 'text', text: req.system }],
           messages: [{ role: 'user', content: [{ type: 'text', text: req.user }] }],
-          purpose: `plugin:${id}`, maxTokens: req.maxTokens ?? 1024, effort: req.effort ?? 'low',
-          ...(req.cheap ? { model: CONSOLIDATE_MODEL } : {}),
+          purpose: `plugin:${id}`, maxTokens: req.maxTokens ?? 1024, role: req.cheap ? 'bulk' : 'chat',
+          ...(req.effort ? { effort: req.effort } : {}),
           ...(req.jsonSchema ? { jsonSchema: req.jsonSchema } : {}),
         });
         return { text: r.text };

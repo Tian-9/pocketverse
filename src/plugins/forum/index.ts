@@ -150,7 +150,7 @@ export const forumApi = {
             happenings: [...cp.state.facts, ...mems.map((m) => m.text)].slice(0, 10),
             recentTitles: all.slice(0, 20).map((t) => t.title), newPosts, waiting, nickname,
           }),
-          cheap: true, effort: 'low', maxTokens: 2500, jsonSchema: crowdSchema(newPosts > 0, waiting.length > 0),
+          cheap: true, maxTokens: 2500, jsonSchema: crowdSchema(newPosts > 0, waiting.length > 0),
         }));
       } catch (e) {
         if (!opts.threadId) await ctx.settings.set(`refreshedAt.${campaignId}`, claimed);

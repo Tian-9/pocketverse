@@ -1,4 +1,5 @@
 import type { Usage } from './types';
+import type { ModelInfo } from './roles';
 
 /** 美元 / 百万 token。缓存写按输入价 1.25 倍。 */
 export interface Price { input: number; output: number; cacheRead: number; cacheWrite: number }
@@ -11,12 +12,21 @@ export const PRICES: Record<string, Price> = {
   'claude-opus-4-8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 };
 
-export const MODELS: { id: string; label: string; note: string }[] = [
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: '默认。输入 $4 / 输出 $20 每百万 token' },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: '更快更便宜。$2 / $10' },
-  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: '最便宜。$0.1 / $0.5，用于后台合并' },
-  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: '最强。$10 / $50' },
+/** 内置模型表：API 拉不到列表时的兜底。 */
+export const MODELS: ModelInfo[] = [
+  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5' },
 ];
+
+/** 列表里显示的价格一句话：「输入 $4 / 输出 $20 每百万 token」，表里没有就「价格未知」。 */
+export function priceNote(model: string): string {
+  const p = PRICES[model];
+  if (!p) return '价格未知，用量按 $0 记';
+  const n = (x: number) => (x >= 1 ? String(x) : x.toFixed(2).replace(/0+$/, ''));
+  return `输入 $${n(p.input)} / 输出 $${n(p.output)} 每百万 token`;
+}
 
 /** 服务端联网搜索：每次 $0.01（$10 / 1000 次），另加搜到内容占的 token */
 export const WEB_SEARCH_USD = 0.01;

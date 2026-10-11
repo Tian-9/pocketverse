@@ -10,7 +10,6 @@ import { clock } from '../context/clock';
 import { log } from '../log/log';
 
 export const CONSOLIDATE_EVERY = 12; // 每多少条新的角色回复合并一次
-export const CONSOLIDATE_MODEL = 'claude-haiku-5-5';
 
 export const SCHEMA = {
   type: 'object',
@@ -111,7 +110,7 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
     const userName = await db().getKV('kernel.userName', '我');
     const prompt = { system: prompt0.system, user: expandMacros(prompt0.user, { user: userName, char: character.name }) };
     const r = await llm.chat({
-      model: CONSOLIDATE_MODEL, effort: 'low', maxTokens: 4000, purpose: 'consolidate', conversationId,
+      maxTokens: 4000, purpose: 'consolidate', conversationId,
       system: [{ type: 'text', text: prompt.system }], messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
       jsonSchema: SCHEMA,
     });

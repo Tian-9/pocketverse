@@ -69,7 +69,7 @@ export const diaryApi = {
     const { text } = await ctx.llm.chat({
       system: `你是「${m.ch.name}」。设定：${m.ch.core.slice(0, 800)}\n你在写自己的日记。${m.rules}不要提到"用户"这个词，称呼对方用你平时的叫法。只输出日记正文。`,
       user: `今天是 ${date}。\n${m.text}\n现在的情绪：${m.cp.state.mood[characterId] ?? '平常'}`,
-      maxTokens: 600, effort: 'low',
+      maxTokens: 600,
     });
     return this.save(campaignId, characterId, date, text, source);
   },

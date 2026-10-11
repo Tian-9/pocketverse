@@ -304,8 +304,9 @@ export interface PluginChatRequest {
   system: string;
   user: string;
   maxTokens?: number;
+  /** 不给就用该档位在设置里选的思考深度 */
   effort?: 'low' | 'medium' | 'high';
-  /** 用便宜模型 */
+  /** 走「批量」档（论坛路人、货架这类一次性结构化生成）；不给走「对话」档 */
   cheap?: boolean;
   /** 要结构化输出时给 JSON schema，返回的 text 就是一段合法 JSON */
   jsonSchema?: Record<string, unknown>;

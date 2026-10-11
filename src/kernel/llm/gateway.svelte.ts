@@ -2,7 +2,9 @@ import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { UsageRecord } from '../storage/db';
 import { ClaudeProvider } from './claude';
-import { costUsd } from './pricing';
+import { costUsd, MODELS } from './pricing';
+import { DEFAULT_EFFORTS, DEFAULT_MODELS, normalizeRoles, roleOf } from './roles';
+import type { Effort, ModelInfo, ModelRole } from './roles';
 import type { ChatRequest, ChatResult, LlmProvider, StreamHooks } from './types';
 import { LlmError } from './types';
 import { gate } from './gate.svelte';
@@ -10,8 +12,10 @@ import { log } from '../log/log';
 
 export interface LlmSettings {
   apiKey: string;
-  model: string;
-  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** 三档各用哪个模型：对话 / 整理 / 批量，见 roles.ts */
+  models: Record<ModelRole, string>;
+  /** 三档各自的思考深度 */
+  efforts: Record<ModelRole, Effort>;
   maxTokens: number;
   /** 允许模型用工具（世界书检索、记忆等） */
   tools?: boolean;
@@ -23,7 +27,10 @@ export interface LlmSettings {
   web?: boolean;
 }
 
-const DEFAULTS: LlmSettings = { apiKey: '', model: 'claude-opus-5-5', effort: 'medium', maxTokens: 4096, tools: true };
+const DEFAULTS: LlmSettings = { apiKey: '', models: { ...DEFAULT_MODELS }, efforts: { ...DEFAULT_EFFORTS }, maxTokens: 4096, tools: true };
+
+/** 老设置：只有一个 model / effort，迁移成对话档 */
+type StoredSettings = Partial<LlmSettings> & { model?: string; effort?: Effort };
 
 export interface UsageStats {
   todayUsd: number; monthUsd: number; requests: number;
@@ -35,11 +42,43 @@ export interface UsageStats {
 class Gateway {
   settings = $state<LlmSettings>({ ...DEFAULTS });
   stats = $state<UsageStats>({ todayUsd: 0, monthUsd: 0, requests: 0, hitRate: 0, webSearches: 0 });
+  /** 可选的模型：从 API 拉到的（存 KV），拉不到用内置表 */
+  models = $state<ModelInfo[]>(MODELS);
+  modelsFetchedAt = $state(0);
   private provider: LlmProvider | null = null;
 
   async boot() {
-    this.settings = { ...DEFAULTS, ...(await db().getKV<Partial<LlmSettings>>('kernel.llm', {})) };
+    const raw = await db().getKV<StoredSettings>('kernel.llm', {});
+    const { model: _m, effort: _e, ...rest } = raw;
+    void _m; void _e;
+    this.settings = { ...DEFAULTS, ...rest, ...normalizeRoles(raw) };
+    const cached = await db().getKV<{ at: number; models: ModelInfo[] } | null>('kernel.llm.models', null);
+    if (cached?.models?.length) { this.models = cached.models; this.modelsFetchedAt = cached.at; }
     await this.refreshStats();
+  }
+
+  /** 某一档的模型 / 思考深度 */
+  modelFor(role: ModelRole) { return this.settings.models[role] ?? DEFAULT_MODELS[role]; }
+  effortFor(role: ModelRole) { return this.settings.efforts[role] ?? DEFAULT_EFFORTS[role]; }
+
+  async setRole(role: ModelRole, patch: { model?: string; effort?: Effort }) {
+    await this.save({
+      ...(patch.model ? { models: { ...this.settings.models, [role]: patch.model } } : {}),
+      ...(patch.effort ? { efforts: { ...this.settings.efforts, [role]: patch.effort } } : {}),
+    });
+  }
+
+  /** 从 API 重新拉模型列表；拉不到就保留现有的并抛错给界面显示 */
+  async refreshModels(): Promise<ModelInfo[]> {
+    const p = this.p;
+    if (!p.listModels) return this.models;
+    const list = await p.listModels();
+    if (!list.length) throw new LlmError('API 返回的模型列表是空的', 'unknown');
+    this.models = list;
+    this.modelsFetchedAt = Date.now();
+    await db().setKV('kernel.llm.models', { at: this.modelsFetchedAt, models: list });
+    log.info('llm', `拉到 ${list.length} 个模型`);
+    return list;
   }
 
   get configured() {
@@ -59,10 +98,12 @@ class Gateway {
   }
 
   async chat(req: Omit<ChatRequest, 'model' | 'maxTokens' | 'effort'> & Partial<Pick<ChatRequest, 'model' | 'maxTokens' | 'effort'>>, hooks?: StreamHooks): Promise<ChatResult> {
+    const role = roleOf(req.purpose, req.role);
     const full: ChatRequest = {
-      model: req.model ?? this.settings.model,
+      role,
+      model: req.model ?? this.modelFor(role),
       maxTokens: req.maxTokens ?? this.settings.maxTokens,
-      effort: req.effort ?? this.settings.effort,
+      effort: req.effort ?? this.effortFor(role),
       showThinking: req.purpose === 'chat' ? !!this.settings.showThinking : false,
       web: req.purpose === 'chat' && !!this.settings.web && this.settings.tools !== false,
       ...req,
@@ -92,11 +133,11 @@ class Gateway {
   /** 连通性测试：最小请求 */
   async ping(): Promise<string> {
     const r = await this.p.chat({
-      model: this.settings.model, maxTokens: 64, purpose: 'ping',
+      model: this.modelFor('chat'), maxTokens: 64, purpose: 'ping',
       system: [{ type: 'text', text: '只回复两个字：好的' }],
       messages: [{ role: 'user', content: [{ type: 'text', text: '测试' }] }],
     });
-    await this.record({ model: this.settings.model, purpose: 'ping' } as ChatRequest, r);
+    await this.record({ model: this.modelFor('chat'), purpose: 'ping' } as ChatRequest, r);
     return r.text.trim();
   }
 

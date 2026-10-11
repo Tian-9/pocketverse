@@ -61,7 +61,7 @@ export const momentsApi = {
     const { text } = await ctx.llm.chat({
       system: `你是「${ch.name}」。设定：${ch.core.slice(0, 800)}\n你要在自己的朋友圈发一条动态。像真人发朋友圈：一两句话，口语，可以有一点情绪或者只是一件小事，不要解释，不要带话题标签，不要提到"用户"或"你"。只输出动态正文。`,
       user: `${hint}\n\n最近发生的事：\n${mems.map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}\n\n${schedule ? `这一天你日历上的安排（可以从这里取材）：\n${schedule}\n\n` : ''}你之前发过的（别重复）：\n${recent.slice(0, 3).map((p) => '- ' + p.text).join('\n') || '（无）'}\n现在的情绪：${cp.state.mood[characterId] ?? '平常'}`,
-      maxTokens: 200, effort: 'low',
+      maxTokens: 200,
     });
     const body = text.trim().replace(/^["“「]|["”」]$/g, '');
     if (!body) return null;
