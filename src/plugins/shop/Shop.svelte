@@ -3,7 +3,7 @@
    * 商店首页：一局一家店。顶部切存档（只列每张卡当前这一局），分类标签筛，搜索框搜（本地没有就让模型编几件）。
    * 第一次打开没货架就进一次货；每个分类底部能「换一批」。
    */
-  import { NavBar, Placeholder, Glyph, Sheet, List, Cell, Button, live, nav, icons } from '$kernel/api';
+  import { NavBar, Placeholder, Glyph, Sheet, List, Cell, Button, Picture, live, nav, icons } from '$kernel/api';
   import type { CampaignView } from '$kernel/api';
   import { shopApi, yuan, PER_CATEGORY, type Product } from './index';
 
@@ -93,7 +93,7 @@
   <div class="grid">
     {#each shown as p (p.id)}
       <button class="item" onclick={() => nav.push('shop', 'product', { id: p.id })}>
-        <div class="pic"><Glyph paths={icons.shop} size={22} color="var(--label-3)" width={1.8} /></div>
+        <div class="pic"><Picture svg={p.svg} size="100%" radius="8px" fallback={icons.shop} /></div>
         <div class="name">{p.name}</div>
         <div class="seller">{p.seller ?? p.category}</div>
         <div class="price">{yuan(p.price)}</div>
@@ -127,7 +127,8 @@
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px; }
   .item { text-align: left; background: var(--bg-surface); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
   .item:active { background: var(--fill-2); }
-  .pic { height: 72px; border-radius: 8px; background: var(--fill-2); display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+  .pic { height: 96px; margin-bottom: 6px; }
+  .pic :global(.picture) { height: 96px; }
   .name { font-size: 14px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .seller { font-size: 12px; color: var(--label-3); }
   .price { font-size: 15px; font-weight: 700; color: var(--orange, #ff7a00); margin-top: 2px; }

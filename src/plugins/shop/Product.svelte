@@ -1,6 +1,6 @@
 <script lang="ts">
   /** 商品页：名字、价格、商家、描述，「购买」从你这局的钱包扣钱。从分享卡点进来也是这页。 */
-  import { NavBar, Placeholder, Glyph, Button, List, Cell, live, icons } from '$kernel/api';
+  import { NavBar, Placeholder, Button, List, Cell, Picture, live, icons } from '$kernel/api';
   import { shopApi, yuan, type Product } from './index';
 
   let { id }: { id: string } = $props();
@@ -35,7 +35,7 @@
 {:else}
   {@const p = product.value}
   <div class="hero">
-    <div class="pic"><Glyph paths={icons.shop} size={40} color="var(--label-3)" width={1.6} /></div>
+    <div class="pic"><Picture svg={p.svg} size={140} radius="20px" fallback={icons.shop} alt={p.name} /></div>
     <div class="price">{yuan(p.price)}</div>
     <h2 class="name">{p.name}</h2>
     <div class="meta">{[p.seller, p.category].filter(Boolean).join(' · ')}</div>
@@ -51,7 +51,7 @@
 
 <style>
   .hero { background: var(--bg-surface); padding: 20px 16px 14px; text-align: center; }
-  .pic { width: 96px; height: 96px; margin: 0 auto 12px; border-radius: 16px; background: var(--fill-2); display: flex; align-items: center; justify-content: center; }
+  .pic { display: flex; justify-content: center; margin-bottom: 12px; }
   .price { font-size: 24px; font-weight: 700; color: var(--orange, #ff7a00); }
   .name { margin: 4px 0 0; font-size: 18px; font-weight: 600; line-height: 1.35; }
   .meta { margin-top: 4px; font-size: 13px; color: var(--label-3); }

@@ -3,6 +3,7 @@
  * 都产出通用 ShareCard，聊天插件用通用卡片渲染，点卡片进商品页。
  */
 import type { ShareCard, ShareResolver, ShareQuery, ShareContext } from '$kernel/api';
+import { svgDataUrl } from '$kernel/api';
 import { shopApi, yuan, type Product } from './index';
 
 /** quote 必须是描述里的原话，否则丢掉 */
@@ -14,7 +15,7 @@ export function validQuote(quote: string | undefined, product: Product): string 
 export function buildCard(p: Product, opts: { gift?: boolean; note?: string; quote?: string } = {}): ShareCard {
   return {
     type: 'product', ...(opts.gift ? { subtype: 'gift' } : {}),
-    title: p.name, subtitle: [p.seller, yuan(p.price)].filter(Boolean).join(' · '),
+    title: p.name, subtitle: [p.seller, yuan(p.price)].filter(Boolean).join(' · '), ...(p.svg ? { cover: svgDataUrl(p.svg) } : {}),
     // 送礼留言借 quote 那行显示（“天冷，穿上”），不给通用卡片加字段
     excerpt: p.desc, ...(opts.quote ?? opts.note ? { quote: opts.quote ?? opts.note } : {}),
     source: 'shop', open: { pluginId: 'shop', screen: 'product', params: { id: p.id } },

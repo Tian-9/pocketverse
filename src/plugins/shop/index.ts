@@ -1,4 +1,4 @@
-import { definePlugin, icons, gradients, clock } from '$kernel/api';
+import { definePlugin, icons, gradients, clock, sanitizeSvg } from '$kernel/api';
 import type { PluginContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Shop from './Shop.svelte';
@@ -20,6 +20,8 @@ export interface Product {
   /** 一两句，分享卡的 excerpt，引用校验的原文 */
   desc: string;
   seller?: string;
+  /** 模型画的小图，已经过 sanitizeSvg；只给人看，不回给模型 */
+  svg?: string;
   source: 'catalog' | 'search' | 'manual';
   /** 买过或分享过：清理时留下 */
   keep?: boolean;
@@ -114,15 +116,18 @@ export const shopApi = {
           happenings: [...cp.state.facts, ...mems.map((m) => m.text)].slice(0, 10),
           existing: relevant.slice(0, 40).map((p) => p.name), categories, mode,
         }),
-        cheap: true, effort: 'low', maxTokens: 3000, jsonSchema: catalogSchema(),
+        cheap: true, effort: 'low', maxTokens: mode.kind === 'shelf' ? 16000 : 6000, jsonSchema: catalogSchema(),
       });
       const items = parseCatalog(text);
       const now = Date.now();
       const source: Product['source'] = mode.kind === 'search' ? 'search' : 'catalog';
-      const out: Product[] = items.map((it, i) => ({
-        id: ulid(), campaignId, name: it.name, price: it.price, category: mode.kind === 'category' ? mode.category : it.category,
-        desc: it.desc, seller: it.seller || undefined, source, createdAt: now + i,
-      }));
+      const out: Product[] = items.map((it, i) => {
+        const svg = it.svg ? sanitizeSvg(it.svg) : null;
+        return {
+          id: ulid(), campaignId, name: it.name, price: it.price, category: mode.kind === 'category' ? mode.category : it.category,
+          desc: it.desc, seller: it.seller || undefined, source, createdAt: now + i, ...(svg ? { svg } : {}),
+        };
+      });
       await this.products().bulkAdd(out);
       // 分类表：新出现的分类追加，顺序稳定
       const cats = [...categories];
@@ -186,7 +191,7 @@ export const shopApi = {
 export default definePlugin({
   id: 'shop',
   name: '商店',
-  version: '0.3.0',
+  version: '0.4.0',
   description: '这个世界的购物 App：货架按世界生成，搜什么有什么。买东西花钱包里的钱，一局一家店。他也会逛，会给自己买，也会买了送你。',
   app: { screen: Shop, icon: { paths: icons.shop, background: gradients.orange } },
   screens: { product: ProductScreen, orders: OrdersScreen },

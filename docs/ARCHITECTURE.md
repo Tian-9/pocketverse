@@ -344,6 +344,8 @@ L2 工具（内核提供）：
 - **天气**（`weather` 插件，内核不认识天气）：照时区那套——他没选城市就和你在同一个地方。你那边的位置在设置里（和名字一起），他那边的在角色卡上；两边天气各查一次（同一个地方只查一次），Open-Meteo 免费无 Key，浏览器直接请求，30 分钟缓存，查不到就沉默。只在这局的钟和真实时间对齐（`CampaignView.aligned`）时给：易变段一句「你们这边现在：伦敦，多云，18°C；今天 12～21°C」或「你那边现在：东京，晴，22°C；对方那边：伦敦，多云，18°C，今天可能下雨」，约 60～80 token，不进 system。工具 `weather_forecast`（未来 7 天逐日，`whose` 选哪边）。服务 `weather.line(campaignId, characterId)` 给日记、朋友圈以后用。天气 App 显示你那边的现在和这几天，选了别的城市的角色列在「他们那边」。
 - **日历**（`calendar` 插件，内核不认识日程）：挂在存档时钟上的事件表 `events`（`owner` 是角色 id 或 `user`，`source` plan / chat / manual，`status` planned / done / skipped）。他的安排由便宜模型按周排（`plan.ts`，和商店进货同一个办法）：打开日历或聊天时发现往后不足 3 天有安排就补一周，只补他还没排的日子。易变段一句「你今天的安排 … 现在正在 … 接下来 …」给作息感，约 60 token。工具 `calendar_add`（聊天里约的事，`together` 时你的日历也一条）、`calendar_read`。补发登记 `passed`（h6）：这段时间排了的事做了没做，写回 `status` / `note`。服务 `calendar`（`today` / `between` / `next`）给聊天页「到下一个安排」和日记、朋友圈用：日记材料带那天他日历上的事（做没做、备注），朋友圈补发带这段时间排了的事，没开日历就没有这一段。日界和 HH:MM 都按他的时区。主页「他今天」段。日历里某一天「在聊天里推进到这天」走 `nav.push('chat', 'conversation', { campaignId, skipTo })`，聊天页带着时刻打开推进面板。
 
+- **模型画的图（SVG）**：模型写的 SVG 只能经内核 `sanitizeSvg` 清洗再入库（白名单元素和属性，删脚本、事件、外链、`foreignObject`、`image`、`use`、`style`，超 8 KB 或解析失败返回 null），显示只走 `Picture` 组件或分享卡的 `cover`（`svgDataUrl`），都是图片元素，不内联进页面。图只给人看，不回给模型。商品小图随货架一次生成（`Product.svg`，可选，画不出就留空）；他画画是 `draw` 插件的一个工具，产出 `type: 'drawing'` 的分享卡。
+
 联网：设置里的"允许角色上网"开关对应 Anthropic 服务端的 `web_search` / `web_fetch` 工具。搜索由 Anthropic 执行，按次计费（每次搜索 $0.01，另加搜到内容占的 token），计入用量。默认关。每轮各最多 3 次。
 
 ### 5.11 补发（离开一段时间回来，角色"拿起手机"）

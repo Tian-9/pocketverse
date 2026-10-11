@@ -52,3 +52,6 @@ export { default as Glyph } from '../ui/Glyph.svelte';
 export { default as ShareCardView } from '../ui/ShareCard.svelte';
 export { default as PlacePicker } from '../ui/PlacePicker.svelte';
 export { icons, gradients } from '../ui/icons';
+/** 模型画的图：先 sanitizeSvg 再存，显示用 Picture 或分享卡的 cover（svgDataUrl） */
+export { sanitizeSvg, svgDataUrl } from '../ui/svg';
+export { default as Picture } from '../ui/Picture.svelte';

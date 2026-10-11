@@ -21,7 +21,7 @@ describe('shop catalog', () => {
   it('schema requires items with all fields', () => {
     const s = catalogSchema() as { required: string[]; properties: { items: { items: { required: string[] } } } };
     expect(s.required).toEqual(['items']);
-    expect(s.properties.items.items.required).toEqual(['category', 'name', 'price', 'desc', 'seller']);
+    expect(s.properties.items.items.required).toEqual(['category', 'name', 'price', 'desc', 'seller', 'svg']);
   });
 
   it('parse drops broken items, rounds prices, and survives garbage', () => {
@@ -35,5 +35,21 @@ describe('shop catalog', () => {
     expect(out).toEqual([{ category: '吃的', name: '黑麦面包', price: 3.46, desc: '硬', seller: '老王面包房' }]);
     expect(parseCatalog('not json')).toEqual([]);
     expect(parseCatalog('{}')).toEqual([]);
+  });
+});
+
+describe('shop catalog pictures', () => {
+  it('schema asks for svg; parse keeps an svg string only when it looks like one', async () => {
+    const { catalogSchema, parseCatalog } = await import('./catalog');
+    const s = catalogSchema() as { properties: { items: { items: { required: string[] } } } };
+    expect(s.properties.items.items.required).toContain('svg');
+    const out = parseCatalog(JSON.stringify({ items: [
+      { category: 'c', name: 'a', price: 1, desc: 'd', seller: 's', svg: '<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>' },
+      { category: 'c', name: 'b', price: 1, desc: 'd', seller: 's', svg: '' },
+      { category: 'c', name: 'e', price: 1, desc: 'd', seller: 's', svg: 'garbage' },
+    ] }));
+    expect(out[0]!.svg).toContain('<svg');
+    expect(out[1]!.svg).toBeUndefined();
+    expect(out[2]!.svg).toBeUndefined();
   });
 });

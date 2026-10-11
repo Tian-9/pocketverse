@@ -23,7 +23,7 @@ async function boot() {
   await llm.boot();
   await chat.boot();
   await registry.boot({
-    enabled: ['moments', 'music', 'redpacket', 'forum', 'shop', 'calendar', 'weather'],
+    enabled: ['moments', 'music', 'redpacket', 'forum', 'shop', 'draw', 'calendar', 'weather'],
     dock: [
       { pluginId: 'chat', shortcutId: 'app' },
       { pluginId: 'characters', shortcutId: 'app' },
