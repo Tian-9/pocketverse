@@ -1,5 +1,7 @@
+import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { Message } from '../storage/db';
+import { retractSource, stateLines } from '../memory/state';
 import { repo } from '../data/repo';
 import { loreApplies } from '../data/lore';
 import { assemble } from '../context/assemble';
@@ -55,12 +57,22 @@ class ChatEngine {
     if (this.live[conversationId]) return;
     const msgs = await repo.messagesOf(conversationId);
     const last = msgs[msgs.length - 1];
-    if (last?.role === 'assistant') await db().messages.delete(last.id);
+    if (last?.role === 'assistant') await this.forget(last);
     await this.runTurn(conversationId);
   }
 
   stop(conversationId: string) { this.live[conversationId]?.abort.abort(); }
-  async deleteMessage(id: string) { await db().messages.delete(id); }
+  async deleteMessage(id: string) { const m = await db().messages.get(id); if (m) await this.forget(m); }
+
+  /** 删一条消息，连它带来的状态一起撤回：整理挂在消息 id 上，聊天里 state_update 挂在这一轮的 meta.turn 上 */
+  private async forget(m: Message) {
+    await db().messages.delete(m.id);
+    const conv = await db().conversations.get(m.conversationId);
+    if (!conv) return;
+    await retractSource(conv.campaignId, m.id);
+    const turn = m.meta?.turn;
+    if (typeof turn === 'string') await retractSource(conv.campaignId, turn);
+  }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
   /**
@@ -108,13 +120,15 @@ class ChatEngine {
     const world = campaign && (await db().worlds.get(campaign.worldId));
     if (!conv || !character || !campaign || !world) throw new Error('会话、角色或世界不存在');
 
-    const [history, lore, overlays, memories, notes] = await Promise.all([
+    const [history, lore, overlays, memories, notes, lines] = await Promise.all([
       repo.messagesOf(conversationId),
       db().lore.filter((e) => loreApplies(e, world.id, [character.id])).toArray(),
       db().overlays.where('campaignId').equals(campaign.id).toArray(),
       db().memories.where('campaignId').equals(campaign.id).filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
       memoryNotes(campaign.id),
+      stateLines(campaign.id),
     ]);
+    const turnId = ulid();
 
     const storyNow = clock.now(campaign.clock);
     const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow };
@@ -134,7 +148,7 @@ class ChatEngine {
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
     const attached = useTools && catchup.hasAttach() ? await catchup.collectAttached(campaign, character) : [];
     if (attached.length) pluginVolatile.push(attachedPrompt(attached));
-    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [] };
+    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [], turnId };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
     const pluginCards: MessageCard[] = [];
@@ -152,7 +166,7 @@ class ChatEngine {
 
     const { system, messages, l1Hits } = assemble({
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
-      lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryNotes: notes, history,
+      lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryNotes: notes, stateLines: lines, history,
       pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
       now: new Date(storyNow), story: !clock.aligned(campaign.clock),
     });
@@ -187,7 +201,8 @@ class ChatEngine {
         try { await owner.h.onParsed?.(f.body, f.attrs, pctx); } catch (e) { console.warn(`[output] ${owner.pluginId}/${f.tag}`, e); }
         cards.push({ pluginId: owner.pluginId, tag: f.tag, body: f.body, attrs: f.attrs });
       }
-      const meta: Record<string, unknown> = {};
+      // turn：这一轮工具写的状态事件挂在它上面，删这条回复就一起撤回
+      const meta: Record<string, unknown> = { turn: turnId };
       if (toolsUsed.length) meta.tools = toolsUsed;
       if (l1Hits.length) meta.lore = l1Hits;
       if (cards.length) meta.cards = cards;
@@ -208,8 +223,8 @@ class ChatEngine {
           // 卡片挂在第一条（先分享再评论），其余 meta（工具、思考）挂在最后一条
           const isFirst = i === 0, isLast = i === parts.length - 1;
           const { cards: metaCards, ...rest } = meta;
-          const mine: Record<string, unknown> = { ...(isFirst && metaCards ? { cards: metaCards } : {}), ...(isLast ? rest : {}) };
-          await repo.addMessage(conversationId, 'assistant', parts[i]!, Object.keys(mine).length ? { meta: mine } : {});
+          const mine: Record<string, unknown> = { turn: turnId, ...(isFirst && metaCards ? { cards: metaCards } : {}), ...(isLast ? rest : {}) };
+          await repo.addMessage(conversationId, 'assistant', parts[i]!, { meta: mine });
         }
         if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
       }

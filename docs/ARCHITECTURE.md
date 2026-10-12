@@ -33,7 +33,7 @@
 | UI | Svelte 5 | 写法最接近 HTML，产物最小，手机上启动快 |
 | 样式 | Tailwind + CSS 变量 | 变量是主题系统的根，Tailwind 只是写法 |
 | 存储 | Dexie（IndexedDB） | 带版本迁移，插件可以声明自己的表 |
-| 搜索 | MiniSearch | 几 KB 的内存 BM25，世界书和记忆的关键词检索 |
+| 检索与状态 | [annals](https://github.com/Tian-9/annals) | 自研零依赖库：事件日志、折叠视图、分档词袋倒排索引。世界书按正文分词检索，记忆用整理时模型给的词袋；硬事实走状态事件 |
 | 模型 | `@anthropic-ai/sdk`（浏览器模式）为主，Gemini / OpenAI 兼容为辅 | 适配器模式 |
 | PWA | vite-plugin-pwa | manifest + service worker 只做离线缓存，不做保活 hack |
 
@@ -129,7 +129,7 @@ interface CampaignState {
   location?: string;
   relations: Record<string, string>;           // characterId -> 一句话关系
   mood: Record<string, string>;                // characterId -> 一句话情绪
-  facts: string[];                             // 最多 20 条当前事实，超出进记忆
+  facts: string[];                             // 老的自由文本事实，只剩手改入口；新的硬事实走 events 表（下面）
 }
 
 // 对话：属于存档，一个存档可有多个对话（私聊、群聊）
@@ -155,6 +155,12 @@ interface Message {
 记忆全部挂在**存档**下，不挂世界，不挂角色本体。同一个世界换角色玩，是新存档，记忆为空。同一个角色在同一世界重开一局，也是新存档。
 
 ```ts
+// 硬事实：annals 状态事件，表 events，scope = campaignId。谁欠谁、东西在哪、归谁、承诺——这类有方向、有数额的事
+// 不让模型从历史里推，由代码折叠成视图每轮注入（「当前事实」）。模型只给 {entity, attr, value}，旧值代码从视图取，
+// 没变的丢；每条带 source：整理挂那批最后一条消息 id，聊天里 state_update 挂这一轮的 turnId（回复的 meta.turn），手改是 manual。
+// 删消息、重新生成按 source 撤回，视图自动退回；手改清除是写一条空值，历史不丢。注入最多 20 条，按最近写入淘汰。
+// 类型和折叠函数在 annals/airp，存取在 kernel/memory/state.ts。
+
 // 情节记忆：发生过什么
 interface EpisodicMemory {
   id: string; campaignId: string;
@@ -164,6 +170,7 @@ interface EpisodicMemory {
   importance: 1 | 2 | 3;       // 3 = 进 L0 的"近期要事"候选
   sourceMessageIds: string[];
   createdAt: number;
+  bag?: Bag;                   // 整理时模型给的检索词袋（annals 三档 core/related/hint）；老记忆没有就按正文分词
 }
 
 // 世界覆盖：这局玩出来的世界变化，覆盖正典但不改正典
@@ -285,10 +292,10 @@ L2 工具（内核提供）：
 |---|---|
 | `lore_search(query)` | BM25 搜当前存档作用域内的世界书 + 覆盖，返回 title/summary/id 列表 |
 | `lore_read(id)` | 读正文，覆盖优先 |
-| `memory_search(query, characterId?)` | 搜情节记忆 |
+| `memory_search(query, characterId?)` | 搜情节记忆：有词袋的按词袋（正文做弱提示），没有的按正文分词；查询端不调模型 |
 | `memory_recent(n)` | 最近 n 条情节记忆 |
 | `character_read(id)` | 读角色 full 人设 |
-| `state_update(patch)` | 更新 CampaignState（关系、情绪、地点、事实）；`advance` 把剧情时间往前拨几分钟（≤ 一天，只往前，「明早见」之后接着说用） |
+| `state_update(patch)` | 更新 CampaignState（关系、情绪、地点）；`set` 是硬事实的增量 patch（entity/attr/value，走状态事件，来源是这一轮）；`advance` 把剧情时间往前拨几分钟（≤ 一天，只往前，「明早见」之后接着说用） |
 | `overlay_write(entry)` | 写一条世界覆盖 |
 | `wake_later(afterMinutes, intent, onlyIfSilent?)` | 给自己定"稍后联系"：真实时间几分钟后拿起手机决定发不发消息（见 5.11）。一局只记一件，新的覆盖旧的 |
 
@@ -297,7 +304,7 @@ L2 工具（内核提供）：
 写回（消息驱动 + 定时）：
 
 - 每轮结束：若模型调过 `state_update` / `overlay_write` / memory 工具，直接落库。
-- 每 N 轮（默认 12）或切出 App 时：用整理档模型（默认 Haiku 5.5）跑一次合并，输入是上次合并后的消息，输出结构化 JSON：新增情节记忆（带 importance）、状态变化、世界覆盖候选。覆盖候选默认需要用户确认（通知条一键采纳），避免模型瞎改世界。
+- 每 N 轮（默认 12）或切出 App 时：用整理档模型（默认 Haiku 5.5）跑一次合并，输入是上次合并后的消息，输出结构化 JSON：新增情节记忆（带 importance 和检索词袋）、状态变化、硬事实 patch（来源挂这批最后一条消息）、世界覆盖候选。prompt 附带当前状态行和已有词表，要求复用词项。覆盖候选默认需要用户确认（通知条一键采纳），避免模型瞎改世界。
 - 情节记忆超过 200 条时，对 importance=1 的做二次合并（十条并一条）。
 
 **尾部指令**：`position: 'tail'` 的常驻风格条目不进 system，放在最后一条用户消息里、时间行之前。模型对最后几百字最敏感，管输出格式和口吻放这里。

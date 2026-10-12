@@ -14,6 +14,8 @@
   import { nav } from '$kernel/nav/nav.svelte';
   import { bus } from '$kernel/bus/bus';
   import { clock } from '$kernel/context/clock';
+  import { applyPatches, loadState } from '$kernel/memory/state';
+  import { liveEntries, stateView, type StateSetEvent } from 'annals/airp';
   import { ulid } from 'ulid';
 
   let { id }: { id: string } = $props();
@@ -69,6 +71,9 @@
   }
   const campaign = live(() => (campaignId ? db().campaigns.get(campaignId) : Promise.resolve(undefined)), undefined, deps);
   const memories = live(() => (campaignId ? db().memories.where('campaignId').equals(campaignId).reverse().sortBy('createdAt') : Promise.resolve([])), [], deps);
+  // 硬事实：annals 状态事件折叠出来的，最近变化的在最后
+  const stateRows = live(() => (campaignId ? loadState(campaignId) : Promise.resolve([])), [], deps);
+  const factEntries = $derived(liveEntries(stateView(stateRows.value)).slice(-20));
   const files = live(() => (campaignId ? db().memfs.where('campaignId').equals(campaignId).toArray() : Promise.resolve([])), [], deps);
   let busy = $state(false);
   const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(3 - n);
@@ -86,6 +91,17 @@
     await db().memories.put(row); mem = null;
   }
   async function deleteMem() { if (mem?.id) await db().memories.delete(mem.id); mem = null; }
+
+  // ---- 编辑：硬事实（状态事件）：手改和清除都是新事件，来源 manual，历史不丢 ----
+  let fact = $state<{ entity: string; attr: string; value: string; isNew: boolean } | null>(null);
+  function openFact(e: StateSetEvent | null) {
+    fact = e ? { ...e.payload, isNew: false } : { entity: '', attr: '', value: '', isNew: true };
+  }
+  async function writeFact(value: string) {
+    const cp = campaign.value; const f = fact; fact = null;
+    if (!cp || !f || !f.entity.trim() || !f.attr.trim()) return;
+    await applyPatches(cp.id, [{ entity: f.entity.trim().slice(0, 40), attr: f.attr.trim().slice(0, 24), value: value.trim().slice(0, 160) }], { source: 'manual', at: clock.now(cp.clock) });
+  }
 
   // ---- 编辑：状态 ----
   let editingState = $state(false);
@@ -144,6 +160,10 @@
     <Cell title="拍一拍" value={s.nudge?.[id] ? '拍了拍他' + s.nudge[id] : '—'} onclick={openState} />
     <Cell title="你在这局里" subtitle={cp.userPersona || '—'} onclick={openState} />
     {#each s.facts as f, i (i)}<Cell title={f} onclick={openState} />{/each}
+  </List>
+  <List footer="硬事实：东西在哪、归谁、谁欠谁多少、谁答应了什么。他在对话里和整理时记，删那条消息会一起撤回。点一条可以改或清除。">
+    {#each factEntries as e (e.id)}<Cell title={`${e.payload.entity} · ${e.payload.attr}`} subtitle={e.payload.value} onclick={() => openFact(e)} />{/each}
+    <Cell title="添加一条" onclick={() => openFact(null)} />
   </List>
   <List footer={cp.clock?.running === false ? '停表：你不来他就定在这一刻，只有推进才动。' : cp.clock ? '这局的时间和真实时间一起走，只是不在同一天。' : '和真实时间一样。在聊天里「推进时间」可以往前跳，这里能改成任何时候或停表。'}>
     <Cell title="这局的时间" value={clockText(cp)} onclick={openClock} />
@@ -218,6 +238,23 @@
     <Cell title="停表" subtitle={clockPaused ? '现在：定住，只有推进才动' : '现在：和真实时间一起走'}>{#snippet right()}<Toggle bind:checked={clockPaused} label="停表" />{/snippet}</Cell>
   </List>
   <div class="actions"><Button onclick={saveClock}>保存</Button></div>
+</Sheet>
+<Sheet open={!!fact} onclose={() => (fact = null)} title={fact?.isNew ? '新事实' : '改这条事实'}>
+  {#if fact}
+    <List footer="value 写成主宾分明的一句话，比如「他 欠 用户 49.5 元」；没定的写「未明确（原因）」。">
+      {#if fact.isNew}
+        <Field label="谁 / 什么" bind:value={fact.entity} placeholder="猫、债务#红包、用户" />
+        <Field label="哪方面" bind:value={fact.attr} placeholder="位置、归属、欠款、承诺" />
+      {:else}
+        <Cell title={`${fact.entity} · ${fact.attr}`} />
+      {/if}
+      <Field multiline rows={2} bind:value={fact.value} placeholder="现在的值" />
+    </List>
+    <div class="actions">
+      <Button onclick={() => writeFact(fact!.value)}>保存</Button>
+      {#if !fact.isNew}<Button kind="plain" onclick={() => writeFact('')}><span style="color:var(--red)">清除</span></Button>{/if}
+    </div>
+  {/if}
 </Sheet>
 <Sheet bind:open={editingState} title="当前状态">
   <List footer="事实一行一条，最多 20 条。">

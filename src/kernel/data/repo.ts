@@ -53,7 +53,7 @@ export const repo = {
 
   async deleteCharacter(id: string) {
     const campaigns = await db().campaigns.filter((c) => c.characterIds.includes(id)).toArray();
-    await db().transaction('rw', [db().characters, db().campaigns, db().conversations, db().messages, db().memories, db().overlays, db().kv], async () => {
+    await db().transaction('rw', [db().characters, db().campaigns, db().conversations, db().messages, db().memories, db().events, db().overlays, db().kv], async () => {
       for (const c of campaigns) await this.deleteCampaign(c.id);
       await db().characters.delete(id);
     });
@@ -64,6 +64,7 @@ export const repo = {
     for (const cv of convs) await db().messages.where('conversationId').equals(cv.id).delete();
     await db().conversations.where('campaignId').equals(id).delete();
     await db().memories.where('campaignId').equals(id).delete();
+    await db().events.where('scope').equals(id).delete();
     await db().overlays.where('campaignId').equals(id).delete();
     await db().campaigns.delete(id);
     for (const row of await db().kv.where('key').startsWith('kernel.currentCampaign.').toArray()) {

@@ -1,5 +1,8 @@
 import { ulid } from 'ulid';
+import { parseBag, rebuildIndex } from 'annals';
+import { BAG_SCHEMA, PATCHES_SCHEMA, parsePatches } from 'annals/airp';
 import { db } from '../storage/db';
+import { applyPatches, stateLines } from './state';
 import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Message } from '../storage/db';
 import { textOf } from '../data/repo';
 import { loreApplies } from '../data/lore';
@@ -14,16 +17,17 @@ export const CONSOLIDATE_EVERY = 12; // 每多少条新的角色回复合并一�
 export const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['memories', 'state', 'overlays'],
+  required: ['memories', 'state', 'patches', 'overlays'],
   properties: {
-    memories: { type: 'array', maxItems: 12, items: { type: 'object', additionalProperties: false, required: ['text', 'when', 'importance'], properties: {
+    memories: { type: 'array', maxItems: 12, items: { type: 'object', additionalProperties: false, required: ['text', 'when', 'importance', 'bag'], properties: {
       text: { type: 'string', description: '一两句话，第三人称，写清楚谁对谁做了什么' },
       when: { type: 'string', description: '剧情时间，不确定就写相对时间，如"今天下午"' },
       importance: { type: 'integer', minimum: 1, maximum: 3, description: '3=改变关系或剧情走向的大事，2=值得记住，1=日常' },
+      bag: { ...BAG_SCHEMA, description: '这条记忆的检索词，三档。core 是主体和关键物件（含外号、别名），related 是动作地点时段，hint 是别人可能用来问起这件事的词。优先复用「已有检索词」' },
     } } },
+    patches: { ...PATCHES_SCHEMA, description: '当前状态的变化：位置、归属、生死、关系、欠款、承诺、不可逆的外貌。只填确实变了的，和「当前状态」里一样的不要重复；没变化给空数组' },
     state: { type: 'object', additionalProperties: false, properties: {
       location: { type: 'string' }, relation: { type: 'string' }, mood: { type: 'string' },
-      facts: { type: 'array', maxItems: 20, items: { type: 'string' } },
     } },
     overlays: { type: 'array', maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['title', 'summary', 'content'], properties: {
       loreEntryId: { type: 'string', description: '被改变的世界书条目 id；新增事实留空字符串' },
@@ -33,12 +37,14 @@ export const SCHEMA = {
 };
 
 export interface ConsolidateOutput {
-  memories: { text: string; when: string; importance: 1 | 2 | 3 }[];
-  state: { location?: string; relation?: string; mood?: string; facts?: string[] };
+  memories: { text: string; when: string; importance: 1 | 2 | 3; bag?: unknown }[];
+  state: { location?: string; relation?: string; mood?: string };
+  /** 状态 patch，形状见 annals/airp 的 PATCHES_SCHEMA；代码侧 parsePatches 防呆 */
+  patches?: unknown;
   overlays: { loreEntryId?: string; title: string; summary: string; content: string; reason?: string }[];
 }
 
-export function buildPrompt(campaign: Campaign, character: Character, lore: LoreEntry[], msgs: Message[], existing: EpisodicMemory[]) {
+export function buildPrompt(campaign: Campaign, character: Character, lore: LoreEntry[], msgs: Message[], existing: EpisodicMemory[], extra: { stateLines?: string[]; vocab?: string[] } = {}) {
   const transcript = msgs.filter((m) => m.role !== 'system').map((m) => `${m.role === 'user' ? '用户' : character.name}：${textOf(m)}`).join('\n');
   const dir = lore.map((e) => `- [${e.id}] ${e.title}：${e.summary}`).join('\n');
   const prior = existing.slice(-15).map((m) => `- ${m.when}：${m.text}`).join('\n');
@@ -47,18 +53,21 @@ export function buildPrompt(campaign: Campaign, character: Character, lore: Lore
     system: `你是角色扮演对话的记忆整理员。读下面这段对话，提取值得长期记住的内容，输出 JSON。
 规则：
 - memories：只记发生了的事和透露的信息，不记寒暄。已经在"已有记忆"里的不要重复。
-- state：只填确实变化了的字段，没变就不填。facts 是当前仍然成立的事实的完整列表（可基于旧列表增删）。
+- state：只填确实变化了的字段，没变就不填。
+- patches：当前仍然成立的硬事实的变化：东西在哪、归谁、谁欠谁多少、谁答应了什么、关系的定性。一条一个 entity+attr，value 写成主宾分明的一句话（"他 欠 用户 49.5 元"，不写"欠了钱"）；剧情没说清的写"未明确（原因）"。和「当前状态」里相同的不要再给。
+- 每条 memory 都要给 bag：core 最多 3 个，是这件事的主体和关键物件，有外号、别名一起写；related 是动作、地点、时段；hint 是别人可能用来问起这件事的词。「已有检索词」里有的优先用同一个词。
 - overlays：只有当剧情明确改变了世界书里的设定或世界本身时才填，宁缺毋滥。
 - 全部用中文。`,
-    user: `# 角色\n${character.name}：${character.core.slice(0, 600)}\n\n# 当前状态\n时间：${clock.format(clock.now(campaign.clock), character.timeZone)}；地点：${s.location ?? '未知'}；关系：${s.relations[character.id] ?? '未知'}；情绪：${s.mood[character.id] ?? '未知'}\n事实：\n${s.facts.map((f) => '- ' + f).join('\n') || '（无）'}\n\n# 世界书目录\n${dir || '（无）'}\n\n# 已有记忆（最近）\n${prior || '（无）'}\n\n# 需要整理的对话\n${transcript}`,
+    user: `# 角色\n${character.name}：${character.core.slice(0, 600)}\n\n# 当前状态\n时间：${clock.format(clock.now(campaign.clock), character.timeZone)}；地点：${s.location ?? '未知'}；关系：${s.relations[character.id] ?? '未知'}；情绪：${s.mood[character.id] ?? '未知'}\n事实：\n${[...(extra.stateLines ?? []), ...s.facts].map((f) => '- ' + f).join('\n') || '（无）'}\n\n# 已有检索词\n${(extra.vocab ?? []).join('、') || '（无）'}\n\n# 世界书目录\n${dir || '（无）'}\n\n# 已有记忆（最近）\n${prior || '（无）'}\n\n# 需要整理的对话\n${transcript}`,
   };
 }
 
-export async function applyOutput(campaign: Campaign, character: Character, lore: LoreEntry[], out: ConsolidateOutput, sourceIds: string[]) {
+export async function applyOutput(campaign: Campaign, character: Character, lore: LoreEntry[], out: ConsolidateOutput, sourceIds: string[], at = clock.now(campaign.clock)) {
   const now = Date.now();
   const mems: EpisodicMemory[] = (out.memories ?? []).filter((m) => m.text?.trim()).map((m) => ({
     id: ulid(), campaignId: campaign.id, characterId: character.id, when: m.when ?? '', text: m.text.trim(),
     importance: ([1, 2, 3].includes(m.importance) ? m.importance : 2) as 1 | 2 | 3, sourceMessageIds: sourceIds, createdAt: now,
+    bag: parseBag(m.bag),
   }));
   if (mems.length) await db().memories.bulkAdd(mems);
 
@@ -67,14 +76,15 @@ export async function applyOutput(campaign: Campaign, character: Character, lore
   if (st.location) state.location = st.location;
   if (st.relation) state.relations[character.id] = st.relation;
   if (st.mood) state.mood[character.id] = st.mood;
-  if (Array.isArray(st.facts) && st.facts.length) state.facts = st.facts.slice(0, 20);
+  // 硬事实走 annals 状态事件：来源挂这批的最后一条消息，删了它或重新生成就一起撤回
+  const patches = await applyPatches(campaign.id, parsePatches(out.patches), { source: sourceIds[sourceIds.length - 1] ?? 'consolidate', at });
 
   const overlays: LoreOverlay[] = (out.overlays ?? []).filter((o) => o.title && o.content).map((o) => ({
     id: ulid(), campaignId: campaign.id, loreEntryId: o.loreEntryId && lore.some((e) => e.id === o.loreEntryId) ? o.loreEntryId : undefined,
     title: o.title, summary: o.summary ?? '', content: o.content, reason: o.reason ?? '', createdAt: now, pending: true,
   }));
   if (overlays.length) await db().overlays.bulkAdd(overlays);
-  return { mems, state, overlays };
+  return { mems, state, overlays, patches };
 }
 
 const inflight = new Set<string>();
@@ -106,7 +116,9 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
   try {
     const lore = await db().lore.filter((e) => e.enabled && e.kind !== 'style' && loreApplies(e, campaign.worldId, [character.id])).toArray();
     const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
-    const prompt0 = buildPrompt(campaign, character, lore, msgs, existing);
+    // 已有词表给模型复用，词表才会收敛到这一局自己的说法
+    const vocab = rebuildIndex(existing, (m) => (m.bag ? { id: m.id, bag: m.bag } : null)).vocabulary().slice(0, 60).map((v) => v.term);
+    const prompt0 = buildPrompt(campaign, character, lore, msgs, existing, { stateLines: await stateLines(campaign.id), vocab });
     const userName = await db().getKV('kernel.userName', '我');
     const prompt = { system: prompt0.system, user: expandMacros(prompt0.user, { user: userName, char: character.name }) };
     const r = await llm.chat({
@@ -121,9 +133,10 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
       log.error('consolidate', '模型没有返回合法 JSON，这批消息不再自动重试', { conversationId, stopReason: r.stopReason, head: r.text.slice(0, 120) });
       return false;
     }
-    const { mems, state, overlays } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id));
+    const last = msgs[msgs.length - 1]!;
+    const { mems, state, overlays, patches } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id), last.storyTs ?? clock.now(campaign.clock));
     await db().campaigns.update(campaign.id, { state, consolidatedUpTo: lastTs, consolidateFailedAt: undefined });
-    log.info('consolidate', `完成：${mems.length} 条记忆，${overlays.length} 条变化，${Date.now() - t0} ms`, { conversationId });
+    log.info('consolidate', `完成：${mems.length} 条记忆，${patches.length} 条状态，${overlays.length} 条变化，${Date.now() - t0} ms`, { conversationId });
     bus.emit('memory.consolidated', { campaignId: campaign.id, memories: mems.length, overlays: overlays.length });
     if (overlays.length) bus.emit('notify', { title: `${character.name} 的世界有 ${overlays.length} 处变化待确认`, body: overlays[0]!.title, pluginId: 'lore', screen: 'overlays' });
     return true;

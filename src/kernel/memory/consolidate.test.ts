@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { openDB, db } from '../storage/db';
 import { applyOutput, buildPrompt } from './consolidate';
+import { loadState, stateLines } from './state';
 import type { Campaign, Character } from '../storage/db';
 
 beforeAll(() => { openDB([]); });
@@ -14,16 +15,26 @@ describe('consolidate', () => {
     expect(p.user).toContain('[l] 邮差');
     expect(p.user).toContain('用户：你好');
     expect(p.user).toContain('旧事实');
+    const p2 = buildPrompt(campaign, character, [], [], [], { stateLines: ['猫 · 位置：客栈B'], vocab: ['猫', '黑炭'] });
+    expect(p2.user).toContain('猫 · 位置：客栈B');
+    expect(p2.user).toContain('猫、黑炭');
+    expect(p2.system).toContain('patches');
   });
   it('applies output: memories, state patch, pending overlays with validated loreEntryId', async () => {
     const r = await applyOutput(campaign, character, [], {
-      memories: [{ text: '用户说自己怕黑', when: '今晚', importance: 2 }, { text: '', when: '', importance: 1 }],
-      state: { mood: '安心', facts: ['新事实'] },
+      memories: [{ text: '用户说自己怕黑', when: '今晚', importance: 2, bag: { core: ['用户', '怕黑'], hint: ['夜里', 42] } }, { text: '', when: '', importance: 1 }],
+      state: { mood: '安心' },
+      patches: [{ entity: '猫', attr: '位置', value: '客栈B' }, { entity: '', attr: 'x', value: 'y' }],
       overlays: [{ loreEntryId: 'nope', title: '钟楼塌了', summary: 's', content: 'c' }],
     }, ['m1']);
     expect(r.mems).toHaveLength(1);
+    expect(r.mems[0]!.bag).toEqual({ core: ['用户', '怕黑'], hint: ['夜里'] });
     expect(r.state.mood.c).toBe('安心');
-    expect(r.state.facts).toEqual(['新事实']);
+    expect(r.state.facts).toEqual(['旧事实']);
+    expect(r.patches).toHaveLength(1);
+    expect(r.patches[0]!.source).toBe('m1');
+    expect(await stateLines('cp')).toEqual(['猫 · 位置：客栈B']);
+    expect((await loadState('cp'))[0]!.payload.value).toBe('客栈B');
     expect(r.overlays[0]!.loreEntryId).toBeUndefined();
     expect(r.overlays[0]!.pending).toBe(true);
     expect(await db().memories.count()).toBe(1);

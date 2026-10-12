@@ -18,6 +18,8 @@ export interface AssembleInput {
   highlights: EpisodicMemory[];
   /** /memories 笔记正文（memfs.memoryNotes 拼好的，空字符串表示没有） */
   memoryNotes?: string;
+  /** 状态事件折叠出来的硬事实行（memory/state.ts 的 stateLines），排在老的 facts 前面 */
+  stateLines?: string[];
   history: Message[];
   /** 本轮用户输入；为空表示让角色接着说（重新生成） */
   userText?: string;
@@ -91,7 +93,7 @@ export function loreDirectory(lore: LoreEntry[], overlays: LoreOverlay[]): strin
   return lines.join('\n');
 }
 
-function stateText(c: Campaign, chars: Character[]): string {
+function stateText(c: Campaign, chars: Character[], lines: string[] = []): string {
   const s = c.state;
   const name = (id: string) => chars.find((x) => x.id === id)?.name ?? id;
   const parts: string[] = [];
@@ -99,7 +101,8 @@ function stateText(c: Campaign, chars: Character[]): string {
   for (const [id, v] of Object.entries(s.relations)) parts.push(`${name(id)} 与用户的关系：${v}`);
   for (const [id, v] of Object.entries(s.mood)) parts.push(`${name(id)} 现在的情绪：${v}`);
   for (const [id, v] of Object.entries(s.nudge ?? {})) parts.push(`${name(id)} 的拍一拍后缀：${v}`);
-  if (s.facts.length) parts.push('当前事实：\n' + s.facts.map((f) => `- ${f}`).join('\n'));
+  const facts = [...lines, ...s.facts];
+  if (facts.length) parts.push('当前事实：\n' + facts.map((f) => `- ${f}`).join('\n'));
   return parts.join('\n');
 }
 
@@ -122,7 +125,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
     section('用户', `用户的名字是「${input.userName}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，用户是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),
     section(`世界：${input.world.name}`, input.world.summary),
     ...input.characters.map((c) => section(input.characters.length > 1 ? `角色：${c.name}` : `你扮演的角色：${c.name}`, c.core)),
-    section('当前状态', stateText(input.campaign, input.characters)),
+    section('当前状态', stateText(input.campaign, input.characters, input.stateLines)),
     constant.length ? section('世界书（常驻）', constant.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
     section('世界书目录', loreDirectory(loreOnly.filter((e) => !e.constant), input.overlays)),
     input.highlights.length ? section('近期要事', input.highlights.map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n')) : null,

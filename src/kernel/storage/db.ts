@@ -1,4 +1,6 @@
 import Dexie, { type Table } from 'dexie';
+import type { AnnalsEvent, Bag } from 'annals';
+import { DEXIE_EVENT_SCHEMA, type EventRow } from 'annals/dexie';
 import type { PluginManifest, Place } from '../api/types';
 
 /** 内核表。字段定义见 docs/ARCHITECTURE.md 第 4 节。 */
@@ -69,7 +71,11 @@ export interface Message {
 export interface EpisodicMemory {
   id: string; campaignId: string; characterId?: string; when: string; text: string;
   importance: 1 | 2 | 3; sourceMessageIds: string[]; createdAt: number;
+  /** 整理时模型给的检索词袋（annals 三档）。没有的老记忆按正文分词检索 */
+  bag?: Bag;
 }
+/** 状态事件（annals）：scope = campaignId，type 目前只有 state.set。视图和状态块由 memory/state.ts 从这里折叠 */
+export type StateEventRow = EventRow<AnnalsEvent>;
 export interface LoreOverlay {
   id: string; campaignId: string; loreEntryId?: string; title: string; summary: string;
   content: string; reason: string; createdAt: number;
@@ -93,6 +99,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
   conversations: 'id, campaignId, pluginId',
   messages: 'id, conversationId, ts',
   memories: 'id, campaignId, characterId, importance, createdAt',
+  events: DEXIE_EVENT_SCHEMA,
   overlays: 'id, campaignId, loreEntryId, createdAt',
   kv: 'key',
   usage: 'id, ts, conversationId',
@@ -101,7 +108,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 6;
+const KERNEL_VERSION = 7;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -111,6 +118,7 @@ export class PocketDB extends Dexie {
   conversations!: Table<Conversation, string>;
   messages!: Table<Message, string>;
   memories!: Table<EpisodicMemory, string>;
+  events!: Table<StateEventRow, string>;
   overlays!: Table<LoreOverlay, string>;
   kv!: Table<KV, string>;
   usage!: Table<UsageRecord, string>;

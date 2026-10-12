@@ -1,5 +1,7 @@
 import { ulid } from 'ulid';
+import { PATCHES_SCHEMA, parsePatches } from 'annals/airp';
 import { db } from '../storage/db';
+import { applyPatches } from '../memory/state';
 import type { Campaign, Character, LoreEntry, LoreOverlay } from '../storage/db';
 import type { ToolSpec } from '../llm/types';
 import { search } from './search';
@@ -19,6 +21,8 @@ import { catchup } from '../catchup/catchup';
 export interface AttachedTask { key: string; item: CatchupItem; ctx: CatchupContext }
 export interface ToolContext {
   campaign: Campaign; characters: Character[]; lore: LoreEntry[]; overlays: LoreOverlay[];
+  /** 这一轮的 id：工具写的状态事件挂它做来源，回复消息的 meta.turn 也是它，删消息时按它撤回 */
+  turnId: string;
   /** 本轮工具产生的分享卡，引擎收完写进消息 meta */
   cards: ShareCard[];
   /** 挂在这一轮上顺手处理的事（如回朋友圈评论），材料在最后一条用户消息里 */
@@ -67,7 +71,7 @@ export const kernelTools: KernelTool[] = [
     spec: { name: 'memory_search', description: '搜索以前发生过的事（情节记忆）。', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
     async handler(input, ctx) {
       const mems = await db().memories.where('campaignId').equals(ctx.campaign.id).toArray();
-      const hits = search(mems.map((m) => ({ id: m.id, kind: 'mem', title: m.when, text: m.text })), str(input?.query, 200), 10);
+      const hits = search(mems.map((m) => ({ id: m.id, kind: 'mem', title: m.when, text: m.text, ...(m.bag ? { bag: m.bag } : {}) })), str(input?.query, 200), 10);
       if (!hits.length) return '没有相关记忆。';
       return hits.map((h) => { const m = mems.find((x) => x.id === h.id)!; return `- ${m.when ? m.when + '：' : ''}${m.text}`; }).join('\n');
     },
@@ -95,13 +99,13 @@ export const kernelTools: KernelTool[] = [
     label: '记下变化',
     spec: {
       name: 'state_update',
-      description: '更新当前状态：地点、角色与用户的关系、角色情绪、当前事实，以及把剧情时间往前拨。只在有明确变化时调用。facts 是替换而不是追加，传完整列表（最多 20 条）。',
+      description: '更新当前状态：地点、角色与用户的关系、角色情绪、硬事实（set），以及把剧情时间往前拨。只在有明确变化时调用。set 是增量：只给变了的条目，每条 entity+attr 一个值，旧值会被覆盖。',
       inputSchema: { type: 'object', properties: {
         advance: { type: 'integer', minimum: 1, maximum: MAX_ADVANCE_MINUTES, description: '剧情时间往前拨多少分钟（最多一天）。只在对话里明确过了一段时间时用，比如说了「明早见」之后对方接着说；只能往前，大跳由对方推进' },
         location: { type: 'string' },
         relation: { type: 'string', description: '你扮演的角色与用户现在的关系，一句话' },
         mood: { type: 'string', description: '你扮演的角色现在的情绪，一句话' },
-        facts: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+        set: { ...PATCHES_SCHEMA, description: '硬事实的变化：东西在哪、归谁、谁欠谁多少、谁答应了什么、关系的定性、不可逆的外貌。value 写成主宾分明的一句话，剧情没说清就写"未明确（原因）"' },
         nudge: { type: 'string', maxLength: 20, description: '你的拍一拍后缀：对方拍你时显示「拍了拍你 + 后缀」，比如「的小脑袋」「的肩膀」。想定或想换才传' },
       } },
     },
@@ -111,15 +115,16 @@ export const kernelTools: KernelTool[] = [
       if (typeof input?.location === 'string') s.location = input.location.slice(0, 80);
       if (me && typeof input?.relation === 'string') s.relations[me] = input.relation.slice(0, 120);
       if (me && typeof input?.mood === 'string') s.mood[me] = input.mood.slice(0, 120);
-      if (Array.isArray(input?.facts)) s.facts = input.facts.filter((f: unknown) => typeof f === 'string').map((f: string) => f.slice(0, 160)).slice(0, 20);
       if (me && typeof input?.nudge === 'string') s.nudge = { ...(s.nudge ?? {}), [me]: input.nudge.trim().slice(0, 20) };
       const patch: Partial<Campaign> = { state: s };
       const minutes = typeof input?.advance === 'number' ? Math.min(Math.max(0, Math.floor(input.advance)), MAX_ADVANCE_MINUTES) : 0;
       if (minutes > 0) { patch.clock = clock.skipBy(ctx.campaign.clock, minutes * 60_000); ctx.campaign.clock = patch.clock; }
       await db().campaigns.update(ctx.campaign.id, patch);
       ctx.campaign.state = s;
+      const set = await applyPatches(ctx.campaign.id, parsePatches(input?.set), { source: ctx.turnId, at: clock.now(ctx.campaign.clock) });
       bus.emit('memory.written', { kind: 'state', id: ctx.campaign.id });
-      return minutes > 0 ? `已更新状态，时间来到 ${clock.format(clock.now(patch.clock), ctx.characters[0]?.timeZone)}。` : '已更新状态。';
+      const setText = set.length ? `，记下 ${set.length} 条事实` : '';
+      return minutes > 0 ? `已更新状态${setText}，时间来到 ${clock.format(clock.now(patch.clock), ctx.characters[0]?.timeZone)}。` : `已更新状态${setText}。`;
     },
   },
   {

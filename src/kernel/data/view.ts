@@ -5,15 +5,18 @@ import { loreApplies } from './lore';
 import { loreDirectory } from '../context/assemble';
 import { clock } from '../context/clock';
 import { places } from './place';
+import { stateLines } from '../memory/state';
 import type { DataView, CampaignView, CharacterView } from '../api/types';
 
 async function toView(c: Campaign): Promise<CampaignView | undefined> {
   const chId = c.characterIds[0];
-  const [ch, world] = await Promise.all([chId ? db().characters.get(chId) : undefined, db().worlds.get(c.worldId)]);
+  const [ch, world, lines] = await Promise.all([chId ? db().characters.get(chId) : undefined, db().worlds.get(c.worldId), stateLines(c.id)]);
   if (!ch) return undefined;
+  // 插件看到的 facts = 状态事件折叠出的行 + 老的 facts，和拼上下文的「当前事实」一致
+  const state = { ...structuredClone(c.state), facts: [...lines, ...c.state.facts].slice(0, 20) };
   return {
     id: c.id, name: c.name, worldId: c.worldId, worldName: world?.name ?? '', characterId: ch.id, characterName: ch.name,
-    lastPlayedAt: c.lastPlayedAt, now: clock.now(c.clock), aligned: clock.aligned(c.clock), ...(ch.timeZone ? { timeZone: ch.timeZone } : {}), state: structuredClone(c.state),
+    lastPlayedAt: c.lastPlayedAt, now: clock.now(c.clock), aligned: clock.aligned(c.clock), ...(ch.timeZone ? { timeZone: ch.timeZone } : {}), state,
   };
 }
 
