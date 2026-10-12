@@ -47,6 +47,8 @@ describe('transfers share the wallet with red packets', () => {
     // 用户转两笔（「+」面板的做法：先建记录再扣款）
     const a = await redpacketApi.create({ conversationId, campaignId, characterId: me, kind: 'transfer', from: 'user', amount: 50, note: '' });
     await redpacketApi.adjust(campaignId, 'user', -50);
+    // 两笔落在同一毫秒时分不出「最近那笔」，隔开一点
+    await new Promise((r) => setTimeout(r, 2));
     const b = await redpacketApi.create({ conversationId, campaignId, characterId: me, kind: 'transfer', from: 'user', amount: 30, note: '' });
     await redpacketApi.adjust(campaignId, 'user', -30);
     expect((await redpacketApi.pendingFromUser(conversationId)).map((x) => x.id).sort()).toEqual([a.id, b.id].sort());
