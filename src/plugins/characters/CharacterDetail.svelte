@@ -89,7 +89,8 @@
     try {
       const { filename, text } = await chat.contextReport(id);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+      // 开头加 UTF-8 BOM：手机上不少查看器不看 charset，没有 BOM 就按 GBK/Latin-1 猜，中文成乱码
+      a.href = URL.createObjectURL(new Blob(['\uFEFF', text], { type: 'text/markdown;charset=utf-8' }));
       // 挂到页面上再点：有的浏览器对游离的 <a> 不认 download 文件名
       a.download = filename; a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
