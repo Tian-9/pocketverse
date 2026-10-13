@@ -6,6 +6,7 @@ import type { AssembleInput } from './assemble';
 import { loreApplies } from '../data/lore';
 import { triggerL1 } from './l1';
 import { estimateTokens } from './tokens';
+import { fromUserMacro } from './userref';
 
 /**
  * 「导出这一局的上下文」的报告：下一轮实际会发的请求，加上每样设定进了哪里、没进的原因。
@@ -86,7 +87,7 @@ export function buildReport(r: ReportInput): string {
   const msgTokens = assembled.messages.reduce((a, m) => a + m.content.reduce((x, b) => x + (b.type === 'text' ? tok(b.text) : 0), 0), 0);
 
   out.push(`# ${ch.name} · 上下文排查`, '');
-  out.push(`这一局：「${cp.name}」，世界「${world.name}」。下面是**下一轮聊天实际会发的请求**（还没发，你下一句话没算进去），以及每样设定进了哪里、没进的原因。`, '');
+  out.push(`这一局：「${cp.name}」，世界「${world.name}」，你在这局叫「${input.userName}」。下面是**下一轮聊天实际会发的请求**（还没发，你下一句话没算进去），以及每样设定进了哪里、没进的原因。`, '');
   out.push('## 一眼看', '');
   out.push('| 项 | 值 |', '|---|---|');
   out.push(`| 对话档模型 | ${r.settings.model} · ${r.settings.effort} |`);
@@ -159,14 +160,16 @@ export function buildReport(r: ReportInput): string {
 
   // ---- 记忆 ----
   const hi = new Set(input.highlights.map((m) => m.id));
+  const rc = new Set((input.recalled ?? []).map((m) => m.id));
+  const named = (t: string) => fromUserMacro(t, input.userName, ch.name);
   const threeStar = r.memories.filter((m) => m.importance === 3).length;
   out.push('## 情节记忆', '');
-  out.push(`共 ${r.memories.length} 条，三星 ${threeStar} 条。进 system「近期要事」的只有最近 10 条三星；其余${canTool('memory_search') ? '要模型调 memory_search / memory_recent 才看得到' : '**模型看不到**（工具关了）'}。`, '');
+  out.push(`共 ${r.memories.length} 条，三星 ${threeStar} 条。进 system「近期要事」的只有最近 10 条三星；其余每轮用你刚说的话自动搜，最多 3 条进最后一条消息（这一轮召回了 ${rc.size} 条）；再往外${canTool('memory_search') ? '要模型调 memory_search / memory_recent' : '**模型看不到**（工具关了）'}。`, '');
   if (r.memories.length) {
     out.push('| 记忆 | 星 | 词袋 | 进了吗 |', '|---|---|---|---|');
     for (const m of r.memories) {
       const bag = m.bag ? [...(m.bag.core ?? []), ...(m.bag.related ?? [])].slice(0, 6).join('、') : '（无，按正文分词）';
-      out.push(`| ${cell(one(`${m.when ? m.when + '：' : ''}${m.text}`))} | ${m.importance} | ${cell(bag)} | ${hi.has(m.id) ? '近期要事' : m.importance === 3 ? '三星但不在最近 10 条' : '只能搜'} |`);
+      out.push(`| ${cell(one(named(`${m.when ? m.when + '：' : ''}${m.text}`)))} | ${m.importance} | ${cell(named(bag))} | ${hi.has(m.id) ? '近期要事' : rc.has(m.id) ? '这一轮自动召回' : m.importance === 3 ? '三星但不在最近 10 条' : '只能搜'} |`);
     }
     out.push('');
   }

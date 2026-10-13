@@ -67,7 +67,7 @@
 </List>
 
 <SectionTitle text="你" />
-<List footer="角色会用这个名字称呼你。自我介绍会常驻在上下文里，写你希望所有角色都知道的事。">
+<List footer="角色会用这个名字称呼你。某一局想用别的名字，在角色主页「你在这局叫」里单独改。自我介绍会常驻在上下文里，写你希望所有角色都知道的事。">
   <Field label="名字" bind:value={userName} placeholder="我" oninput={(v) => chat.setUserName(v)} />
   <Field multiline rows={3} bind:value={userProfile} placeholder="自我介绍，可选" oninput={(v) => chat.setUserProfile(v)} />
 </List>

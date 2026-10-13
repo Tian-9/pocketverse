@@ -130,7 +130,7 @@ export const repo = {
     const conv: Conversation = { id: ulid(), campaignId: campaign.id, kind: 'direct', participantIds: [character.id], pluginId };
     await db().conversations.add(conv);
     if (character.useFirstMessage && character.firstMessage?.trim()) {
-      const userName = await db().getKV('kernel.userName', '我');
+      const userName = await this.userNameOf(campaign);
       await this.addMessage(conv.id, 'assistant', expandMacros(character.firstMessage.trim(), { user: userName, char: character.name }));
     }
     return conv;
@@ -166,6 +166,11 @@ export const repo = {
       if (conv) await db().campaigns.update(conv.campaignId, { lastPlayedAt: last.ts, playedStoryTs: last.storyTs });
     });
     return out;
+  },
+
+  /** 你在这一局叫什么：存档上填了就用它，没填用设置里的名字 */
+  async userNameOf(cp?: Pick<Campaign, 'userName'>): Promise<string> {
+    return cp?.userName?.trim() || (await db().getKV('kernel.userName', '我'));
   },
 
   /** 改这一局的时钟（推进、停表 / 走表） */

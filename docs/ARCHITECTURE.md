@@ -116,7 +116,11 @@ interface Campaign {
   id: string; worldId: string; characterIds: string[];
   name: string; createdAt: number; lastPlayedAt: number;
   state: CampaignState;                        // 当前状态，进 L0
-  userPersona?: string;                        // 你在这局里是谁（修仙世界里是师弟，校园里是同桌），进 system 的「用户」段；没有就只用全局画像
+  userPersona?: string;                        // 你在这局里是谁（修仙世界里是师弟，校园里是同桌），进 system 的「对方」段；没有就只用全局画像
+  userName?: string;                           // 你在这局叫什么，留空＝设置里的名字（repo.userNameOf）。{{user}} 在这一局里都换成它
+  // 「对方」在库里统一存成 {{user}}（context/userref.ts）：模型写的记忆、状态、硬事实、世界变化，存库前把这一局的名字和「用户」换成占位符；
+  // 发给模型（assemble 末尾统一展开、工具结果 expandForModel、补发、整理）和显示（主页、ctx.data）时再换成这一局的名字。改名后旧内容自动跟着变。
+  // 内置规则里也不写「用户」，写 {{user}}。名字太短（默认的「我」）不做名字替换，只换「用户」。v8 迁移把老数据换了一遍。
   clock?: CampaignClock;                       // 存档时钟：这局「现在几点」。没有＝和真实时间一样
 }
 // 存档时钟（context/clock.ts，设计见 designs/clock-and-calendar.md）：剧情时刻是普通毫秒时间戳，显示时套角色时区。
@@ -267,7 +271,7 @@ Gemini、OpenAI 兼容适配器：只实现 `chat` 和流式，其他能力标 f
 [tools]      内核工具 + 当前启用插件的工具（顺序固定，按 id 排序）
 [system]     ← 缓存断点 1
   1. 全局规则（输出格式、禁止事项，固定文本）
-  2. 用户画像（+ 这局里你是谁 `userPersona`）
+  2. 对方（这局的名字 + 这局里你是谁 `userPersona` + 全局画像）
   3. 世界摘要
   4. 在场角色的 core
   5. 存档状态 CampaignState
@@ -279,6 +283,7 @@ Gemini、OpenAI 兼容适配器：只实现 `chat` 和流式，其他能力标 f
   历史消息（最近 N 条原文，更早的由压缩块代替）  ← 缓存断点 2
   最后一条用户消息：
     - L1 命中的世界书正文（按 order 排序）
+    - 自动召回 `<可能相关的往事>`：用你这一轮说的话（他上次回复之后的所有用户消息）在情节记忆里搜，annals 分档词袋 + 倒排，不调模型；已在「近期要事」里的跳过，最多 3 条，分数低于 1 的不要（memory/recall.ts）
     - 插件 promptContributors（易变部分，如"刚发了一条朋友圈"）
     - 时间那一行：存档时钟的「现在」（`context/time.ts`）。钟和真实时间对不上（跳过了、停表）就标「剧情时间」；角色设了别的时区就多一句"你在 Asia/Tokyo，那边是 …"
     - 用户输入（聊天引擎先存进历史再拼，所以它就是历史里最后那条；拼装器把上面几段插在它前面，他最后读到的是对方刚说的话）

@@ -7,7 +7,7 @@ import type { PromptContext, CatchupContext } from '$kernel/api';
 
 const campaign: CampaignView = {
   id: 'cp1', name: '王都', worldId: 'w1', worldName: '王都', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1,
-  now: Date.UTC(2026, 2, 20, 4, 0), aligned: false, state: { location: '东市', relations: {}, mood: {}, facts: ['城门塌了'] },
+  now: Date.UTC(2026, 2, 20, 4, 0), aligned: false, userName: '我', state: { location: '东市', relations: {}, mood: {}, facts: ['城门塌了'] },
 };
 let answer = '';
 let lastUser = '';

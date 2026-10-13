@@ -2,6 +2,7 @@ import { ulid } from 'ulid';
 import { PATCHES_SCHEMA, parsePatches } from 'annals/airp';
 import { db } from '../storage/db';
 import { applyPatches } from '../memory/state';
+import { toUserMacro } from './userref';
 import type { Campaign, Character, LoreEntry, LoreOverlay } from '../storage/db';
 import type { ToolSpec } from '../llm/types';
 import { search } from './search';
@@ -10,7 +11,6 @@ import { bus } from '../bus/bus';
 import { expandMacros } from './macros';
 import { clock, MAX_ADVANCE_MINUTES } from './clock';
 import { isValidTimeZone } from './time';
-import { chat } from '../chat/engine.svelte';
 import { registry } from '../registry/registry.svelte';
 import type { ShareCard, ShareResolver } from '../share/types';
 import type { CatchupContext, CatchupItem } from '../api/types';
@@ -23,6 +23,8 @@ export interface ToolContext {
   campaign: Campaign; characters: Character[]; lore: LoreEntry[]; overlays: LoreOverlay[];
   /** 这一轮的 id：工具写的状态事件挂它做来源，回复消息的 meta.turn 也是它，删消息时按它撤回 */
   turnId: string;
+  /** 你在这一局叫什么。写库前名字换成 {{user}}，给模型看时换回来 */
+  userName: string;
   /** 本轮工具产生的分享卡，引擎收完写进消息 meta */
   cards: ShareCard[];
   /** 挂在这一轮上顺手处理的事（如回朋友圈评论），材料在最后一条用户消息里 */
@@ -73,7 +75,7 @@ export const kernelTools: KernelTool[] = [
       const mems = await db().memories.where('campaignId').equals(ctx.campaign.id).toArray();
       const hits = search(mems.map((m) => ({ id: m.id, kind: 'mem', title: m.when, text: m.text, ...(m.bag ? { bag: m.bag } : {}) })), str(input?.query, 200), 10);
       if (!hits.length) return '没有相关记忆。';
-      return hits.map((h) => { const m = mems.find((x) => x.id === h.id)!; return `- ${m.when ? m.when + '：' : ''}${m.text}`; }).join('\n');
+      return expandForModel(hits.map((h) => { const m = mems.find((x) => x.id === h.id)!; return `- ${m.when ? m.when + '：' : ''}${m.text}`; }).join('\n'), ctx);
     },
   },
   {
@@ -83,7 +85,7 @@ export const kernelTools: KernelTool[] = [
       const n = Math.min(30, Math.max(1, Number(input?.n) || 10));
       const mems = await db().memories.where('campaignId').equals(ctx.campaign.id).reverse().sortBy('createdAt');
       if (!mems.length) return '还没有记忆。';
-      return mems.slice(0, n).map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n');
+      return expandForModel(mems.slice(0, n).map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n'), ctx);
     },
   },
   {
@@ -112,16 +114,17 @@ export const kernelTools: KernelTool[] = [
     async handler(input, ctx) {
       const me = ctx.characters[0]?.id;
       const s = { ...ctx.campaign.state, relations: { ...ctx.campaign.state.relations }, mood: { ...ctx.campaign.state.mood } };
-      if (typeof input?.location === 'string') s.location = input.location.slice(0, 80);
-      if (me && typeof input?.relation === 'string') s.relations[me] = input.relation.slice(0, 120);
-      if (me && typeof input?.mood === 'string') s.mood[me] = input.mood.slice(0, 120);
+      const u = (t: string) => toUserMacro(t, ctx.userName);
+      if (typeof input?.location === 'string') s.location = u(input.location.slice(0, 80));
+      if (me && typeof input?.relation === 'string') s.relations[me] = u(input.relation.slice(0, 120));
+      if (me && typeof input?.mood === 'string') s.mood[me] = u(input.mood.slice(0, 120));
       if (me && typeof input?.nudge === 'string') s.nudge = { ...(s.nudge ?? {}), [me]: input.nudge.trim().slice(0, 20) };
       const patch: Partial<Campaign> = { state: s };
       const minutes = typeof input?.advance === 'number' ? Math.min(Math.max(0, Math.floor(input.advance)), MAX_ADVANCE_MINUTES) : 0;
       if (minutes > 0) { patch.clock = clock.skipBy(ctx.campaign.clock, minutes * 60_000); ctx.campaign.clock = patch.clock; }
       await db().campaigns.update(ctx.campaign.id, patch);
       ctx.campaign.state = s;
-      const set = await applyPatches(ctx.campaign.id, parsePatches(input?.set), { source: ctx.turnId, at: clock.now(ctx.campaign.clock) });
+      const set = await applyPatches(ctx.campaign.id, parsePatches(input?.set).map((p) => ({ ...p, entity: u(p.entity), value: u(p.value) })), { source: ctx.turnId, at: clock.now(ctx.campaign.clock) });
       bus.emit('memory.written', { kind: 'state', id: ctx.campaign.id });
       const setText = set.length ? `，记下 ${set.length} 条事实` : '';
       return minutes > 0 ? `已更新状态${setText}，时间来到 ${clock.format(clock.now(patch.clock), ctx.characters[0]?.timeZone)}。` : `已更新状态${setText}。`;
@@ -154,8 +157,8 @@ export const kernelTools: KernelTool[] = [
       const loreEntryId = str(input?.loreEntryId, 64) || undefined;
       if (loreEntryId && !ctx.lore.some((e) => e.id === loreEntryId)) return '没有这个世界书条目，loreEntryId 留空即可。';
       const ov: LoreOverlay = {
-        id: ulid(), campaignId: ctx.campaign.id, loreEntryId, title: str(input?.title, 80), summary: str(input?.summary, 200),
-        content: str(input?.content, 4000), reason: str(input?.reason, 200), createdAt: Date.now(),
+        id: ulid(), campaignId: ctx.campaign.id, loreEntryId, title: toUserMacro(str(input?.title, 80), ctx.userName), summary: toUserMacro(str(input?.summary, 200), ctx.userName),
+        content: toUserMacro(str(input?.content, 4000), ctx.userName), reason: toUserMacro(str(input?.reason, 200), ctx.userName), createdAt: Date.now(),
       };
       // 角色自己写的覆盖直接生效；合并任务提的才需要确认
       await db().overlays.add(ov);
@@ -265,7 +268,7 @@ export function attachedPrompt(tasks: AttachedTask[]): string {
 
 /** 工具返回给模型的文本也要替换占位符 */
 export function expandForModel(text: string, ctx: ToolContext): string {
-  return expandMacros(text, { user: chat.userName, char: ctx.characters[0]?.name ?? '角色' });
+  return expandMacros(text, { user: ctx.userName, char: ctx.characters[0]?.name ?? '角色' });
 }
 
 const EXTRA_LABELS: Record<string, string> = { share: '分享', handle_attached: '顺手处理', web_search: '上网搜', web_fetch: '看网页' };

@@ -43,7 +43,7 @@ export const diaryApi = {
     const convs = await db().conversations.where('campaignId').equals(campaignId).toArray();
     const at = (x: { ts: number; storyTs?: number }) => x.storyTs ?? x.ts;
     const msgs = (await Promise.all(convs.map((c) => db().messages.where('conversationId').equals(c.id).filter((x) => at(x) >= start && at(x) < end && x.role !== 'system').toArray()))).flat().sort((a, b) => at(a) - at(b));
-    const mems = await db().memories.where('campaignId').equals(campaignId).reverse().sortBy('createdAt');
+    const mems = await ctx.data.memories(campaignId, { limit: 6 });
     const prev = (await this.entries().where('campaignId').equals(campaignId).reverse().sortBy('date')).filter((e) => e.date < date)[0];
     const transcript = msgs.slice(-60).map((x) => `${x.role === 'user' ? '对方' : '我'}：${textOf(x)}`).join('\n');
     const schedule = await scheduleOf(campaignId, characterId, start, end, ch.timeZone);

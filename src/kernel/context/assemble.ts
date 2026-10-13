@@ -16,6 +16,8 @@ export interface AssembleInput {
   overlays: LoreOverlay[];
   /** 近期要事（importance 高的情节记忆，已按时间排序） */
   highlights: EpisodicMemory[];
+  /** 自动召回：按你刚说的话从情节记忆里翻出来的几条（memory/recall.ts），进最后一条消息 */
+  recalled?: EpisodicMemory[];
   /** /memories 笔记正文（memfs.memoryNotes 拼好的，空字符串表示没有） */
   memoryNotes?: string;
   /** 状态事件折叠出来的硬事实行（memory/state.ts 的 stateLines），排在老的 facts 前面 */
@@ -47,12 +49,12 @@ export interface AssembleInput {
 }
 
 export const DEFAULT_RULES = [
-  '你在扮演一个角色，和用户在手机上聊天。这是纯线上的文字聊天，不是小说。',
+  '你在扮演一个角色，和{{user}}在手机上聊天。这是纯线上的文字聊天，不是小说。',
   '始终以角色的身份、口吻和视角说话，不要跳出角色解释自己是 AI。',
   '只写角色打出来的字：不写动作、神态、环境描写，不用括号或星号加旁白。情绪靠语气、标点和表情符号。',
   '一次回复 1 到 4 条消息，每条一行，用换行分开，像连发几条微信。短的一句话就一条，不要编号，不要独白。',
   '长度和对方匹配，对方一句你就一两句。',
-  '不要替用户说话或决定用户的行动。',
+  '不要替{{user}}说话或决定{{user}}的行动。',
   '不要反复提同一个梗、同一件事，前面说过的话不要换个说法再说一遍。对方推进了时间，之前的话题就是过去的事，按新的时间点说话。',
   '用中文回复，除非角色设定要求其他语言。',
 ].join('\n');
@@ -60,11 +62,11 @@ export const DEFAULT_RULES = [
 const TOOL_RULES = [
   '你有一些工具可以查资料和记事：',
   '- 世界书目录列在下面。目录里有的条目，当对话确实需要细节时用 lore_read 读正文，不要每轮都查。',
-  '- 想不起来以前发生过什么时用 memory_search 或 memory_recent。',
+  '- 最后一条消息里的「可能相关的往事」是按对方这句话自动翻出来的，不一定都相关。还想不起来就用 memory_search 或 memory_recent。',
   '- 关系、情绪、地点或当前事实发生明确变化时，用 state_update 记下来。对话里明确过了一段时间（说了「明早见」然后对方接着说）就把 advance 一起填上，把时间往前拨。',
   '- 剧情让世界本身发生了变化（某个地方毁了、某条规则被打破）时，用 overlay_write 记下来，不要假装世界书没变。',
   '- /memories 是你的笔记本，用 memory 工具维护。只记长期有用的事：对方的偏好、约定、重要的身份信息、你们关系的里程碑。不要记聊天进度和流水账，对话记录本来就在。笔记正文每轮都在上面了，不用再 view；只在要记新东西或改东西时才用 memory 工具写。',
-  '查完资料后正常回复，不要向用户复述你查了什么。',
+  '查完资料后正常回复，不要向{{user}}复述你查了什么。',
 ].join('\n');
 const SHARE_RULE = '- 想给对方分享一首歌、一部电影之类的东西时用 share 工具，它会查真实资料返回给你，并把卡片发给对方。引用歌词或台词只能引工具返回的原句，查不到就不引，不要编。';
 const ATTACH_RULE = '- 最后一条消息里如果有「顺手处理的事」（比如对方评论了你的朋友圈），先用 handle_attached 按它给的 key 和结构提交，再回消息。像真人一样顺手就做了，不要在消息里复述。';
@@ -98,7 +100,7 @@ function stateText(c: Campaign, chars: Character[], lines: string[] = []): strin
   const name = (id: string) => chars.find((x) => x.id === id)?.name ?? id;
   const parts: string[] = [];
   if (s.location) parts.push(`地点：${s.location}`);
-  for (const [id, v] of Object.entries(s.relations)) parts.push(`${name(id)} 与用户的关系：${v}`);
+  for (const [id, v] of Object.entries(s.relations)) parts.push(`${name(id)} 与{{user}}的关系：${v}`);
   for (const [id, v] of Object.entries(s.mood)) parts.push(`${name(id)} 现在的情绪：${v}`);
   for (const [id, v] of Object.entries(s.nudge ?? {})) parts.push(`${name(id)} 的拍一拍后缀：${v}`);
   const facts = [...lines, ...s.facts];
@@ -122,7 +124,8 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const system = [
     section('规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + toolRules(input) : '')),
     constantStyle.length ? section('写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
-    section('用户', `用户的名字是「${input.userName}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，用户是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),
+    // 名字只在这里写死一次，其余一律 {{user}}，最后统一换成这一局的名字
+    section('对方', `和你聊天的人叫「{{user}}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，{{user}}是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),
     section(`世界：${input.world.name}`, input.world.summary),
     ...input.characters.map((c) => section(input.characters.length > 1 ? `角色：${c.name}` : `你扮演的角色：${c.name}`, c.core)),
     section('当前状态', stateText(input.campaign, input.characters, input.stateLines)),
@@ -158,6 +161,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const loreHits = hits.filter((h) => !isStyle(h.entry));
   if (styleHits.length) tail.push('<风格>\n' + styleHits.map((h) => `## ${h.entry.title}\n${h.entry.content}`).join('\n\n') + '\n</风格>');
   if (loreHits.length) tail.push('<世界书>\n' + loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n') + '\n</世界书>');
+  if (input.recalled?.length) tail.push('<可能相关的往事>\n' + input.recalled.map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n') + '\n</可能相关的往事>');
   tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
   if (tailStyle.length) tail.push('<尾部指令>\n' + tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n') + '\n</尾部指令>');
   tail.push(timeLine(now, input.characters[0]?.timeZone, undefined, input.story));

@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type { AnnalsEvent, Bag } from 'annals';
 import { DEXIE_EVENT_SCHEMA, type EventRow } from 'annals/dexie';
 import type { PluginManifest, Place } from '../api/types';
+import { toUserMacro } from '../context/userref';
 
 /** 内核表。字段定义见 docs/ARCHITECTURE.md 第 4 节。 */
 export interface World { id: string; name: string; summary: string; createdAt: number; updatedAt: number }
@@ -50,6 +51,8 @@ export interface Campaign {
   clock?: CampaignClock;
   /** 你在这个世界里是谁（一两句话）。按存档分：修仙世界里是师弟，校园里是同桌。没有就只用全局的用户画像 */
   userPersona?: string;
+  /** 你在这一局叫什么。留空＝设置里的名字。{{user}} 在这一局里都换成它（见 repo.userNameOf） */
+  userName?: string;
   /** 上次合并处理到的消息 ts */
   consolidatedUpTo?: number;
   /** 上次补发的时间，和 lastPlayedAt 一起决定下次补发的档位 */
@@ -108,7 +111,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 7;
+const KERNEL_VERSION = 8;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -140,6 +143,25 @@ export class PocketDB extends Dexie {
         if (!t) return;
         delete c.state.inWorldTime;
         c.state.facts = [`之前记的剧情时间：${t}`, ...(c.state.facts ?? [])].slice(0, 20);
+      });
+      // v8：模型写的「用户」和设置里的名字统一存成 {{user}}，发出去和显示时换成这一局的名字。可重复跑（换过的不会再变）
+      const nameRow = (await tx.table('kv').get('kernel.userName')) as KV | undefined;
+      const u = (t: unknown) => (typeof t === 'string' ? toUserMacro(t, typeof nameRow?.value === 'string' ? nameRow.value : undefined) : t);
+      const ur = (r: Record<string, string> | undefined) => (r ? Object.fromEntries(Object.entries(r).map(([k, v]) => [k, u(v) as string])) : r);
+      await tx.table('memories').toCollection().modify((m: EpisodicMemory) => { m.text = u(m.text) as string; m.when = u(m.when) as string; });
+      await tx.table('campaigns').toCollection().modify((c: Campaign) => {
+        if (!c.state) return;
+        if (c.state.location) c.state.location = u(c.state.location) as string;
+        c.state.relations = ur(c.state.relations) ?? {};
+        c.state.mood = ur(c.state.mood) ?? {};
+        c.state.facts = (c.state.facts ?? []).map((f) => u(f) as string);
+      });
+      await tx.table('events').toCollection().modify((e: StateEventRow) => {
+        const p = e.payload as { entity?: unknown; value?: unknown } | undefined;
+        if (p && typeof p === 'object') { p.entity = u(p.entity); p.value = u(p.value); }
+      });
+      await tx.table('overlays').toCollection().modify((o: LoreOverlay) => {
+        o.title = u(o.title) as string; o.summary = u(o.summary) as string; o.content = u(o.content) as string; o.reason = u(o.reason) as string;
       });
     });
   }

@@ -6,17 +6,21 @@ import { loreDirectory } from '../context/assemble';
 import { clock } from '../context/clock';
 import { places } from './place';
 import { stateLines } from '../memory/state';
+import { expandMacros } from '../context/macros';
 import type { DataView, CampaignView, CharacterView } from '../api/types';
 
 async function toView(c: Campaign): Promise<CampaignView | undefined> {
   const chId = c.characterIds[0];
-  const [ch, world, lines] = await Promise.all([chId ? db().characters.get(chId) : undefined, db().worlds.get(c.worldId), stateLines(c.id)]);
+  const [ch, world, lines, userName] = await Promise.all([chId ? db().characters.get(chId) : undefined, db().worlds.get(c.worldId), stateLines(c.id), repo.userNameOf(c)]);
   if (!ch) return undefined;
+  // 库里存的是 {{user}}，插件拿到的一律是这一局的名字
+  const x = (t: string) => expandMacros(t, { user: userName, char: ch.name });
+  const xs = (r: Record<string, string>) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, x(v)]));
   // 插件看到的 facts = 状态事件折叠出的行 + 老的 facts，和拼上下文的「当前事实」一致
-  const state = { ...structuredClone(c.state), facts: [...lines, ...c.state.facts].slice(0, 20) };
+  const state = { ...structuredClone(c.state), ...(c.state.location ? { location: x(c.state.location) } : {}), relations: xs(c.state.relations), mood: xs(c.state.mood), facts: [...lines, ...c.state.facts].slice(0, 20).map(x) };
   return {
     id: c.id, name: c.name, worldId: c.worldId, worldName: world?.name ?? '', characterId: ch.id, characterName: ch.name,
-    lastPlayedAt: c.lastPlayedAt, now: clock.now(c.clock), aligned: clock.aligned(c.clock), ...(ch.timeZone ? { timeZone: ch.timeZone } : {}), state,
+    lastPlayedAt: c.lastPlayedAt, now: clock.now(c.clock), aligned: clock.aligned(c.clock), ...(ch.timeZone ? { timeZone: ch.timeZone } : {}), userName, state,
   };
 }
 
@@ -47,8 +51,11 @@ export const dataView: DataView = {
   },
   async memories(campaignId, opts = {}) {
     const min = opts.minImportance ?? 1;
+    const c = await db().campaigns.get(campaignId);
+    const ch = c?.characterIds[0] ? await db().characters.get(c.characterIds[0]) : undefined;
+    const names = { user: await repo.userNameOf(c), char: ch?.name ?? '' };
     const all = await db().memories.where('campaignId').equals(campaignId).filter((m) => m.importance >= min).reverse().sortBy('createdAt');
-    return all.slice(0, opts.limit ?? all.length).map((m) => ({ id: m.id, characterId: m.characterId, when: m.when, text: m.text, importance: m.importance, createdAt: m.createdAt }));
+    return all.slice(0, opts.limit ?? all.length).map((m) => ({ id: m.id, characterId: m.characterId, when: expandMacros(m.when, names), text: expandMacros(m.text, names), importance: m.importance, createdAt: m.createdAt }));
   },
   async loreDirectory(campaignId) {
     const c = await db().campaigns.get(campaignId);

@@ -16,9 +16,9 @@ describe('assemble (full)', () => {
   it('builds L0 in fixed order with constant lore, directory and state; last system block cached', () => {
     const r = assemble({ ...base, history: [], userText: '嗨' });
     const titles = r.system.map((b) => b.text.split('\n')[0]);
-    expect(titles).toEqual(['# 规则', '# 用户', '# 世界：雨城', '# 你扮演的角色：林晚秋', '# 当前状态', '# 世界书（常驻）', '# 世界书目录']);
+    expect(titles).toEqual(['# 规则', '# 对方', '# 世界：雨城', '# 你扮演的角色：林晚秋', '# 当前状态', '# 世界书（常驻）', '# 世界书目录']);
     expect(r.system.at(-1)!.cache).toBe(true);
-    expect(r.system.find((b) => b.text.startsWith('# 当前状态'))!.text).toContain('林晚秋 与用户的关系：刚认识');
+    expect(r.system.find((b) => b.text.startsWith('# 当前状态'))!.text).toContain('林晚秋 与我的关系：刚认识');
     expect(r.system.find((b) => b.text.startsWith('# 世界书目录'))!.text).toContain('[l1] 邮差');
     expect(r.system.find((b) => b.text.startsWith('# 世界书目录'))!.text).not.toContain('城规');
   });
@@ -48,11 +48,15 @@ describe('assemble (full)', () => {
 
   it('puts the per-save user persona in the user section and the character time zone in the time line', () => {
     const r = assemble({ ...base, campaign: { ...campaign, userPersona: '刚入门的师弟' }, characters: [{ ...ch, timeZone: 'Pacific/Kiritimati' }], history: [], userText: '嗨' });
-    expect(r.system.find((b) => b.text.startsWith('# 用户'))!.text).toContain('在这个世界里，用户是：刚入门的师弟');
+    const me = r.system.find((b) => b.text.startsWith('# 对方'))!.text;
+    expect(me).toContain('在这个世界里，');
+    expect(me).toContain('是：刚入门的师弟');
+    expect(me).not.toContain('用户');
+    expect(me).not.toContain('{{user}}');
     const last = r.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
     expect(last).toContain('你在 Pacific/Kiritimati，那边是');
     const plain = assemble({ ...base, history: [], userText: '嗨' });
-    expect(plain.system.find((b) => b.text.startsWith('# 用户'))!.text).not.toContain('在这个世界里');
+    expect(plain.system.find((b) => b.text.startsWith('# 对方'))!.text).not.toContain('在这个世界里');
   });
 
   it('puts the second cache breakpoint on the second-to-last message', () => {

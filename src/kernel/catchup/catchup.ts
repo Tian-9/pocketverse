@@ -10,6 +10,7 @@ import { log } from '../log/log';
 import { wakes, wakeItem, userRepliedSince, KEY as WAKE_KEY } from './wake';
 import { timeLine } from '../context/time';
 import { clock } from '../context/clock';
+import { expandMacros } from '../context/macros';
 
 const H = 3600_000, D = 24 * H;
 /** 档位阈值。TODO：做成设置项。 */
@@ -186,15 +187,17 @@ class Catchup {
     log.info('catchup', `${ch.name}：${ctx.tier} 档（离开 ${ctx.elapsedText}），处理 ${items.map((i) => i.item.label).join('、')}`, { campaignId: cp.id, keys: items.map((i) => i.key) });
 
     const mems = await db().memories.where('campaignId').equals(cp.id).reverse().sortBy('createdAt');
-    const userName = await db().getKV('kernel.userName', '我');
-    const system = `你是「${ch.name}」。设定：${ch.core.slice(0, 800)}${cp.userPersona?.trim() ? `\n对方「${userName}」在这个世界里是：${cp.userPersona.trim()}` : ''}
+    const userName = await repo.userNameOf(cp);
+    const names = { user: userName, char: ch.name };
+    const system0 = `你是「${ch.name}」。设定：${ch.core.slice(0, 800)}${cp.userPersona?.trim() ? `\n对方「${userName}」在这个世界里是：${cp.userPersona.trim()}` : ''}
 ${tier ? '你有一阵没碰手机了，现在拿起手机处理几件事。' : '你之前记下过晚点要联系对方，现在到时间了，拿起手机。'}每件事按它的说明回答，用中文，按给定的 JSON 结构输出。
 保持角色的口吻，像真人用手机：短、口语、不解释。不要提到"用户"这个词，称呼对方用你平时的叫法。不想做的事可以不做，各段说明里写了怎么表示。`;
-    const user = [
+    const system = expandMacros(system0, names);
+    const user = expandMacros([
       `# 情况\n${tier ? `${span.skipped ? `过去了${ctx.elapsedText}。这段时间你们各自照常过日子，按你们的关系该见面就见了面（同学就照常上课碰面，同事就照常上班），没发生特别的事；别当成这段时间没见到对方、对方不理你。` : `对方离开了${ctx.elapsedText}。`}` : `你们上次聊是${ctx.elapsedText}前。`}${timeLine(new Date(span.to), ch.timeZone, undefined, !clock.aligned(cp.clock, span.real))}\n你现在的情绪：${cp.state.mood[ch.id] ?? '平常'}\n最近记得的事：\n${mems.slice(0, 6).map((m) => '- ' + m.text).join('\n') || '（没什么特别的）'}`,
       '# 要处理的事',
       ...items.map(({ key, item }) => `## ${item.label}（字段 ${key}）\n${item.prompt}`),
-    ].join('\n\n');
+    ].join('\n\n'), names);
     const schema = {
       type: 'object', additionalProperties: false, required: items.map((i) => i.key),
       properties: Object.fromEntries(items.map((i) => [i.key, i.item.schema])),

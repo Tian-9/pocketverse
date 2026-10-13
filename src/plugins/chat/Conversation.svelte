@@ -30,6 +30,8 @@
   const character = live(async () => { const c = id ? await db().conversations.get(id) : undefined; return c ? repo.characterOfConversation(c) : undefined; }, undefined, () => [id]);
   const messages = live(() => (id ? repo.messagesOf(id) : Promise.resolve([] as Message[])), [] as Message[], () => [id]);
   const campaign = live(async () => { const c = id ? await db().conversations.get(id) : undefined; return c ? db().campaigns.get(c.campaignId) : undefined; }, undefined, () => [id]);
+  // 你在这一局叫什么（存档上填的，没填用设置里的）
+  const myName = $derived(campaign.value?.userName?.trim() || chat.userName);
   const liveTurn = $derived(chat.live[id]);
   // 流式时就按存库用的同一个 splitReply 分成几个气泡，生成完不会跳变
   const liveParts = $derived(liveTurn?.text ? splitReply(liveTurn.text) : []);
@@ -108,7 +110,7 @@
   let picked = $state<Message | null>(null);
   // 引用：长按一条 → 「引用」，输入框上方出现引用条，随下一条文字消息发出去。存的是原文截断，原消息撤回了也还显示
   let quoting = $state<MessageQuote | null>(null);
-  function quoteLabel(q: MessageQuote) { return (q.role === 'assistant' ? character.value?.name ?? '他' : chat.userName) + '：' + q.text; }
+  function quoteLabel(q: MessageQuote) { return (q.role === 'assistant' ? character.value?.name ?? '他' : myName) + '：' + q.text; }
   let scroller: HTMLDivElement;
   let textarea: HTMLTextAreaElement;
 
@@ -211,7 +213,7 @@
               {#if openThinking[m.id]}<div class="think">{m.meta.thinking}</div>{/if}
             {/if}
           </div>
-          {#if m.role === 'user' && wechat}<Avatar name={chat.userName} size={36} />{/if}
+          {#if m.role === 'user' && wechat}<Avatar name={myName} size={36} />{/if}
         </div>
       {/if}
     {/each}

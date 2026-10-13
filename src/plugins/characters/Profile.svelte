@@ -16,6 +16,8 @@
   import { clock } from '$kernel/context/clock';
   import { applyPatches, loadState } from '$kernel/memory/state';
   import { liveEntries, stateView, type StateSetEvent } from 'annals/airp';
+  import { parseBag, type Bag } from 'annals';
+  import { fromUserMacro, toUserMacro } from '$kernel/context/userref';
   import { ulid } from 'ulid';
 
   let { id }: { id: string } = $props();
@@ -75,19 +77,30 @@
   const stateRows = live(() => (campaignId ? loadState(campaignId) : Promise.resolve([])), [], deps);
   const factEntries = $derived(liveEntries(stateView(stateRows.value)).slice(-20));
   const files = live(() => (campaignId ? db().memfs.where('campaignId').equals(campaignId).toArray() : Promise.resolve([])), [], deps);
+  // 你在这一局叫什么：存档上填了就用它，没填用设置里的名字。库里存 {{user}}，显示时换成名字，手改保存时换回去
+  const myName = $derived(campaign.value?.userName?.trim() || chat.userName);
+  const show = (t: string | undefined) => fromUserMacro(t ?? '', myName, character.value?.name ?? '');
+  const keep = (t: string) => toUserMacro(t, myName);
   let busy = $state(false);
   const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(3 - n);
 
   // ---- 编辑：记忆 ----
   let mem = $state<EpisodicMemory | null>(null);
   let memText = $state(''), memWhen = $state(''), memImp = $state<1 | 2 | 3>(2);
+  // 检索词袋（annals 三档）：整理时模型写的，回忆和自动召回靠它；这里能看能改，用顿号或空格隔开
+  let bagCore = $state(''), bagRelated = $state(''), bagHint = $state('');
+  const joinTerms = (l?: readonly string[]) => (l ?? []).map(show).join('、');
+  const splitTerms = (t: string) => t.split(/[、，,\s]+/).map((x) => keep(x.trim())).filter(Boolean);
   function openMem(m: EpisodicMemory | null) {
     mem = m ?? { id: '', campaignId: campaignId!, characterId: id, when: '', text: '', importance: 2, sourceMessageIds: [], createdAt: Date.now() };
-    memText = mem.text; memWhen = mem.when; memImp = mem.importance;
+    memText = show(mem.text); memWhen = show(mem.when); memImp = mem.importance;
+    bagCore = joinTerms(mem.bag?.core); bagRelated = joinTerms(mem.bag?.related); bagHint = joinTerms(mem.bag?.hint);
   }
   async function saveMem() {
     if (!mem || !memText.trim()) { mem = null; return; }
-    const row: EpisodicMemory = { ...$state.snapshot(mem), id: mem.id || ulid(), text: memText.trim(), when: memWhen.trim(), importance: memImp };
+    const bag: Bag = parseBag({ core: splitTerms(bagCore), related: splitTerms(bagRelated), hint: splitTerms(bagHint) }, { core: 3, total: 30 });
+    const { bag: _old, ...base } = $state.snapshot(mem);
+    const row: EpisodicMemory = { ...base, id: mem.id || ulid(), text: keep(memText.trim()), when: keep(memWhen.trim()), importance: memImp, ...(Object.keys(bag).length ? { bag } : {}) };
     await db().memories.put(row); mem = null;
   }
   async function deleteMem() { if (mem?.id) await db().memories.delete(mem.id); mem = null; }
@@ -95,34 +108,46 @@
   // ---- 编辑：硬事实（状态事件）：手改和清除都是新事件，来源 manual，历史不丢 ----
   let fact = $state<{ entity: string; attr: string; value: string; isNew: boolean } | null>(null);
   function openFact(e: StateSetEvent | null) {
-    fact = e ? { ...e.payload, isNew: false } : { entity: '', attr: '', value: '', isNew: true };
+    fact = e ? { entity: show(e.payload.entity), attr: e.payload.attr, value: show(e.payload.value), isNew: false } : { entity: '', attr: '', value: '', isNew: true };
   }
   async function writeFact(value: string) {
     const cp = campaign.value; const f = fact; fact = null;
     if (!cp || !f || !f.entity.trim() || !f.attr.trim()) return;
-    await applyPatches(cp.id, [{ entity: f.entity.trim().slice(0, 40), attr: f.attr.trim().slice(0, 24), value: value.trim().slice(0, 160) }], { source: 'manual', at: clock.now(cp.clock) });
+    await applyPatches(cp.id, [{ entity: keep(f.entity.trim().slice(0, 40)), attr: f.attr.trim().slice(0, 24), value: keep(value.trim().slice(0, 160)) }], { source: 'manual', at: clock.now(cp.clock) });
   }
 
   // ---- 编辑：状态 ----
   let editingState = $state(false);
-  let st = $state({ location: '', relation: '', mood: '', facts: '', me: '', nudge: '' });
+  let st = $state({ location: '', relation: '', mood: '', facts: '', nudge: '' });
   function openState() {
     const cp = campaign.value; const s = cp?.state; if (!cp || !s) return;
-    st = { location: s.location ?? '', relation: s.relations[id] ?? '', mood: s.mood[id] ?? '', facts: s.facts.join('\n'), me: cp.userPersona ?? '', nudge: s.nudge?.[id] ?? '' };
+    st = { location: show(s.location), relation: show(s.relations[id]), mood: show(s.mood[id]), facts: s.facts.map(show).join('\n'), nudge: s.nudge?.[id] ?? '' };
     editingState = true;
   }
   async function saveState() {
     const cp = campaign.value; if (!cp) return;
     const base = $state.snapshot(cp.state);
     const s: CampaignState = { ...base, relations: { ...base.relations }, mood: { ...base.mood } };
-    s.location = st.location.trim() || undefined;
-    if (st.relation.trim()) s.relations[id] = st.relation.trim(); else delete s.relations[id];
-    if (st.mood.trim()) s.mood[id] = st.mood.trim(); else delete s.mood[id];
+    s.location = keep(st.location.trim()) || undefined;
+    if (st.relation.trim()) s.relations[id] = keep(st.relation.trim()); else delete s.relations[id];
+    if (st.mood.trim()) s.mood[id] = keep(st.mood.trim()); else delete s.mood[id];
     s.nudge = { ...(base.nudge ?? {}) };
     if (st.nudge.trim()) s.nudge[id] = st.nudge.trim().slice(0, 20); else delete s.nudge[id];
-    s.facts = st.facts.split('\n').map((f) => f.trim()).filter(Boolean).slice(0, 20);
-    // 「我在这局里是谁」也按存档存：修仙世界里是师弟，校园里是同桌
-    await db().campaigns.update(cp.id, { state: s, userPersona: st.me.trim().slice(0, 300) || undefined }); editingState = false;
+    s.facts = st.facts.split('\n').map((f) => keep(f.trim())).filter(Boolean).slice(0, 20);
+    await db().campaigns.update(cp.id, { state: s }); editingState = false;
+  }
+
+  // ---- 编辑：你在这一局（名字、人设）：按存档存，修仙世界里是师弟，校园里是同桌 ----
+  let editingMe = $state(false);
+  let meName = $state(''), mePersona = $state('');
+  function openMe() {
+    const cp = campaign.value; if (!cp) return;
+    meName = cp.userName ?? ''; mePersona = cp.userPersona ?? ''; editingMe = true;
+  }
+  async function saveMe() {
+    const cp = campaign.value; if (!cp) return;
+    await db().campaigns.update(cp.id, { userName: meName.trim().slice(0, 20) || undefined, userPersona: mePersona.trim().slice(0, 300) || undefined });
+    editingMe = false;
   }
 
   // ---- 编辑：笔记文件 ----
@@ -154,15 +179,18 @@
     <button class="save" onclick={() => (savesOpen = true)}>{world.value?.name ?? '…'}{saves.value.length > 1 ? ` · 共 ${saves.value.length} 局` : ''} ›</button>
   </div>
   <List footer={s.facts.length ? '状态、地点、和你：他在对话中用 state_update 更新，记忆整理也会更新。下面几行是旧格式的事实，现在不会再自动更新，只能手改；新的事实记在下一栏「硬事实」。点任意一行手改。' : '他在对话中用 state_update 更新，记忆整理也会更新。点任意一行手改。'}>
-    <Cell title="状态" subtitle={s.mood[id] || '—'} onclick={openState} />
-    <Cell title="地点" value={s.location || '—'} onclick={openState} />
-    <Cell title="和你" subtitle={s.relations[id] || '—'} onclick={openState} />
+    <Cell title="状态" subtitle={show(s.mood[id]) || '—'} onclick={openState} />
+    <Cell title="地点" value={show(s.location) || '—'} onclick={openState} />
+    <Cell title="和你" subtitle={show(s.relations[id]) || '—'} onclick={openState} />
     <Cell title="拍一拍" value={s.nudge?.[id] ? '拍了拍他' + s.nudge[id] : '—'} onclick={openState} />
-    <Cell title="你在这局里" subtitle={cp.userPersona || '—'} onclick={openState} />
-    {#each s.facts as f, i (i)}<Cell title={f} onclick={openState} />{/each}
+    {#each s.facts as f, i (i)}<Cell title={show(f)} onclick={openState} />{/each}
+  </List>
+  <List footer="只在这一局生效：他在这一局怎么叫你、你在这个世界里是谁。名字留空就用设置里的名字。记忆和状态里存的是「你」这个位置，改了名字旧记忆也跟着变。">
+    <Cell title="你在这局叫" value={cp.userName?.trim() ? cp.userName : `${chat.userName}（跟设置）`} onclick={openMe} />
+    <Cell title="你在这局是" subtitle={cp.userPersona || '—'} onclick={openMe} />
   </List>
   <List footer="硬事实：东西在哪、归谁、谁欠谁多少、谁答应了什么。他在对话里和整理时记，删那条消息会一起撤回。点一条可以改或清除。">
-    {#each factEntries as e (e.id)}<Cell title={`${e.payload.entity} · ${e.payload.attr}`} subtitle={e.payload.value} onclick={() => openFact(e)} />{/each}
+    {#each factEntries as e (e.id)}<Cell title={`${show(e.payload.entity)} · ${e.payload.attr}`} subtitle={show(e.payload.value)} onclick={() => openFact(e)} />{/each}
     <Cell title="添加一条" onclick={() => openFact(null)} />
   </List>
   <List footer={cp.clock?.running === false ? '停表：你不来他就定在这一刻，只有推进才动。' : cp.clock ? '这局的时间和真实时间一起走，只是不在同一天。' : '和真实时间一样。在聊天里「推进时间」可以往前跳，这里能改成任何时候或停表。'}>
@@ -177,9 +205,9 @@
   {#if memories.value.length === 0}
     <Placeholder title="还没有记忆" body="每聊 12 轮会自动整理一次，也可以现在手动整理，或者自己写一条。" paths={icons.sparkle} />
   {:else}
-    <List footer="三星的会作为近期要事常驻上下文，其余靠模型主动搜索。点一条可以改或删。">
+    <List footer="三星的会作为近期要事常驻上下文；其余每轮按你说的话自动翻出相关的几条，模型也能自己搜。点一条可以改词袋、改内容或删除。">
       {#each memories.value as m (m.id)}
-        <Cell title={m.text} subtitle={`${stars(m.importance)}${m.when ? ' · ' + m.when : ''}`} chevron onclick={() => openMem(m)} />
+        <Cell title={show(m.text)} subtitle={`${stars(m.importance)}${m.when ? ' · ' + show(m.when) : ''}`} chevron onclick={() => openMem(m)} />
       {/each}
     </List>
   {/if}
@@ -204,6 +232,11 @@
     <List>
       <Field multiline rows={3} bind:value={memText} placeholder="发生了什么，一两句话" />
       <Field label="时间" bind:value={memWhen} placeholder="剧情时间，可空" />
+    </List>
+    <List footer="检索词：你聊到这些词时，这条会被自动翻出来。核心词最多 3 个，放主体和外号；相关词放动作、地点、时间；联想词放别人可能用来问起这件事的说法。用顿号或空格隔开。">
+      <Field label="核心词" bind:value={bagCore} placeholder="小姨子、小猫" />
+      <Field label="相关词" bind:value={bagRelated} placeholder="周末、猫粮" />
+      <Field label="联想词" bind:value={bagHint} placeholder="可空" />
     </List>
     <div class="seg">
       {#each [1, 2, 3] as n (n)}<button class:on={memImp === n} onclick={() => (memImp = n as 1 | 2 | 3)}>{stars(n)}</button>{/each}
@@ -256,13 +289,19 @@
     </div>
   {/if}
 </Sheet>
+<Sheet bind:open={editingMe} title="你在这一局">
+  <List footer="只在这一局生效。名字留空就用设置里的名字。">
+    <Field label="名字" bind:value={meName} placeholder={chat.userName} />
+    <Field multiline rows={3} bind:value={mePersona} placeholder="你在这个世界里是谁：一两句话，如「刚入门的师弟」。空着就只用设置里的用户画像" />
+  </List>
+  <div class="actions"><Button onclick={saveMe}>保存</Button></div>
+</Sheet>
 <Sheet bind:open={editingState} title="当前状态">
   <List footer="事实一行一条，最多 20 条。">
     <Field label="地点" bind:value={st.location} placeholder="可空" />
     <Field multiline rows={2} bind:value={st.mood} placeholder="状态：他现在的情绪，一句话" />
     <Field multiline rows={2} bind:value={st.relation} placeholder="和你：他和你现在的关系，一句话" />
     <Field label="拍一拍" bind:value={st.nudge} placeholder="后缀，如「的小脑袋」；他自己也会定" />
-    <Field multiline rows={2} bind:value={st.me} placeholder="你在这局里是谁：一两句话，如「刚入门的师弟」。空着就只用设置里的用户画像" />
     <Field multiline rows={5} bind:value={st.facts} placeholder="当前事实，一行一条" />
   </List>
   <div class="actions"><Button onclick={saveState}>保存</Button></div>

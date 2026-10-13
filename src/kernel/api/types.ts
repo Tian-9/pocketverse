@@ -285,6 +285,8 @@ export interface CampaignView {
   aligned: boolean;
   /** 他的时区（IANA 名）；没设就是设备时区。按天分组、「几点」的显示和解析都套它 */
   timeZone?: string;
+  /** 你在这一局叫什么（存档上填的，没填就是设置里的名字） */
+  userName: string;
   state: {
     location?: string;
     relations: Record<string, string>; mood: Record<string, string>; facts: string[];

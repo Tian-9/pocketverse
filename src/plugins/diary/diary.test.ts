@@ -28,7 +28,7 @@ beforeAll(async () => {
     table: (name: string) => db().table(pluginTable('diary', name)),
     llm: { configured: false, async chat() { return { text: '' }; } },
     service: (name: string) => (name === 'calendar' ? { async between(_c: string, from: number, to: number) { return events.filter((e) => e.start >= from && e.start < to); } } : undefined),
-    data: { async character(id: string) { return id === 'ch1' ? { id, name: '阿一', core: '', timeZone: 'Asia/Tokyo' } : undefined; } },
+    data: { async memories() { return []; }, async character(id: string) { return id === 'ch1' ? { id, name: '阿一', core: '', timeZone: 'Asia/Tokyo' } : undefined; } },
   } as unknown as PluginContext;
   await plugin.setup!(ctx);
 });

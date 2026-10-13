@@ -12,7 +12,7 @@ const H = 3600_000, D = 24 * H;
 // 剧情「现在」：2027-03-10 10:00（设备本地时区），和真实时间无关
 const now = new Date(2027, 2, 10, 10, 0).getTime();
 const campaign: CampaignView = {
-  id: 'cp1', name: '雨城', worldId: 'w1', worldName: '雨城', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1, now, aligned: false,
+  id: 'cp1', name: '雨城', worldId: 'w1', worldName: '雨城', characterId: 'ch1', characterName: '阿一', lastPlayedAt: 1, now, aligned: false, userName: '我',
   state: { location: '图书馆', relations: {}, mood: { ch1: '困' }, facts: ['下周考试'] },
 };
 /** 同一张卡在东京的局：他那边的几点按 Asia/Tokyo 算 */

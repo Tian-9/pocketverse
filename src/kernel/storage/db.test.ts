@@ -35,3 +35,28 @@ describe('PocketDB v6 upgrade', () => {
     db.close();
   });
 });
+
+describe('PocketDB v8 upgrade', () => {
+  it('stores 用户 and the global name as {{user}} in memories, state, events and overlays', async () => {
+    const Dexie = (await import('dexie')).default;
+    const name = 'test-v8-' + Math.random();
+    const old = new Dexie(name);
+    old.version(700).stores({ worlds: 'id', lore: 'id', characters: 'id', campaigns: 'id, worldId, lastPlayedAt', conversations: 'id', messages: 'id', memories: 'id', events: 'id, scope, [scope+seq], [scope+source]', overlays: 'id', kv: 'key', usage: 'id', memfs: '[campaignId+path]', logs: 'id' });
+    await old.open();
+    await old.table('kv').put({ key: 'kernel.userName', value: 'Hana' });
+    await old.table('memories').put({ id: 'm', campaignId: 'a', when: '昨天', text: '方亦楷答应周末带用户看小猫，Hana 说要带猫粮', importance: 2, sourceMessageIds: [], createdAt: 0 });
+    await old.table('campaigns').put({ id: 'a', worldId: 'w', characterIds: ['c'], name: 'x', createdAt: 0, lastPlayedAt: 0, state: { relations: { c: '和用户是同桌' }, mood: {}, facts: ['方亦楷欠Hana一份烤冷面'] } });
+    await old.table('events').put({ id: 'e', scope: 'a', seq: 1, at: 0, type: 'state.set', source: 's', payload: { entity: 'Hana', attr: '位置', value: '用户在客栈' } });
+    await old.table('overlays').put({ id: 'o', campaignId: 'a', title: '用户的家', summary: '', content: 'Hana 搬家了', reason: '', createdAt: 0 });
+    old.close();
+    const db = new PocketDB(name, []);
+    await db.open();
+    expect((await db.memories.get('m'))!.text).toBe('方亦楷答应周末带{{user}}看小猫，{{user}} 说要带猫粮');
+    const cp = (await db.campaigns.get('a'))!;
+    expect(cp.state.relations.c).toBe('和{{user}}是同桌');
+    expect(cp.state.facts).toEqual(['方亦楷欠{{user}}一份烤冷面']);
+    expect((await db.events.get('e'))!.payload).toMatchObject({ entity: '{{user}}', value: '{{user}}在客栈' });
+    expect((await db.overlays.get('o'))!).toMatchObject({ title: '{{user}}的家', content: '{{user}} 搬家了' });
+    db.close();
+  });
+});

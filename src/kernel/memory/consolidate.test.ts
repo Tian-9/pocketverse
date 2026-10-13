@@ -13,7 +13,7 @@ describe('consolidate', () => {
     const p = buildPrompt(campaign, character, [{ id: 'l', worldId: 'w', title: '邮差', summary: '雨天的', content: '', scope: 'world', triggers: { keywords: [] }, constant: false, order: 0, enabled: true }],
       [{ id: 'm', conversationId: 'x', role: 'user', content: [{ type: 'text', text: '你好' }], ts: 1 }], []);
     expect(p.user).toContain('[l] 邮差');
-    expect(p.user).toContain('用户：你好');
+    expect(p.user).toContain('{{user}}：你好');
     expect(p.user).toContain('旧事实');
     const p2 = buildPrompt(campaign, character, [], [], [], { stateLines: ['猫 · 位置：客栈B'], vocab: ['猫', '黑炭'] });
     expect(p2.user).toContain('猫 · 位置：客栈B');
@@ -39,6 +39,20 @@ describe('consolidate', () => {
     expect(r.overlays[0]!.pending).toBe(true);
     expect(await db().memories.count()).toBe(1);
     expect(await db().overlays.count()).toBe(1);
+  });
+});
+
+describe('consolidate names', () => {
+  it('stores the user’s name and 用户 as {{user}}', async () => {
+    const r = await applyOutput({ ...campaign, id: 'cpn' }, character, [], {
+      memories: [{ text: 'Hana 说自己怕黑，用户还说怕打雷', when: '今晚', importance: 2 }],
+      state: { relation: '和Hana是同桌' },
+      patches: [{ entity: '债务', attr: '欠款', value: '林晚秋 欠 Hana 一份烤冷面' }],
+      overlays: [],
+    }, ['m9'], 1, 'Hana');
+    expect(r.mems[0]!.text).toBe('{{user}} 说自己怕黑，{{user}}还说怕打雷');
+    expect(r.state.relations.c).toBe('和{{user}}是同桌');
+    expect(r.patches[0]!.payload.value).toBe('林晚秋 欠 {{user}} 一份烤冷面');
   });
 });
 

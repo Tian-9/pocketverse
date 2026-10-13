@@ -2,6 +2,7 @@ import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { Message } from '../storage/db';
 import { loadState, retractSource, stateLines } from '../memory/state';
+import { recallMemories, recallQuery } from '../memory/recall';
 import { render } from '../llm/gate.svelte';
 import { buildReport } from '../context/report';
 import type { AssembleInput } from '../context/assemble';
@@ -120,15 +121,21 @@ class ChatEngine {
     const world = campaign && (await db().worlds.get(campaign.worldId));
     if (!conv || !character || !campaign || !world) throw new Error('会话、角色或世界不存在');
 
-    const [history, lore, overlays, memories, notes, lines] = await Promise.all([
+    const [history, lore, overlays, allMemories, notes, lines] = await Promise.all([
       repo.messagesOf(conversationId),
       db().lore.filter((e) => loreApplies(e, world.id, [character.id])).toArray(),
       db().overlays.where('campaignId').equals(campaign.id).toArray(),
-      db().memories.where('campaignId').equals(campaign.id).filter((m) => m.importance === 3).reverse().sortBy('createdAt'),
+      db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt'),
       memoryNotes(campaign.id),
       stateLines(campaign.id),
     ]);
     const turnId = ulid();
+    // 你在这一局叫什么：存档上填了就用它，没填用设置里的名字。{{user}} 一律换成它
+    const userName = campaign.userName?.trim() || this.userName;
+    // 近期要事：最近 10 条三星，常驻 system
+    const highlights = allMemories.filter((m) => m.importance === 3).slice(-10);
+    // 自动召回：用你刚说的话搜情节记忆（不调模型），常驻的跳过，进最后一条消息
+    const recalled = recallMemories(allMemories, recallQuery(history), new Set(highlights.map((m) => m.id)));
 
     const storyNow = clock.now(campaign.clock);
     const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow };
@@ -150,7 +157,7 @@ class ChatEngine {
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
     const attached = useTools && catchup.hasAttach() && !opts.dryRun ? await catchup.collectAttached(campaign, character) : [];
     if (attached.length) { const t = attachedPrompt(attached); pluginVolatile.push(t); contributions.push({ source: 'kernel/attached', kind: 'volatile', text: t }); }
-    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [], turnId };
+    const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [], turnId, userName };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
     const pluginCards: MessageCard[] = [];
@@ -167,13 +174,13 @@ class ChatEngine {
     ] : [];
 
     const input: AssembleInput = {
-      world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
-      lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryNotes: notes, stateLines: lines, history,
+      world, campaign, characters: [character], userName, userProfile: this.userProfile,
+      lore, overlays, highlights, recalled, memoryNotes: notes, stateLines: lines, history,
       pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
       now: new Date(storyNow), story: !clock.aligned(campaign.clock),
     };
     const assembled = assemble(input);
-    return { conv, character, campaign, world, plugins, pctx, tctx, tools, share, pluginCards, turnId, useTools, hasWeb, input, assembled, contributions, dryRun: !!opts.dryRun };
+    return { conv, character, campaign, world, plugins, pctx, tctx, tools, share, pluginCards, turnId, useTools, hasWeb, input, assembled, contributions, userName, dryRun: !!opts.dryRun };
   }
 
   /** 角色卡页「导出这一局的上下文」：下一轮实际会发的请求 + 每样设定进了哪里、没进的原因 + 原始设定 */
@@ -193,7 +200,7 @@ class ChatEngine {
     const request = render({
       model, effort, purpose: 'chat', maxTokens: llm.cap(model, undefined, effort), role,
       system: t.assembled.system, messages: t.assembled.messages, tools: t.tools.map((x) => x.spec), web: t.hasWeb,
-      names: { user: this.userName, assistant: t.character.name },
+      names: { user: t.userName, assistant: t.character.name },
     });
     const text = buildReport({
       character: t.character, campaign: t.campaign, world: t.world, worlds, allLore, overlays: t.input.overlays,
@@ -208,7 +215,7 @@ class ChatEngine {
   }
 
   private async runTurn(conversationId: string) {
-    const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
+    const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, userName, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
 
     const abort = new AbortController();
     this.live[conversationId] = { conversationId, status: 'thinking', statusText: '正在思考…', text: '', abort };
@@ -222,7 +229,7 @@ class ChatEngine {
     try {
       const { result: r, toolsUsed, thinking } = await runToolLoop(
         (req, hooks) => llm.chat(req, hooks),
-        { system, messages, purpose: 'chat', conversationId, names: { user: this.userName, assistant: character.name } },
+        { system, messages, purpose: 'chat', conversationId, names: { user: userName, assistant: character.name } },
         tools,
         { hooks: { signal: abort.signal, onStatus: setStatus, onText: (d) => { const l = this.live[conversationId]; if (l) { l.text += d; } } }, onToolUsed: (name) => { log.info('chat', `调用工具 ${name}`, { conversationId }); const l = this.live[conversationId]; if (l) l.text = ''; } },
       );

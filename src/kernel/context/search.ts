@@ -11,9 +11,9 @@ export function docBag(d: Doc): Bag {
 }
 
 /** 对一小批文档建临时索引并查询。数据量小（几百条），每次重建比维护增量索引省心。 */
-export function search(docs: Doc[], query: string, limit = 8): { id: string; score: number }[] {
+export function search(docs: Doc[], query: string, limit = 8, opts: { minScore?: number } = {}): { id: string; score: number }[] {
   if (!docs.length || !query.trim()) return [];
   const idx = new SparseIndex();
   for (const d of docs) idx.add(d.id, docBag(d));
-  return idx.search(query, { k: limit }).map((h) => ({ id: h.id, score: h.score }));
+  return idx.search(query, { k: limit, ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}) }).map((h) => ({ id: h.id, score: h.score }));
 }
