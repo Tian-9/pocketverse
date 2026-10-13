@@ -25,9 +25,8 @@ export interface AssembleInput {
   history: Message[];
   /** 本轮用户输入；为空表示让角色接着说（重新生成） */
   userText?: string;
-  /** 插件注入：稳定部分进 system，易变部分进最后一条用户消息 */
-  pluginStable?: string[];
-  pluginVolatile?: string[];
+  /** 内核之外的段（插件的提示词片段、稍后联系、顺手处理的事），和内核自己的段一起按 place / order 排 */
+  sections?: PromptSection[];
   now?: Date;
   windowSize?: number;
   /** 推进时间是章节分隔：分隔点之前只保留这么多条衔接 */
@@ -80,10 +79,29 @@ function toolRules(input: AssembleInput): string {
   return [...lines.slice(0, -1), ...extra, lines[lines.length - 1]!].join('\n');
 }
 
-function section(title: string, body: string | undefined): TextBlock | null {
-  const b = body?.trim();
-  return b ? { type: 'text', text: `# ${title}\n${b}` } : null;
-}
+/**
+ * 上下文里的一段。拼装器只做一件事：收集所有段，按 place 分两组，组内按 order 排，拼起来。
+ *
+ * - place 'cached'：进 system，排在历史前面，是缓存前缀。变一个字，后面整段历史的缓存都作废。
+ * - place 'tail'：进最后一条用户消息、排在用户的话前面。每轮重算，不存进历史，下一轮自然消失，不碰缓存。
+ *
+ * 选位置看「变一次的代价」，不是多久变一次：又大、又几乎不变的才放 cached；会变的（不管多久一次）放 tail，
+ * 每轮多付几百 token 也比变一次就重写整段历史便宜。order 是同一位置内的先后，小的在前，留空隙方便插。
+ * 内核各段的 order 见 ORDER；插件不给就用 ORDER.pluginCached / ORDER.pluginTail。时间行固定最后（ORDER.time）。
+ */
+export interface PromptSection { id: string; place: 'cached' | 'tail'; order: number; text: string }
+
+export const ORDER = {
+  // cached（system）
+  rules: 100, style: 150, user: 200, world: 300, character: 400, loreConstant: 500, loreDirectory: 600, notes: 700, pluginCached: 800,
+  // tail（最后一条用户消息里，越靠后离用户的话越近，越受重视）
+  state: 100, highlights: 150, styleHits: 200, loreHits: 300, recall: 400, pluginTail: 500, tailStyle: 800, time: 900,
+} as const;
+
+const cachedSec = (id: string, order: number, title: string, body: string | undefined): PromptSection | null =>
+  body?.trim() ? { id, place: 'cached', order, text: `# ${title}\n${body.trim()}` } : null;
+const tailSec = (id: string, order: number, tag: string, body: string | undefined): PromptSection | null =>
+  body?.trim() ? { id, place: 'tail', order, text: `<${tag}>\n${body.trim()}\n</${tag}>` } : null;
 
 export function loreDirectory(lore: LoreEntry[], overlays: LoreOverlay[]): string {
   const byId = new Map(overlays.filter((o) => o.loreEntryId && !o.pending).map((o) => [o.loreEntryId!, o]));
@@ -121,22 +139,6 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const constantStyle = constantStyleAll.filter((e) => e.position !== 'tail');
   const tailStyle = constantStyleAll.filter((e) => e.position === 'tail');
 
-  const system = [
-    section('规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + toolRules(input) : '')),
-    constantStyle.length ? section('写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
-    // 名字只在这里写死一次，其余一律 {{user}}，最后统一换成这一局的名字
-    section('对方', `和你聊天的人叫「{{user}}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，{{user}}是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),
-    section(`世界：${input.world.name}`, input.world.summary),
-    ...input.characters.map((c) => section(input.characters.length > 1 ? `角色：${c.name}` : `你扮演的角色：${c.name}`, c.core)),
-    section('当前状态', stateText(input.campaign, input.characters, input.stateLines)),
-    constant.length ? section('世界书（常驻）', constant.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')) : null,
-    section('世界书目录', loreDirectory(loreOnly.filter((e) => !e.constant), input.overlays)),
-    input.highlights.length ? section('近期要事', input.highlights.map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n')) : null,
-    section('你的笔记 /memories', input.memoryNotes),
-    ...(input.pluginStable ?? []).map((t) => (t.trim() ? ({ type: 'text', text: t } as TextBlock) : null)),
-  ].filter((b): b is TextBlock => !!b);
-  system[system.length - 1]!.cache = true;
-
   let recent = input.history.slice(-windowSize);
   // 章节分隔：最近一次推进时间之前的原话只留几条衔接，之前的事靠记忆，不靠复读
   const cut = recent.map((m, i) => (m.meta?.chapter ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
@@ -155,16 +157,39 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   // L1：扫最近几条消息 + 本轮输入
   const scan = [...recent.slice(-scanDepth).map(modelTextOf), input.userText ?? ''].join('\n');
   const hits = triggerL1(input.lore, input.overlays.filter((o) => !o.pending), { scanText: scan, budgetTokens: input.l1Budget });
-
-  const tail: string[] = [];
   const styleHits = hits.filter((h) => isStyle(h.entry));
   const loreHits = hits.filter((h) => !isStyle(h.entry));
-  if (styleHits.length) tail.push('<风格>\n' + styleHits.map((h) => `## ${h.entry.title}\n${h.entry.content}`).join('\n\n') + '\n</风格>');
-  if (loreHits.length) tail.push('<世界书>\n' + loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n') + '\n</世界书>');
-  if (input.recalled?.length) tail.push('<可能相关的往事>\n' + input.recalled.map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n') + '\n</可能相关的往事>');
-  tail.push(...(input.pluginVolatile ?? []).filter((t) => t.trim()));
-  if (tailStyle.length) tail.push('<尾部指令>\n' + tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n') + '\n</尾部指令>');
-  tail.push(timeLine(now, input.characters[0]?.timeZone, undefined, input.story));
+  const memLine = (m: EpisodicMemory) => `- ${m.when ? m.when + '：' : ''}${m.text}`;
+
+  // 所有段，内核的和外面给的放在一起排
+  const sections = [
+    // ---- cached：又大又几乎不变 ----
+    cachedSec('rules', ORDER.rules, '规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + toolRules(input) : '')),
+    cachedSec('style', ORDER.style, '写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')),
+    // 名字只在这里写死一次，其余一律 {{user}}，最后统一换成这一局的名字
+    cachedSec('user', ORDER.user, '对方', `和你聊天的人叫「{{user}}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，{{user}}是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),
+    cachedSec('world', ORDER.world, `世界：${input.world.name}`, input.world.summary),
+    ...input.characters.map((c) => cachedSec(`character:${c.id}`, ORDER.character, input.characters.length > 1 ? `角色：${c.name}` : `你扮演的角色：${c.name}`, c.core)),
+    cachedSec('loreConstant', ORDER.loreConstant, '世界书（常驻）', constant.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')),
+    cachedSec('loreDirectory', ORDER.loreDirectory, '世界书目录', loreDirectory(loreOnly.filter((e) => !e.constant), input.overlays)),
+    // 笔记最长 4000 字、只在他用 memory 工具写的时候变：放尾巴每轮全价太贵，留在缓存里
+    cachedSec('notes', ORDER.notes, '你的笔记 /memories', input.memoryNotes),
+    // ---- tail：会变的 ----
+    // 状态几轮一变（聊天里 state_update、整理），放 system 的话一变整段历史缓存作废
+    tailSec('state', ORDER.state, '当前状态', stateText(input.campaign, input.characters, input.stateLines)),
+    tailSec('highlights', ORDER.highlights, '近期要事', input.highlights.map(memLine).join('\n')),
+    tailSec('styleHits', ORDER.styleHits, '风格', styleHits.map((h) => `## ${h.entry.title}\n${h.entry.content}`).join('\n\n')),
+    tailSec('loreHits', ORDER.loreHits, '世界书', loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n')),
+    tailSec('recall', ORDER.recall, '可能相关的往事', (input.recalled ?? []).map(memLine).join('\n')),
+    tailSec('tailStyle', ORDER.tailStyle, '尾部指令', tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n')),
+    { id: 'time', place: 'tail', order: ORDER.time, text: timeLine(now, input.characters[0]?.timeZone, undefined, input.story) } as PromptSection,
+    ...(input.sections ?? []).filter((x) => x.text.trim()),
+  ].filter((x): x is PromptSection => !!x);
+  // 同一 order 保持登记顺序（Array.prototype.sort 是稳定的）
+  const ordered = (place: PromptSection['place']) => sections.filter((x) => x.place === place).sort((a, b) => a.order - b.order);
+  const system: TextBlock[] = ordered('cached').map((x) => ({ type: 'text', text: x.text }));
+  system[system.length - 1]!.cache = true;
+  const tail = ordered('tail').map((x) => x.text);
 
   // 尾巴排在用户这轮的话前面：聊天引擎先把用户的消息存进历史再拼，所以它已经是最后一条用户消息；
   // 他最后读到的几百字要是对方刚说的话，不是日记和时间行

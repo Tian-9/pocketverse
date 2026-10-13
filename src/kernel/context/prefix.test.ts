@@ -24,9 +24,10 @@ describe('cache prefix stability across turns', () => {
   it('everything up to the previous turn’s last breakpoint is unchanged in the next turn', () => {
     const base: AssembleInput = { world, campaign: cp, characters: [ch], userName: '李梦', lore: [], overlays: [], highlights: [], history: [] };
     const h1 = [msg('m1', 'user', '早'), msg('m2', 'assistant', '马上到'), msg('m3', 'user', '终于快下课了')];
-    const turn1 = assemble({ ...base, history: h1, pluginVolatile: ['<钱包>余额 1872</钱包>'], recalled: [{ id: 'r', campaignId: 'cp', when: '昨晚', text: '他要煎饼果子', importance: 2, sourceMessageIds: [], createdAt: 0 }], now: new Date(1) });
+    const turn1 = assemble({ ...base, history: h1, sections: [{ id: 'p', place: 'tail', order: 500, text: '<钱包>余额 1872</钱包>' }], recalled: [{ id: 'r', campaignId: 'cp', when: '昨晚', text: '他要煎饼果子', importance: 2, sourceMessageIds: [], createdAt: 0 }], now: new Date(1) });
     const h2 = [...h1, msg('m4', 'assistant', '还有十二分钟'), msg('m5', 'user', '走走走')];
-    const turn2 = assemble({ ...base, history: h2, pluginVolatile: ['<钱包>余额 1850</钱包>'], now: new Date(2) });
+    // 两轮之间状态和近期要事都变了（聊天里 state_update、整理出新的三星）：它们在尾巴里，不该碰缓存前缀
+    const turn2 = assemble({ ...base, stateLines: ['债务 · 欠款：他 欠 {{user}} 49.5 元'], highlights: [{ id: 'h', campaignId: 'cp', when: '', text: '新的大事', importance: 3, sourceMessageIds: [], createdAt: 0 }], history: h2, sections: [{ id: 'p', place: 'tail', order: 500, text: '<钱包>余额 1850</钱包>' }], now: new Date(2) });
 
     const b1 = serialize(turn1), b2 = serialize(turn2);
     const lastBp = b1.map((b, i) => (b.cache ? i : -1)).reduce((a, b) => Math.max(a, b), -1);

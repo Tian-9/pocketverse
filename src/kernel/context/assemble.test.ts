@@ -13,12 +13,13 @@ const msg = (role: Message['role'], text: string, ts: number): Message => ({ id:
 const base = { world, campaign, characters: [ch], userName: '我', lore, overlays: [] as LoreOverlay[], highlights: [], now: new Date(2026, 9, 8, 9, 0) };
 
 describe('assemble (full)', () => {
-  it('builds L0 in fixed order with constant lore, directory and state; last system block cached', () => {
+  it('builds L0 in fixed order with constant lore and directory; state goes to the tail; last system block cached', () => {
     const r = assemble({ ...base, history: [], userText: '嗨' });
     const titles = r.system.map((b) => b.text.split('\n')[0]);
-    expect(titles).toEqual(['# 规则', '# 对方', '# 世界：雨城', '# 你扮演的角色：林晚秋', '# 当前状态', '# 世界书（常驻）', '# 世界书目录']);
+    expect(titles).toEqual(['# 规则', '# 对方', '# 世界：雨城', '# 你扮演的角色：林晚秋', '# 世界书（常驻）', '# 世界书目录']);
     expect(r.system.at(-1)!.cache).toBe(true);
-    expect(r.system.find((b) => b.text.startsWith('# 当前状态'))!.text).toContain('林晚秋 与我的关系：刚认识');
+    const tail = r.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(tail).toContain('<当前状态>\n林晚秋 与我的关系：刚认识');
     expect(r.system.find((b) => b.text.startsWith('# 世界书目录'))!.text).toContain('[l1] 邮差');
     expect(r.system.find((b) => b.text.startsWith('# 世界书目录'))!.text).not.toContain('城规');
   });
@@ -93,7 +94,7 @@ describe('tail style and chapter cut', () => {
     expect(last.indexOf('<尾部指令>')).toBeLessThan(last.indexOf('嗨'));
   });
   it('puts the tail before the user message that is already in history, with the time line last before it', () => {
-    const r = assemble({ ...base, lore: [], history: [msg('assistant', '你来了', 1), msg('user', '[分享了一件商品给你看]', 2)], pluginVolatile: ['<你最近一篇日记>\n下雨\n</你最近一篇日记>'] });
+    const r = assemble({ ...base, lore: [], history: [msg('assistant', '你来了', 1), msg('user', '[分享了一件商品给你看]', 2)], sections: [{ id: 'p', place: 'tail', order: 500, text: '<你最近一篇日记>\n下雨\n</你最近一篇日记>' }] });
     const last = r.messages.at(-1)!;
     expect(last.role).toBe('user');
     const texts = last.content.map((b) => (b.type === 'text' ? b.text : ''));
@@ -165,11 +166,33 @@ describe('card alt in history', () => {
 describe('assemble (story clock)', () => {
   it('keeps time out of the state block and flags story time only in the tail line', () => {
     const r = assemble({ ...base, history: [], userText: '嗨', story: true });
-    expect(r.system.find((b) => b.text.startsWith('# 当前状态'))!.text).not.toContain('剧情时间');
     const last = r.messages.at(-1)!;
+    const state = last.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n').match(/<当前状态>[\s\S]*?<\/当前状态>/)![0];
+    expect(state).not.toContain('剧情时间');
     const text = last.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
     expect(text).toContain('（剧情时间）');
     const real = assemble({ ...base, history: [], userText: '嗨' });
     expect(real.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n')).not.toContain('剧情时间');
+  });
+
+  it('orders every section by place and order: plugins can slot in, the time line stays last', () => {
+    const r = assemble({ ...base, history: [], userText: '嗨', story: true,
+      highlights: [{ id: 'h', campaignId: 'cp', when: '', text: '大事', importance: 3, sourceMessageIds: [], createdAt: 0 }],
+      sections: [
+        { id: 'wallet', place: 'tail', order: 500, text: '<钱包>余额</钱包>' },
+        { id: 'early', place: 'tail', order: 120, text: '<插队>放在状态和要事之间</插队>' },
+        { id: 'late', place: 'tail', order: 999, text: '<最后>想压过时间行</最后>' },
+        { id: 'fixed', place: 'cached', order: 800, text: '# 插件常驻\n不变的说明' },
+      ] });
+    expect(r.system.at(-1)!.text.startsWith('# 插件常驻')).toBe(true);
+    expect(r.system.at(-1)!.cache).toBe(true);
+    const tail = r.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    const at = (t: string) => tail.indexOf(t);
+    expect(at('<当前状态>')).toBeLessThan(at('<插队>'));
+    expect(at('<插队>')).toBeLessThan(at('<近期要事>'));
+    expect(at('<近期要事>')).toBeLessThan(at('<钱包>'));
+    // 时间行固定 900；插件给了 999 也排得进来，但这是插件自己的选择，内核各段不会越过时间行
+    expect(at('<钱包>')).toBeLessThan(at('（剧情时间）'));
+    expect(tail.trim().endsWith('嗨')).toBe(true);
   });
 });

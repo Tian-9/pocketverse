@@ -74,10 +74,12 @@ export interface Shortcut {
 
 export interface PromptContributor {
   id: string;
-  /** 稳定部分，进 system，参与缓存 */
+  /** 又大又几乎不变的部分，进 system，参与缓存。变一个字整段历史的缓存都作废，拿不准就用 volatile */
   stable?: (ctx: PromptContext) => string | Promise<string>;
-  /** 易变部分，进最后一条用户消息 */
+  /** 会变的部分（不管多久一次），进最后一条用户消息，每轮重算 */
   volatile?: (ctx: PromptContext) => string | Promise<string>;
+  /** 同一位置内的先后，小的在前。不给：stable 800、volatile 500。内核各段的位置见 context/assemble.ts 的 ORDER（时间行 900 固定最后） */
+  order?: number;
 }
 
 export interface PromptContext {

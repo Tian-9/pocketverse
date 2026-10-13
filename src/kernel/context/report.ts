@@ -147,7 +147,7 @@ export function buildReport(r: ReportInput): string {
   const live = liveEntries(view);
   const injected = new Set(input.stateLines ?? []);
   out.push('## 当前状态与硬事实', '');
-  out.push(`system「当前状态」：地点、关系、情绪、拍一拍，加 ${injected.size} 条硬事实和 ${cp.state.facts.length} 条老事实。`, '');
+  out.push(`最后一条消息里的「当前状态」（每轮重算，不占缓存）：地点、关系、情绪、拍一拍，加 ${injected.size} 条硬事实和 ${cp.state.facts.length} 条老事实。`, '');
   if (live.length) {
     out.push('| 硬事实 | 值 | 来源 | 进了吗 |', '|---|---|---|---|');
     for (const e of live) {
@@ -164,7 +164,7 @@ export function buildReport(r: ReportInput): string {
   const named = (t: string) => fromUserMacro(t, input.userName, ch.name);
   const threeStar = r.memories.filter((m) => m.importance === 3).length;
   out.push('## 情节记忆', '');
-  out.push(`共 ${r.memories.length} 条，三星 ${threeStar} 条。进 system「近期要事」的只有最近 10 条三星；其余每轮用你刚说的话自动搜，最多 3 条进最后一条消息（这一轮召回了 ${rc.size} 条）；再往外${canTool('memory_search') ? '要模型调 memory_search / memory_recent' : '**模型看不到**（工具关了）'}。`, '');
+  out.push(`共 ${r.memories.length} 条，三星 ${threeStar} 条。最后一条消息里的「近期要事」只有最近 10 条三星；其余每轮用你刚说的话自动搜，最多 3 条进最后一条消息（这一轮召回了 ${rc.size} 条）；再往外${canTool('memory_search') ? '要模型调 memory_search / memory_recent' : '**模型看不到**（工具关了）'}。`, '');
   if (r.memories.length) {
     out.push('| 记忆 | 星 | 词袋 | 进了吗 |', '|---|---|---|---|');
     for (const m of r.memories) {

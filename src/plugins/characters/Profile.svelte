@@ -18,6 +18,7 @@
   import { liveEntries, stateView, type StateSetEvent } from 'annals/airp';
   import { parseBag, type Bag } from 'annals';
   import { fromUserMacro, toUserMacro } from '$kernel/context/userref';
+  import { explainRecall, RECALL_K, RECALL_MIN_SCORE, type RecallExplain } from '$kernel/memory/recall';
   import { ulid } from 'ulid';
 
   let { id }: { id: string } = $props();
@@ -104,6 +105,13 @@
     await db().memories.put(row); mem = null;
   }
   async function deleteMem() { if (mem?.id) await db().memories.delete(mem.id); mem = null; }
+
+  // ---- 检索试验台：输入一句话，看每轮自动召回会翻出哪几条（和聊天时同一套索引和打分，不调模型） ----
+  let probe = $state('');
+  // 近期要事：最近 10 条三星，本来就常驻，召回时跳过
+  const pinnedIds = $derived(new Set(memories.value.filter((m) => m.importance === 3).slice(0, 10).map((m) => m.id)));
+  const probeHits = $derived(explainRecall(memories.value, probe, pinnedIds));
+  const verdict: Record<RecallExplain['status'], string> = { recalled: '会召回', pinned: '三星常驻，不重复召回', weak: '分数不够', overflow: `够分，但排在前 ${RECALL_K} 条之后` };
 
   // ---- 编辑：硬事实（状态事件）：手改和清除都是新事件，来源 manual，历史不丢 ----
   let fact = $state<{ entity: string; attr: string; value: string; isNew: boolean } | null>(null);
@@ -209,6 +217,16 @@
       {#each memories.value as m (m.id)}
         <Cell title={show(m.text)} subtitle={`${stars(m.importance)}${m.when ? ' · ' + show(m.when) : ''}`} chevron onclick={() => openMem(m)} />
       {/each}
+    </List>
+  {/if}
+  {#if memories.value.length}
+    <SectionTitle text="检索试验台" />
+    <List footer={`输入一句你可能会说的话，看每轮自动召回会翻出哪几条。不发消息、不花钱。分数到 ${RECALL_MIN_SCORE} 才召回，最多 ${RECALL_K} 条。点一条可以直接改词袋再试。`}>
+      <Field bind:value={probe} placeholder="比如：小姨子最近胖了没" />
+      {#each probeHits as h (h.memory.id)}
+        <Cell title={show(h.memory.text)} subtitle={`${h.score.toFixed(2)} 分 · ${verdict[h.status]} · 命中：${h.terms.map(show).join('、')}`} chevron onclick={() => openMem(h.memory)} />
+      {/each}
+      {#if probe.trim() && !probeHits.length}<Cell title="一条都没命中" />{/if}
     </List>
   {/if}
   {#if files.value.length}

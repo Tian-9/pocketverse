@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
-    "annals": "github:Tian-9/annals#d342581",
+    "annals": "github:Tian-9/annals#8a6e773",
     "dexie": "^4.4.6",
     "ulid": "^3.0.2"
   }

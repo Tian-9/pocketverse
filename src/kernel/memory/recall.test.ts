@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recallMemories, recallQuery } from './recall';
+import { explainRecall, recallMemories, recallQuery } from './recall';
 import type { EpisodicMemory, Message } from '../storage/db';
 
 const M = (id: string, text: string, bag?: EpisodicMemory['bag']): EpisodicMemory => ({ id, campaignId: 'cp', when: '', text, importance: 2, sourceMessageIds: [], createdAt: 0, ...(bag ? { bag } : {}) });
@@ -21,5 +21,18 @@ describe('auto recall', () => {
     expect(recallMemories(mems, '小姨子最近胖了没', new Set(['cat']))).toEqual([]);
     expect(recallMemories(mems, '今天天气不错')).toEqual([]);
     expect(recallMemories(mems, '')).toEqual([]);
+  });
+
+  it('explains every hit with score, matched terms and a verdict that agrees with recallMemories', () => {
+    const egg = M('egg', '方亦楷要{{user}}明早带一个加俩蛋的煎饼果子', { core: ['煎饼果子', '加俩蛋'] });
+    const all = [...mems, egg];
+    const q = '走走走 顺便再来一杯珍珠奶茶，加奶加茶加珍珠';
+    // 单字「加」只在 hint 档：会出现在解释里，但不够分，不会被召回
+    const ex = explainRecall(all, q);
+    expect(ex.find((e) => e.memory.id === 'egg')).toMatchObject({ status: 'weak', terms: ['加'] });
+    expect(recallMemories(all, q)).toEqual([]);
+    const ex2 = explainRecall(all, '小姨子最近胖了没', new Set(['noodle']));
+    expect(ex2[0]).toMatchObject({ status: 'recalled', terms: expect.arrayContaining(['小姨子']) });
+    expect(explainRecall(all, '烤冷面还欠着呢', new Set(['noodle']))[0]!.status).toBe('pinned');
   });
 });

@@ -13,7 +13,7 @@
 - `Sheet` 用 `open={!!x}` 驱动时一定传 `onclose={() => (x = null)}`，否则点背景关掉后同一项点不开。
 - 页面和弹窗都登记进浏览器历史（`nav.push` / `Sheet` 自动做），系统返回走 popstate。不要自己调 `history.*`，返回一律 `nav.pop()`。`pop()` / `home()` 是异步的（等 popstate），返回后再 push 必须 `await`。
 - 屏幕是叠着渲染的，Playwright 选择器要用 `p.locator('.screen').last()` 限定到最上层。
-- 提示词里易变内容（时间、L1 命中、插件动态）只能进最后一条用户消息，system 必须稳定，否则缓存全废。
+- 提示词里会变的内容（时间、L1 命中、召回、当前状态、近期要事、插件动态）只能进最后一条用户消息，system 必须稳定，否则缓存全废。加新内容一律登记成 `PromptSection`（`context/assemble.ts`），会变的 place 用 'tail'；插件用 `PromptContributor` 的 volatile，要定位置给 `order`。`context/prefix.test.ts` 守着这条。
 - 工具名只能是字母、数字、下划线、连字符（API 校验 `^[a-zA-Z0-9_-]{1,128}$`），不能带点。假接口不校验这个，真接口会 400；`definePlugin` 和 tools.test.ts 已加校验。
 - 角色分享东西（歌、电影、新闻）一律走内核 `share` 工具 + 插件 `shares` 解析器，卡片用通用 `ShareCard`，不要为每种类型新加输出标签和卡片组件。引用原文必须经解析器校验。
 - 离开回来的补发（发动态、写日记、回评论）一律登记到 manifest 的 `catchup`，由内核按角色、按档位合成一次调用；`attach` 档挂在下一次聊天回复或补发上。插件不要自己听 `app.resumed` 调模型。

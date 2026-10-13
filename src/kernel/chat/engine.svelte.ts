@@ -5,7 +5,7 @@ import { loadState, retractSource, stateLines } from '../memory/state';
 import { recallMemories, recallQuery } from '../memory/recall';
 import { render } from '../llm/gate.svelte';
 import { buildReport } from '../context/report';
-import type { AssembleInput } from '../context/assemble';
+import { ORDER, type AssembleInput, type PromptSection } from '../context/assemble';
 import { repo } from '../data/repo';
 import { loreApplies } from '../data/lore';
 import { assemble } from '../context/assemble';
@@ -140,23 +140,24 @@ class ChatEngine {
     const storyNow = clock.now(campaign.clock);
     const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow };
     const plugins = registry.plugins.filter((p) => registry.isEnabled(p.id));
-    const pluginStable: string[] = [], pluginVolatile: string[] = [];
+    // 内核之外的段：插件的提示词片段、稍后联系、顺手处理的事。位置和先后见 context/assemble.ts 的 PromptSection
+    const sections: PromptSection[] = [];
     /** 每段插件贡献是谁给的，导出排查用 */
     const contributions: { source: string; kind: 'stable' | 'volatile'; text: string }[] = [];
     for (const p of plugins) for (const c of p.promptContributors ?? []) {
       try {
-        if (c.stable) { const t = await c.stable(pctx); pluginStable.push(t); contributions.push({ source: `${p.id}/${c.id}`, kind: 'stable', text: t }); }
-        if (c.volatile) { const t = await c.volatile(pctx); pluginVolatile.push(t); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: t }); }
+        if (c.stable) { const t = await c.stable(pctx); sections.push({ id: `${p.id}/${c.id}`, place: 'cached', order: c.order ?? ORDER.pluginCached, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'stable', text: t }); }
+        if (c.volatile) { const t = await c.volatile(pctx); sections.push({ id: `${p.id}/${c.id}`, place: 'tail', order: c.order ?? ORDER.pluginTail, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: t }); }
       } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: `（出错，没进上下文：${e instanceof Error ? e.message : String(e)}）` }); }
     }
 
     const useTools = llm.settings.tools !== false;
     // 他给自己定过"稍后联系"：告诉他一声，免得每轮重新定
     const pendingWake = useTools ? await wakes.get(campaign.id) : null;
-    if (pendingWake) { const t = wakeNotice(pendingWake); pluginVolatile.push(t); contributions.push({ source: 'kernel/wake', kind: 'volatile', text: t }); }
+    if (pendingWake) { const t = wakeNotice(pendingWake); sections.push({ id: 'kernel/wake', place: 'tail', order: ORDER.pluginTail, text: t }); contributions.push({ source: 'kernel/wake', kind: 'volatile', text: t }); }
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
     const attached = useTools && catchup.hasAttach() && !opts.dryRun ? await catchup.collectAttached(campaign, character) : [];
-    if (attached.length) { const t = attachedPrompt(attached); pluginVolatile.push(t); contributions.push({ source: 'kernel/attached', kind: 'volatile', text: t }); }
+    if (attached.length) { const t = attachedPrompt(attached); sections.push({ id: 'kernel/attached', place: 'tail', order: ORDER.pluginTail, text: t }); contributions.push({ source: 'kernel/attached', kind: 'volatile', text: t }); }
     const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [], turnId, userName };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
@@ -176,7 +177,7 @@ class ChatEngine {
     const input: AssembleInput = {
       world, campaign, characters: [character], userName, userProfile: this.userProfile,
       lore, overlays, highlights, recalled, memoryNotes: notes, stateLines: lines, history,
-      pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
+      sections, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
       now: new Date(storyNow), story: !clock.aligned(campaign.clock),
     };
     const assembled = assemble(input);
