@@ -110,7 +110,7 @@ function stateText(c: Campaign, chars: Character[], lines: string[] = []): strin
  * 拼装请求。顺序固定：规则 → 用户 → 世界 → 角色 → 状态 → 世界书目录 → 近期要事 → 笔记正文 → 插件稳定部分。
  * 缓存断点两处：system 末尾、倒数第二条消息末尾。易变内容只进最后一条用户消息，排在用户的话前面。
  */
-export function assemble(input: AssembleInput): { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[] } {
+export function assemble(input: AssembleInput): { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[]; /** L1 扫描用的文本 */ l1Scan: string; /** 窗口和章节截断之后剩下的历史（排查用） */ recent: Message[] } {
   const { windowSize = 60, chapterTail = 6, scanDepth = 4, now = new Date() } = input;
   const isStyle = (e: LoreEntry) => e.kind === 'style';
   const loreOnly = input.lore.filter((e) => !isStyle(e));
@@ -185,5 +185,5 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const names = { user: input.userName, char: input.characters[0]?.name ?? '角色' };
   for (const b of system) b.text = expandMacros(b.text, names);
   for (const m of messages) for (const b of m.content) if (b.type === 'text') b.text = expandMacros(b.text, names);
-  return { system, messages, l1Hits: loreHits.map((h) => h.entry.title) };
+  return { system, messages, l1Hits: loreHits.map((h) => h.entry.title), l1Scan: scan, recent };
 }

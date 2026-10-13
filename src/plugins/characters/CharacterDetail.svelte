@@ -5,6 +5,7 @@
   import { db } from '$kernel/storage/db';
   import { repo } from '$kernel/data/repo';
   import { nav } from '$kernel/nav/nav.svelte';
+  import { chat } from '$kernel/chat/engine.svelte';
   import { parseStChat } from '$kernel/importers/stChat';
   import { bus } from '$kernel/bus/bus';
   import { ulid } from 'ulid';
@@ -80,6 +81,22 @@
       bus.emit('notify', { title: '导入失败', body: err instanceof Error ? err.message : String(err) });
     }
   }
+  // 排查：下一轮实际会发的请求 + 每样设定进了哪里，存成 .md
+  let exporting = $state(false);
+  async function exportContext() {
+    if (exporting) return;
+    exporting = true;
+    try {
+      const { filename, text } = await chat.contextReport(id);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+      // 挂到页面上再点：有的浏览器对游离的 <a> 不认 download 文件名
+      a.download = filename; a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    } catch (err) {
+      bus.emit('notify', { title: '导出失败', body: err instanceof Error ? err.message : String(err) });
+    } finally { exporting = false; }
+  }
   async function remove() {
     await deleteVersionsOf(id);
     await repo.deleteCharacter(id);
@@ -113,6 +130,10 @@
   <SectionTitle text="历史版本" />
   <List footer="改卡之前自动留一份，最多 30 份，随时能恢复。">
     <Cell title="历史版本" value={versionCount.value ? `${versionCount.value} 份` : '还没有'} chevron onclick={() => nav.push('characters', 'versions', { id })} />
+  </List>
+  <SectionTitle text="排查" />
+  <List footer="导出他当前这一局下一轮实际会发给模型的完整请求，并逐条标出角色卡、世界书、记忆、硬事实、插件内容进了哪里、没进的原因。不调模型，不花钱。">
+    <Cell title={exporting ? '正在导出…' : '导出这一局的上下文（.md）'} chevron onclick={exportContext} />
   </List>
   <SectionTitle text="开场白" />
   <List footer="酒馆卡的开场白多半是为酒馆场景写的，默认不自动发。写了适合手机聊天的再打开。">

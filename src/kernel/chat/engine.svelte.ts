@@ -1,7 +1,10 @@
 import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { Message } from '../storage/db';
-import { retractSource, stateLines } from '../memory/state';
+import { loadState, retractSource, stateLines } from '../memory/state';
+import { render } from '../llm/gate.svelte';
+import { buildReport } from '../context/report';
+import type { AssembleInput } from '../context/assemble';
 import { repo } from '../data/repo';
 import { loreApplies } from '../data/lore';
 import { assemble } from '../context/assemble';
@@ -106,7 +109,11 @@ class ChatEngine {
   /** 手动触发一次合并（设置或角色页用） */
   async consolidateNow(conversationId: string) { return consolidate(conversationId, { force: true, reason: '手动' }); }
 
-  private async runTurn(conversationId: string) {
+  /**
+   * 一轮要用的全部材料：读库、插件贡献、工具表、拼装。真实发送（runTurn）和「导出这一局的上下文」共用这一个函数，
+   * 导出看到的就是下一轮实际会发的。dryRun：不收集「顺手处理的事」（那一步要跑插件的 collect），其余完全一样。
+   */
+  async prepare(conversationId: string, opts: { dryRun?: boolean } = {}) {
     const conv = await db().conversations.get(conversationId);
     const character = conv && (await repo.characterOfConversation(conv));
     const campaign = conv && (await db().campaigns.get(conv.campaignId));
@@ -127,20 +134,22 @@ class ChatEngine {
     const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow };
     const plugins = registry.plugins.filter((p) => registry.isEnabled(p.id));
     const pluginStable: string[] = [], pluginVolatile: string[] = [];
+    /** 每段插件贡献是谁给的，导出排查用 */
+    const contributions: { source: string; kind: 'stable' | 'volatile'; text: string }[] = [];
     for (const p of plugins) for (const c of p.promptContributors ?? []) {
       try {
-        if (c.stable) pluginStable.push(await c.stable(pctx));
-        if (c.volatile) pluginVolatile.push(await c.volatile(pctx));
-      } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); }
+        if (c.stable) { const t = await c.stable(pctx); pluginStable.push(t); contributions.push({ source: `${p.id}/${c.id}`, kind: 'stable', text: t }); }
+        if (c.volatile) { const t = await c.volatile(pctx); pluginVolatile.push(t); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: t }); }
+      } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: `（出错，没进上下文：${e instanceof Error ? e.message : String(e)}）` }); }
     }
 
     const useTools = llm.settings.tools !== false;
     // 他给自己定过"稍后联系"：告诉他一声，免得每轮重新定
     const pendingWake = useTools ? await wakes.get(campaign.id) : null;
-    if (pendingWake) pluginVolatile.push(wakeNotice(pendingWake));
+    if (pendingWake) { const t = wakeNotice(pendingWake); pluginVolatile.push(t); contributions.push({ source: 'kernel/wake', kind: 'volatile', text: t }); }
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
-    const attached = useTools && catchup.hasAttach() ? await catchup.collectAttached(campaign, character) : [];
-    if (attached.length) pluginVolatile.push(attachedPrompt(attached));
+    const attached = useTools && catchup.hasAttach() && !opts.dryRun ? await catchup.collectAttached(campaign, character) : [];
+    if (attached.length) { const t = attachedPrompt(attached); pluginVolatile.push(t); contributions.push({ source: 'kernel/attached', kind: 'volatile', text: t }); }
     const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [], turnId };
     const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
     const hasWeb = useTools && !!llm.settings.web;
@@ -157,12 +166,49 @@ class ChatEngine {
       }))),
     ] : [];
 
-    const { system, messages, l1Hits } = assemble({
+    const input: AssembleInput = {
       world, campaign, characters: [character], userName: this.userName, userProfile: this.userProfile,
       lore, overlays, highlights: memories.slice(0, 10).reverse(), memoryNotes: notes, stateLines: lines, history,
       pluginStable, pluginVolatile, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
       now: new Date(storyNow), story: !clock.aligned(campaign.clock),
+    };
+    const assembled = assemble(input);
+    return { conv, character, campaign, world, plugins, pctx, tctx, tools, share, pluginCards, turnId, useTools, hasWeb, input, assembled, contributions, dryRun: !!opts.dryRun };
+  }
+
+  /** 角色卡页「导出这一局的上下文」：下一轮实际会发的请求 + 每样设定进了哪里、没进的原因 + 原始设定 */
+  async contextReport(characterId: string): Promise<{ filename: string; text: string }> {
+    const ch = await db().characters.get(characterId);
+    if (!ch) throw new Error('角色不存在');
+    const conv = await repo.directConversation(ch);
+    const t = await this.prepare(conv.id, { dryRun: true });
+    const [allLore, worlds, allMemories, memfs, stateEvents] = await Promise.all([
+      db().lore.toArray(), db().worlds.toArray(),
+      db().memories.where('campaignId').equals(t.campaign.id).reverse().sortBy('createdAt'),
+      db().memfs.where('campaignId').equals(t.campaign.id).toArray(),
+      loadState(t.campaign.id),
+    ]);
+    const role = 'chat' as const;
+    const model = llm.modelFor(role), effort = llm.effortFor(role);
+    const request = render({
+      model, effort, purpose: 'chat', maxTokens: llm.cap(model, undefined, effort), role,
+      system: t.assembled.system, messages: t.assembled.messages, tools: t.tools.map((x) => x.spec), web: t.hasWeb,
+      names: { user: this.userName, assistant: t.character.name },
     });
+    const text = buildReport({
+      character: t.character, campaign: t.campaign, world: t.world, worlds, allLore, overlays: t.input.overlays,
+      memories: allMemories, memfs, stateEvents, input: t.input, assembled: t.assembled,
+      toolNames: t.tools.map((x) => x.spec.name), useTools: t.useTools, contributions: t.contributions, request,
+      settings: { model, effort, tools: t.useTools, web: t.hasWeb, preview: !!llm.settings.preview },
+    });
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    // 文件名只用 ASCII：有的浏览器遇到中文文件名会退回成 download；角色名在文件标题里
+    return { filename: `pocketverse-context-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.md`, text };
+  }
+
+  private async runTurn(conversationId: string) {
+    const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
 
     const abort = new AbortController();
     this.live[conversationId] = { conversationId, status: 'thinking', statusText: '正在思考…', text: '', abort };
