@@ -64,7 +64,8 @@ export function buildPrompt(campaign: Campaign, character: Character, lore: Lore
 
 export async function applyOutput(campaign: Campaign, character: Character, lore: LoreEntry[], out: ConsolidateOutput, sourceIds: string[], at = clock.now(campaign.clock)) {
   const now = Date.now();
-  const mems: EpisodicMemory[] = (out.memories ?? []).filter((m) => m.text?.trim()).map((m) => ({
+  // schema 里的条数上限发给 API 时会被剥掉（结构化输出不支持），这里兜底
+  const mems: EpisodicMemory[] = (out.memories ?? []).filter((m) => m.text?.trim()).slice(0, 12).map((m) => ({
     id: ulid(), campaignId: campaign.id, characterId: character.id, when: m.when ?? '', text: m.text.trim(),
     importance: ([1, 2, 3].includes(m.importance) ? m.importance : 2) as 1 | 2 | 3, sourceMessageIds: sourceIds, createdAt: now,
     bag: parseBag(m.bag),
@@ -79,7 +80,7 @@ export async function applyOutput(campaign: Campaign, character: Character, lore
   // 硬事实走 annals 状态事件：来源挂这批的最后一条消息，删了它或重新生成就一起撤回
   const patches = await applyPatches(campaign.id, parsePatches(out.patches), { source: sourceIds[sourceIds.length - 1] ?? 'consolidate', at });
 
-  const overlays: LoreOverlay[] = (out.overlays ?? []).filter((o) => o.title && o.content).map((o) => ({
+  const overlays: LoreOverlay[] = (out.overlays ?? []).filter((o) => o.title && o.content).slice(0, 5).map((o) => ({
     id: ulid(), campaignId: campaign.id, loreEntryId: o.loreEntryId && lore.some((e) => e.id === o.loreEntryId) ? o.loreEntryId : undefined,
     title: o.title, summary: o.summary ?? '', content: o.content, reason: o.reason ?? '', createdAt: now, pending: true,
   }));

@@ -153,7 +153,7 @@
     <div class="name">{character.value.name}</div>
     <button class="save" onclick={() => (savesOpen = true)}>{world.value?.name ?? '…'}{saves.value.length > 1 ? ` · 共 ${saves.value.length} 局` : ''} ›</button>
   </div>
-  <List footer="他在对话中用 state_update 更新，记忆整理也会更新。点任意一行手改。">
+  <List footer={s.facts.length ? '状态、地点、和你：他在对话中用 state_update 更新，记忆整理也会更新。下面几行是旧格式的事实，现在不会再自动更新，只能手改；新的事实记在下一栏「硬事实」。点任意一行手改。' : '他在对话中用 state_update 更新，记忆整理也会更新。点任意一行手改。'}>
     <Cell title="状态" subtitle={s.mood[id] || '—'} onclick={openState} />
     <Cell title="地点" value={s.location || '—'} onclick={openState} />
     <Cell title="和你" subtitle={s.relations[id] || '—'} onclick={openState} />

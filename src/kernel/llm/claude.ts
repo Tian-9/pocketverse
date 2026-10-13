@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { sanitizeSchema } from './schema';
 import type {
   BetaMessageParam, BetaTextBlockParam, BetaContentBlockParam, BetaToolUnion, BetaContentBlock, BetaTool,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
@@ -57,7 +58,8 @@ export class ClaudeProvider implements LlmProvider {
       thinking: { type: 'adaptive' as const, display: req.showThinking ? ('summarized' as const) : ('omitted' as const) },
       output_config: {
         ...(req.effort ? { effort: req.effort } : {}),
-        ...(req.jsonSchema ? { format: { type: 'json_schema' as const, schema: req.jsonSchema } } : {}),
+        // 不支持的约束（maxItems、minimum…）剥掉改写进说明，否则 400；见 schema.ts
+        ...(req.jsonSchema ? { format: { type: 'json_schema' as const, schema: sanitizeSchema(req.jsonSchema) } } : {}),
       },
       betas: ['server-side-fallback-2026-07-01', 'context-management-2025-06-27'],
       fallbacks: 'default' as const,
