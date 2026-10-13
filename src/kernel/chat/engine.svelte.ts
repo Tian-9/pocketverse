@@ -246,27 +246,22 @@ class ChatEngine {
       if (l1Hits.length) meta.lore = l1Hits;
       if (cards.length) meta.cards = cards;
       if (thinking) meta.thinking = thinking;
-      // 工具产生的事件旁白（他拍了拍你）：发生在回复之前，先写
-      for (const ev of tctx.events) await repo.addMessage(conversationId, 'assistant', ev.text, { meta: { narration: true, modelText: ev.modelText } });
+      // 一次写进库：工具旁白（他拍了拍你，发生在回复之前）在前，回复按行拆成的几条在后。
+      // 流式时聊天页已经按同一个 splitReply 一条条显示过了，这里不再故意隔开冒出来
+      const batch: { role: Message['role']; text: string; extra?: Partial<Message> }[] = tctx.events.map((ev) => ({ role: 'assistant' as const, text: ev.text, extra: { meta: { narration: true, modelText: ev.modelText } } }));
       if (r.refusal) {
-        await repo.addMessage(conversationId, 'system', `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）`);
+        batch.push({ role: 'system', text: `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）` });
       } else if (text || cards.length) {
         const parts = splitReply(text);
-        for (let i = 0; i < parts.length; i++) {
-          if (i > 0) {
-            // 后面的气泡慢慢冒出来，像在连发
-            const l = this.live[conversationId]; if (l) { l.text = ''; l.status = 'typing'; l.statusText = '正在输入…'; }
-            await sleep(Math.min(300 + parts[i]!.length * 35, 1500), abort.signal);
-            if (abort.signal.aborted) break;
-          }
+        const { cards: metaCards, ...rest } = meta;
+        parts.forEach((part, i) => {
           // 卡片挂在第一条（先分享再评论），其余 meta（工具、思考）挂在最后一条
-          const isFirst = i === 0, isLast = i === parts.length - 1;
-          const { cards: metaCards, ...rest } = meta;
-          const mine: Record<string, unknown> = { turn: turnId, ...(isFirst && metaCards ? { cards: metaCards } : {}), ...(isLast ? rest : {}) };
-          await repo.addMessage(conversationId, 'assistant', parts[i]!, { meta: mine });
-        }
-        if (!parts.length && cards.length) await repo.addMessage(conversationId, 'assistant', '', { meta });
+          const mine: Record<string, unknown> = { turn: turnId, ...(i === 0 && metaCards ? { cards: metaCards } : {}), ...(i === parts.length - 1 ? rest : {}) };
+          batch.push({ role: 'assistant', text: part, extra: { meta: mine } });
+        });
+        if (!parts.length && cards.length) batch.push({ role: 'assistant', text: '', extra: { meta } });
       }
+      await repo.addMessages(conversationId, batch);
       bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });
       if (tctx.attached.length) log.warn('chat', `模型没处理顺手的事：${tctx.attached.map((t) => t.item.label).join('、')}，下一轮再给他`, { conversationId });
       log.info('chat', `回复完成：${toolsUsed.length} 次工具，${cards.length} 张卡片`, { conversationId, model: r.model, stopReason: r.stopReason });
@@ -298,9 +293,6 @@ export function splitReply(text: string): string[] {
   const lines = text.split(/\n+/).map((l) => l.replace(/^\s*[-•\d]+[.、)]\s*/, '').trim()).filter(Boolean);
   if (lines.length <= 6) return lines;
   return [...lines.slice(0, 5), lines.slice(5).join('\n')];
-}
-function sleep(ms: number, signal: AbortSignal) {
-  return new Promise<void>((r) => { const t = setTimeout(r, ms); signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 }
 
 export const chat = new ChatEngine();

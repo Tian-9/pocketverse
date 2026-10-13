@@ -4,7 +4,7 @@
   import { db } from '$kernel/storage/db';
   import type { Message } from '$kernel/storage/db';
   import { repo, textOf, cardsOf, quoteOf, noteOf, withNote, type MessageQuote } from '$kernel/data/repo';
-  import { chat } from '$kernel/chat/engine.svelte';
+  import { chat, splitReply } from '$kernel/chat/engine.svelte';
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
   import { tick } from 'svelte';
@@ -31,6 +31,19 @@
   const messages = live(() => (id ? repo.messagesOf(id) : Promise.resolve([] as Message[])), [] as Message[], () => [id]);
   const campaign = live(async () => { const c = id ? await db().conversations.get(id) : undefined; return c ? db().campaigns.get(c.campaignId) : undefined; }, undefined, () => [id]);
   const liveTurn = $derived(chat.live[id]);
+  // 流式时就按存库用的同一个 splitReply 分成几个气泡，生成完不会跳变
+  const liveParts = $derived(liveTurn?.text ? splitReply(liveTurn.text) : []);
+  // 这一轮结束到存好的几条出现在列表里之间有一两帧空档：先留着最后一帧的气泡，列表变长了再撤
+  let ghost = $state<{ parts: string[]; count: number } | null>(null);
+  const shownParts = $derived(liveTurn ? liveParts : (ghost?.parts ?? []));
+  $effect(() => { if (liveParts.length) ghost = { parts: liveParts, count: messages.value.length }; });
+  $effect(() => {
+    if (liveTurn || !ghost) return;
+    if (messages.value.length > ghost.count) { ghost = null; return; }
+    // 出错、取消等没存回复的情况：别一直挂着
+    const t = setTimeout(() => (ghost = null), 1500);
+    return () => clearTimeout(t);
+  });
   const status = $derived(liveTurn?.status ?? 'idle');
 
   let draft = $state('');
@@ -101,7 +114,7 @@
 
   $effect(() => {
     // 任何消息或流式文本变化都滚到底
-    void messages.value.length; void liveTurn?.text;
+    void messages.value.length; void liveTurn?.text; void ghost;
     tick().then(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
   });
 
@@ -202,11 +215,18 @@
         </div>
       {/if}
     {/each}
-    {#if liveTurn}
+    {#if liveTurn && !liveParts.length}
       <div class="msg assistant">
         {#if character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={wechat ? 36 : 30} />{/if}
-        {#if liveTurn.text}<div class="bubble">{liveTurn.text}</div>{:else}<div class="bubble dots"><i></i><i></i><i></i></div>{/if}
+        <div class="bubble dots"><i></i><i></i><i></i></div>
       </div>
+    {:else}
+      {#each shownParts as part, i (i)}
+        <div class="msg assistant">
+          {#if character.value}<Avatar blob={character.value.avatar} name={character.value.name} size={wechat ? 36 : 30} />{/if}
+          <div class="bubble">{part}</div>
+        </div>
+      {/each}
     {/if}
   </div>
 

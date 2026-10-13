@@ -147,6 +147,27 @@ export const repo = {
     return m;
   },
 
+  /**
+   * 一次写好几条（一轮回复拆成的几条气泡、工具旁白）：一个事务，界面一次看到全部，不会闪；
+   * ts 逐条加 1 毫秒，按 ts 排序时顺序不乱（同一毫秒写的几条排序不确定）。
+   */
+  async addMessages(conversationId: string, items: { role: Message['role']; text: string; extra?: Partial<Message> }[]): Promise<Message[]> {
+    if (!items.length) return [];
+    const conv = await db().conversations.get(conversationId);
+    const cp = conv && (await db().campaigns.get(conv.campaignId));
+    const base = Date.now();
+    const out: Message[] = items.map((it, i) => {
+      const ts = base + i;
+      return { id: ulid(), conversationId, role: it.role, content: [{ type: 'text', text: it.text }], ts, storyTs: clock.now(cp?.clock, ts), ...it.extra };
+    });
+    const last = out[out.length - 1]!;
+    await db().transaction('rw', [db().messages, db().campaigns], async () => {
+      await db().messages.bulkAdd(out);
+      if (conv) await db().campaigns.update(conv.campaignId, { lastPlayedAt: last.ts, playedStoryTs: last.storyTs });
+    });
+    return out;
+  },
+
   /** 改这一局的时钟（推进、停表 / 走表） */
   async setClock(campaignId: string, c: CampaignClock) {
     await db().campaigns.update(campaignId, { clock: c });
