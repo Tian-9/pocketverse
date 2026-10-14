@@ -27,7 +27,7 @@ export const SCHEMA = {
       day: { type: 'integer', description: '这件事发生在第几天：照抄对话记录里它上方最近那条「—— Day N ——」分隔行的 N' },
       when: { type: 'string', description: '一天里的时段，如「早上」「放学后」「半夜」，可空。不写日期、不写「今天」「昨天」，哪天由 day 定' },
       importance: { type: 'integer', minimum: 1, maximum: 3, description: '3=改变关系或剧情走向的大事，2=值得记住，1=日常' },
-      bag: { ...BAG_SCHEMA, description: '这条记忆的检索词，三档。core 是主体和关键物件（含外号、别名），related 是动作地点时段，hint 是别人可能用来问起这件事的词。优先复用「已有检索词」' },
+      bag: { ...BAG_SCHEMA, description: '这条记忆的检索词，三档。只放名词和具体的动词。core 是主体和关键物件（含外号、别名），related 是具体的动作和地点，hint 是别人可能用来问起这件事的词。不放功能词、代词、时间词、泛泛的动词。优先复用「已有检索词」' },
     } } },
     patches: { ...PATCHES_SCHEMA, description: '当前状态的变化：位置、归属、生死、关系、欠款、承诺、不可逆的外貌。只填确实变了的，和「当前状态」里一样的不要重复；没变化给空数组' },
     state: { type: 'object', additionalProperties: false, properties: {
@@ -71,8 +71,8 @@ export function buildPrompt(campaign: Campaign, character: Character, lore: Lore
 - state：只填确实变化了的字段，没变就不填。
 - patches：当前仍然成立的硬事实的变化：东西在哪、归谁、谁欠谁多少、谁答应了什么、关系的定性。一条一个 entity+attr，value 写成主宾分明的一句话（"{{char}} 欠 {{user}} 49.5 元"，不写"欠了钱"）；剧情没说清的写"未明确（原因）"。和「当前状态」里相同的不要再给。
 - 每条 memory 的 day 照抄它上方最近那条「—— Day N ——」分隔行的 N；when 只写一天里的时段。
-- 每条 memory 都要给 bag：core 最多 3 个，是这件事的主体和关键物件，有外号、别名一起写；related 是具体的动作、地点；hint 是别人可能用来问起这件事的说法。「已有检索词」里有的优先用同一个词。
-- bag 里不要放时间词（昨天、今天、明早、晚上、Day 几——时间由 day 和 when 记），也不要放说、去、买、看、想这种什么事都能用上的词。
+- 每条 memory 都要给 bag，只放名词和具体的动词：人（含外号、别名）、东西、地点、事情的叫法（物理卷子、唱片店、烤冷面），只有这件事才有的动作（偷吃、借钱、表白）。core 最多 3 个，是这件事的主体和关键物件；related 是具体的动作、地点；hint 是别人可能用来问起这件事的说法。「已有检索词」里有的优先用同一个词。
+- bag 里不要放：功能词（的、了、吗、这个、什么）、代词（我、你、他）、{{user}} 的名字（每条都跟他有关，写了等于没写）、时间词（昨天、今天、明早、晚上、Day 几——时间由 day 和 when 记）、什么事都能用上的动词和形容词（说、去、买、看、想、打算、觉得、开心、很好）。
 - overlays：只有当剧情明确改变了世界书里的设定或世界本身时才填，宁缺毋滥。
 - 称呼对方一律用名字「{{user}}」，不要写「用户」。
 - 全部用中文。`,
