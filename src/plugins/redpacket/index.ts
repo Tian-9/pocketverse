@@ -184,7 +184,8 @@ export default definePlugin({
   outputHandlers: [{ tag: 'redpacket', component: RedPacketCard }, { tag: 'transfer', component: TransferCard }],
   promptContributors: [{
     id: 'packets',
-    async volatile(p: PromptContext) {
+    // 余额和最近的红包转账变得少：变了才追加进历史，不每轮全价重发
+    async append(p: PromptContext) {
       const recent = await redpacketApi.recent(p.campaignId);
       const balance = await redpacketApi.wallet(p.campaignId, p.characterIds[0]!);
       const lines = recent.map((x) => {

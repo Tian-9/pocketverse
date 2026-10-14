@@ -64,9 +64,22 @@ describe('character shops', () => {
     expect(await tool('shop_buy').handler({ n: 1 }, { ...pc(), conversationId: 'other' })).toContain('先用 shop_browse');
     const r = (await tool('shop_buy').handler({ n: 2 }, pc())) as string; // 新的在前：1 围巾 12，2 斗篷 40
     expect(r).toContain('已买下《羊毛斗篷》'); expect(balances.ch1).toBe(10);
-    const short = (await tool('shop_buy').handler({ n: 2 }, pc())) as string;
+    const short = (await tool('shop_buy').handler({ n: 1 }, pc())) as string; // 围巾 12，钱包只剩 10
     expect(short).toContain('买不起'); expect(balances.ch1).toBe(10);
     expect(await volatile(pc())).toBe('<商店>\n你有的东西：羊毛斗篷\n</商店>');
+  });
+
+  it('marks what he already has and refuses buying a duplicate for himself (a gift is fine)', async () => {
+    balances.ch1 = 100;
+    const list = (await tool('shop_browse').handler({ query: '羊毛' }, pc())) as string;
+    expect(list).toContain('《羊毛斗篷》 ¥40.00 · 老王铺子（你已经有了）');
+    expect(list).not.toContain('《羊毛围巾》 ¥12.00 · 老王铺子（你已经有了）');
+    const again = (await tool('shop_buy').handler({ n: 2 }, pc())) as string;
+    expect(again).toContain('你已经有《羊毛斗篷》了'); expect(balances.ch1).toBe(100);
+    // 同名但店家现找的新商品（新 id）也认
+    const twin = { ...(await shopApi.products().get('p2'))!, id: 'p2b' };
+    expect((await import('./character')).ownedBy).toBeTypeOf('function');
+    expect((await (await import('./character')).ownedBy('cp1'))(twin)).toBe(true);
   });
 
   it('gift puts a share card with subtype gift and the note; volatile lists it as sent', async () => {
@@ -95,6 +108,9 @@ describe('character shops', () => {
     expect(item.label).toBe('商店');
     expect(item.prompt).toContain('¥88.00');
     expect(item.prompt).toContain('1. 《蜂蜜酒》');
+    // 他已经有的（买的斗篷、对方送的面包）不摆出来
+    expect(item.prompt).not.toContain('羊毛斗篷'); expect(item.prompt).not.toContain('黑麦面包');
+    expect(item.prompt).not.toContain('已经有了');
     await item.apply({ act: false, n: 0 }, cc);
     expect(balances.ch1).toBe(88);
     await item.apply({ act: true, n: 1 }, cc);

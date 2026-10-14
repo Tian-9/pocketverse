@@ -4,6 +4,7 @@ import { modelTextOf } from '../data/repo';
 import { triggerL1 } from './l1';
 import { expandMacros } from './macros';
 import { timeLine } from './time';
+import { visibleHistory, isContext } from './append';
 
 export interface AssembleInput {
   world: World;
@@ -57,6 +58,9 @@ export const DEFAULT_RULES = [
   '不要反复提同一个梗、同一件事，前面说过的话不要换个说法再说一遍。对方推进了时间，之前的话题就是过去的事，按新的时间点说话。',
   '用中文回复，除非角色设定要求其他语言。',
 ].join('\n');
+
+/** 追加段（context/append.ts）的读法：完整快照，同一种以最后出现的为准 */
+export const APPEND_RULE = '对话里夹着的尖括号段落（如 <钱包>、<商店>）是系统记下的当时的情况，对方看不到。每一段都是完整的，同一种以最后出现的那段为准，前面的已经过时。';
 
 const TOOL_RULES = [
   '你有一些工具可以查资料和记事：',
@@ -139,23 +143,23 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const constantStyle = constantStyleAll.filter((e) => e.position !== 'tail');
   const tailStyle = constantStyleAll.filter((e) => e.position === 'tail');
 
-  let recent = input.history.slice(-windowSize);
   // 章节分隔：最近一次推进时间之前的原话只留几条衔接，之前的事靠记忆，不靠复读
-  const cut = recent.map((m, i) => (m.meta?.chapter ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
-  if (cut > chapterTail) recent = recent.slice(cut - chapterTail);
+  const recent = visibleHistory(input.history, windowSize, chapterTail);
   const messages: ChatMessage[] = [];
   for (const m of recent) {
-    if (m.role === 'system') continue;
+    // 追加段（context/append.ts）是 role system 的隐藏消息，模型当作用户侧内容看；其余 system 消息（出错提示等）不进
+    if (m.role === 'system' && !isContext(m)) continue;
+    const role = isContext(m) ? 'user' : m.role;
     // 正文 + 卡片 alt：只有卡片的回复（发了红包、分享了歌）也要进历史
     const text = modelTextOf(m).trim();
     if (!text) continue;
     const last = messages[messages.length - 1];
-    if (last && last.role === m.role) last.content.push({ type: 'text', text });
-    else messages.push({ role: m.role, content: [{ type: 'text', text }] });
+    if (last && last.role === role) last.content.push({ type: 'text', text });
+    else messages.push({ role: role as 'user' | 'assistant', content: [{ type: 'text', text }] });
   }
 
-  // L1：扫最近几条消息 + 本轮输入
-  const scan = [...recent.slice(-scanDepth).map(modelTextOf), input.userText ?? ''].join('\n');
+  // L1：扫最近几条对话 + 本轮输入（追加段不算，钱包里的字不该触发世界书）
+  const scan = [...recent.filter((m) => !isContext(m)).slice(-scanDepth).map(modelTextOf), input.userText ?? ''].join('\n');
   const hits = triggerL1(input.lore, input.overlays.filter((o) => !o.pending), { scanText: scan, budgetTokens: input.l1Budget });
   const styleHits = hits.filter((h) => isStyle(h.entry));
   const loreHits = hits.filter((h) => !isStyle(h.entry));
@@ -164,7 +168,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   // 所有段，内核的和外面给的放在一起排
   const sections = [
     // ---- cached：又大又几乎不变 ----
-    cachedSec('rules', ORDER.rules, '规则', (input.rules?.trim() || DEFAULT_RULES) + (input.hasTools ? '\n\n' + toolRules(input) : '')),
+    cachedSec('rules', ORDER.rules, '规则', (input.rules?.trim() || DEFAULT_RULES) + '\n' + APPEND_RULE + (input.hasTools ? '\n\n' + toolRules(input) : '')),
     cachedSec('style', ORDER.style, '写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')),
     // 名字只在这里写死一次，其余一律 {{user}}，最后统一换成这一局的名字
     cachedSec('user', ORDER.user, '对方', `和你聊天的人叫「{{user}}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，{{user}}是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),

@@ -78,6 +78,12 @@ export interface PromptContributor {
   stable?: (ctx: PromptContext) => string | Promise<string>;
   /** 会变的部分（不管多久一次），进最后一条用户消息，每轮重算 */
   volatile?: (ctx: PromptContext) => string | Promise<string>;
+  /**
+   * 变得少的部分（钱包、拥有的东西）：每轮算一次，和历史里最近一份不一样才追加进历史（一条你看不到的消息），
+   * 之后跟着历史一起被缓存，不每轮全价重发。返回这一段的完整快照（不是变化量），用尖括号标签包起来，如 <钱包>…</钱包>。
+   * 见 context/append.ts
+   */
+  append?: (ctx: PromptContext) => string | Promise<string>;
   /** 同一位置内的先后，小的在前。不给：stable 800、volatile 500。内核各段的位置见 context/assemble.ts 的 ORDER（时间行 900 固定最后） */
   order?: number;
 }

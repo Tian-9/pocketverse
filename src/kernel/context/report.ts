@@ -28,7 +28,7 @@ export interface ReportInput {
   assembled: { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[]; l1Scan: string; recent: Message[] };
   toolNames: string[];
   useTools: boolean;
-  contributions: { source: string; kind: 'stable' | 'volatile'; text: string }[];
+  contributions: { source: string; kind: 'stable' | 'volatile' | 'append'; text: string }[];
   /** gate.render() 渲染的完整请求 */
   request: string;
   settings: { model: string; effort: string; tools: boolean; web: boolean; preview: boolean };
@@ -186,7 +186,7 @@ export function buildReport(r: ReportInput): string {
   out.push('## 插件贡献', '');
   if (r.contributions.length) {
     out.push('| 来源 | 位置 | 内容 |', '|---|---|---|');
-    for (const c of r.contributions) out.push(`| ${c.source} | ${c.kind === 'stable' ? 'system 末尾' : '最后一条消息'} | ${c.text.trim() ? cell(one(c.text, 80)) : '（空，没进）'} |`);
+    for (const c of r.contributions) out.push(`| ${c.source} | ${c.kind === 'stable' ? 'system 末尾' : c.kind === 'append' ? '变了才追加进历史' : '最后一条消息'} | ${c.text.trim() ? cell(one(c.text, 80)) : '（空，没进）'} |`);
   } else out.push('（没有）');
   out.push('', '「顺手处理的事」（回朋友圈评论之类）导出时没收集，免得触发插件；真实发送时会有。', '');
 

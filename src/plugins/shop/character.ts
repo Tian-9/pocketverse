@@ -7,7 +7,17 @@ import { shopApi, yuan, orderAt, type Product, type Order } from './index';
 import { buildCard } from './share';
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s);
-const line = (p: Product, i: number) => `${i + 1}. 《${p.name}》 ${yuan(p.price)}${p.seller ? ' · ' + p.seller : ''}\n   ${clip(p.desc.replace(/\s+/g, ' '), 60)}`;
+const line = (p: Product, i: number, mine = false) => `${i + 1}. 《${p.name}》 ${yuan(p.price)}${p.seller ? ' · ' + p.seller : ''}${mine ? '（你已经有了）' : ''}\n   ${clip(p.desc.replace(/\s+/g, ' '), 60)}`;
+
+/**
+ * 他已经有的（他买的 + 对方送的），按商品 id 和名字都认：店家现找的同名商品是新 id。
+ * 「你有的东西」只列最近 12 件，更早的他会忘，所以货架、购买、补发都按这里查，不靠他记得。
+ */
+export async function ownedBy(campaignId: string): Promise<(p: Product) => boolean> {
+  const xs = await shopApi.recentOrders(campaignId, 'char', 1000);
+  const ids = new Set(xs.map((o) => o.productId)), names = new Set(xs.map((o) => o.name));
+  return (p) => ids.has(p.id) || names.has(p.name);
+}
 
 /** 上一次 shop_browse 给他看的列表，shop_buy 按编号从这里取；按对话存，换个对话重新看 */
 const listings = new Map<string, Product[]>();
@@ -45,7 +55,8 @@ export const tools: ToolDef[] = [
       const hits = q ? (await shopApi.search(p.campaignId, q)).slice(0, 8) : await overview(p.campaignId);
       listings.set(p.conversationId, hits);
       if (!hits.length) return q ? `店里没有和「${q}」有关的东西。` : '货架还是空的。';
-      return hits.map(line).join('\n') + '\n\n要买就用 shop_buy 给编号。';
+      const mine = await ownedBy(p.campaignId);
+      return hits.map((x, i) => line(x, i, mine(x))).join('\n') + '\n\n要买就用 shop_buy 给编号。';
     },
   },
   {
@@ -58,6 +69,8 @@ export const tools: ToolDef[] = [
       const it = lastListing(p.conversationId)[Number(n) - 1];
       if (!it) return '先用 shop_browse 看列表，再按编号买。';
       const gift = !!buy_for_them;
+      // 给自己买已经有的：直接拦下（买来送对方不拦）
+      if (!gift && (await ownedBy(p.campaignId))(it)) return `你已经有《${it.name}》了，不用再买一样的。想送给对方就用 buy_for_them。`;
       const me = p.characterIds[0]!;
       const msg = String(note ?? '').trim().slice(0, 60);
       let order: Order | null;
@@ -90,14 +103,16 @@ export async function volatile(p: PromptContext): Promise<string> {
 export async function collectBrowse(c: CatchupContext): Promise<CatchupItem | null> {
   const wallet = shopApi.wallet();
   if (!wallet) return null;
-  const items = await overview(c.campaignId);
+  // 已经有的不摆出来：补发时他看不到自己有什么，摆出来就可能再买一件一样的
+  const mine = await ownedBy(c.campaignId);
+  const items = (await overview(c.campaignId)).filter((p) => !mine(p));
   if (!items.length) return null;
   const last = (await hisThings(c.campaignId, 1))[0];
   if (last && last.buyer === 'char' && c.to - orderAt(last) < 24 * 3600_000) return null; // 刚买过（按剧情钟）
   const balance = await wallet.balance(c.campaignId, c.characterId);
   return {
     label: '商店',
-    prompt: `这${c.elapsedText}你也翻了翻购物 App。货架上有：\n${items.map(line).join('\n')}\n\n你钱包里有 ${yuan(balance)}。真需要、真想要就给自己买一件（n 填编号），不要为了买而买。不买就 act 填 false。`,
+    prompt: `这${c.elapsedText}你也翻了翻购物 App。货架上有：\n${items.map((p, i) => line(p, i)).join('\n')}\n\n你钱包里有 ${yuan(balance)}。真需要、真想要就给自己买一件（n 填编号），不要为了买而买。不买就 act 填 false。`,
     schema: { type: 'object', additionalProperties: false, required: ['act', 'n'], properties: { act: { type: 'boolean', description: '买不买' }, n: { type: 'integer', description: '买哪一件的编号，不买填 0' } } },
     async apply(out: unknown, cc: CatchupContext) {
       const o = out as { act?: boolean; n?: number } | undefined;

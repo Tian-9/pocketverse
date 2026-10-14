@@ -199,7 +199,8 @@ export default definePlugin({
   profileSections: [{ id: 'things', label: '他的东西', component: ShopSection }],
   shares: [productResolver],
   composerActions: [{ id: 'product', label: '商品', icon: { paths: icons.shop, background: gradients.orange }, component: ProductPicker }],
-  promptContributors: [{ id: 'things', volatile }],
+  // 他有的东西变得少：变了才追加进历史，不每轮全价重发
+  promptContributors: [{ id: 'things', append: volatile }],
   tools,
   catchup: [{ id: 'browse', tier: 'h6', collect: collectBrowse }],
   setup(c) { ctx = c; },

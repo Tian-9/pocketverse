@@ -15,7 +15,8 @@
     for (const cv of convs) {
       const ch = cv.participantIds[0] ? await db().characters.get(cv.participantIds[0]) : undefined;
       if (!ch) continue;
-      const last = await db().messages.where('conversationId').equals(cv.id).last();
+      // 追加段（给模型看的隐藏快照）不当最后一条
+      const last = await db().messages.where('conversationId').equals(cv.id).reverse().filter((m) => !m.meta?.context).first();
       out.push({ id: cv.id, name: ch.name, avatar: ch.avatar, last: last ? previewOf(last) : '', ts: last?.ts ?? 0 });
     }
     return out.sort((a, b) => b.ts - a.ts);

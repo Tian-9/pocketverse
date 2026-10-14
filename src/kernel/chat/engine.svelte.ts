@@ -3,6 +3,7 @@ import { db } from '../storage/db';
 import type { Message } from '../storage/db';
 import { loadState, retractSource, stateLines } from '../memory/state';
 import { recallMemories, recallQuery } from '../memory/recall';
+import { appendTs, contextMessage, pendingAppends, visibleHistory, type AppendItem } from '../context/append';
 import { render } from '../llm/gate.svelte';
 import { buildReport } from '../context/report';
 import { ORDER, type AssembleInput, type PromptSection } from '../context/assemble';
@@ -121,7 +122,7 @@ class ChatEngine {
     const world = campaign && (await db().worlds.get(campaign.worldId));
     if (!conv || !character || !campaign || !world) throw new Error('会话、角色或世界不存在');
 
-    const [history, lore, overlays, allMemories, notes, lines] = await Promise.all([
+    let [history, lore, overlays, allMemories, notes, lines] = await Promise.all([
       repo.messagesOf(conversationId),
       db().lore.filter((e) => loreApplies(e, world.id, [character.id])).toArray(),
       db().overlays.where('campaignId').equals(campaign.id).toArray(),
@@ -143,12 +144,22 @@ class ChatEngine {
     // 内核之外的段：插件的提示词片段、稍后联系、顺手处理的事。位置和先后见 context/assemble.ts 的 PromptSection
     const sections: PromptSection[] = [];
     /** 每段插件贡献是谁给的，导出排查用 */
-    const contributions: { source: string; kind: 'stable' | 'volatile'; text: string }[] = [];
+    const contributions: { source: string; kind: 'stable' | 'volatile' | 'append'; text: string }[] = [];
+    const appends: AppendItem[] = [];
     for (const p of plugins) for (const c of p.promptContributors ?? []) {
       try {
         if (c.stable) { const t = await c.stable(pctx); sections.push({ id: `${p.id}/${c.id}`, place: 'cached', order: c.order ?? ORDER.pluginCached, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'stable', text: t }); }
         if (c.volatile) { const t = await c.volatile(pctx); sections.push({ id: `${p.id}/${c.id}`, place: 'tail', order: c.order ?? ORDER.pluginTail, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: t }); }
+        if (c.append) { const t = await c.append(pctx); appends.push({ id: `${p.id}/${c.id}`, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'append', text: t }); }
       } catch (e) { console.warn(`[prompt] ${p.id}/${c.id}`, e); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: `（出错，没进上下文：${e instanceof Error ? e.message : String(e)}）` }); }
+    }
+
+    // 追加段：和窗口里最近一份不一样（或窗口里没有）才写一条隐藏消息，排在你这一轮的话前面。导出时只算不写
+    const fresh = pendingAppends(visibleHistory(history), appends);
+    if (fresh.length) {
+      const rows = fresh.map((it, i) => contextMessage(conversationId, it, appendTs(history, i, Date.now()), storyNow, ulid()));
+      if (!opts.dryRun) await db().messages.bulkAdd(rows);
+      history = [...history, ...rows].sort((a, b) => a.ts - b.ts);
     }
 
     const useTools = llm.settings.tools !== false;

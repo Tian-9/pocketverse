@@ -171,8 +171,10 @@
   }
   // 分隔线按剧情时刻：隔了十分钟以上就显示；不是今天的（或跳过了时间的）带日期
   const tsOf = (m: Message) => m.storyTs ?? m.ts;
+  // 追加段（钱包、他有的东西的快照）是给模型看的隐藏消息，不显示
+  const shown = $derived(messages.value.filter((m) => !m.meta?.context));
   function showTime(i: number) {
-    const m = messages.value[i]!, p = messages.value[i - 1];
+    const m = shown[i]!, p = shown[i - 1];
     if (!p) return true;
     return tsOf(m) - tsOf(p) > 10 * 60 * 1000 || !!m.meta?.chapter;
   }
@@ -192,7 +194,7 @@
   <div class="status">{liveTurn?.statusText ?? ' '}</div>
 
   <div class="msgs" bind:this={scroller}>
-    {#each messages.value as m, i (m.id)}
+    {#each shown as m, i (m.id)}
       {#if showTime(i)}<div class="time">{timeLabel(m)}</div>{/if}
       {#if m.role === 'system' || m.meta?.narration}
         <div class="sys">{textOf(m)}</div>
