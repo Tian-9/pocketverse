@@ -42,4 +42,21 @@ describe('cache prefix stability across turns', () => {
     const lastUser = turn2.messages.at(-1)!.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
     expect(lastUser.indexOf('余额 1850')).toBeLessThan(lastUser.indexOf('走走走'));
   });
+
+  it('a long chat keeps its cached prefix turn after turn: the window is cut in blocks, not slid one message per turn', () => {
+    const base: AssembleInput = { world, campaign: cp, characters: [ch], userName: '李梦', lore: [], overlays: [], highlights: [], history: [] };
+    const hist = (n: number) => Array.from({ length: n }, (_, i) => msg(`m${i + 1}`, i % 2 ? 'assistant' : 'user', `第${i + 1}句`));
+    let kept = 0, broken = 0;
+    // 从 61 条聊到 140 条，每轮加你一句他一句
+    for (let n = 61; n < 140; n += 2) {
+      const b1 = serialize(assemble({ ...base, history: hist(n), now: new Date(n) }));
+      const b2 = serialize(assemble({ ...base, history: hist(n + 2), now: new Date(n + 2) }));
+      const lastBp = b1.map((b, i) => (b.cache ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
+      const same = JSON.stringify(b2.slice(0, lastBp + 1).map((b) => b.text)) === JSON.stringify(b1.slice(0, lastBp + 1).map((b) => b.text));
+      if (same) kept++; else broken++;
+    }
+    // 每 20 条才截一次：40 轮里只断 4 次（以前每轮都断）
+    expect(broken).toBeLessThanOrEqual(4);
+    expect(kept).toBeGreaterThanOrEqual(36);
+  });
 });

@@ -107,8 +107,9 @@ export default definePlugin({
   storage: { tables: { entries: 'id, campaignId, characterId, date' } },
   promptContributors: [{
     id: 'last-diary',
-    async volatile(p: PromptContext) {
-      // 只带最近两天（剧情日期）的那篇，再早的他自己翻（diary_read）。这段每轮都是全价 token，不限时就一直带着一周前的日记
+    // 一天才变一次：变了才追加进历史（之后跟着历史缓存），不每轮在尾巴里全价重发
+    async append(p: PromptContext) {
+      // 只带最近两天（剧情日期）的那篇，再早的他自己翻（diary_read）
       const last = (await ctx.table<DiaryEntry>('entries').where('campaignId').equals(p.campaignId).reverse().sortBy('date'))[0];
       if (!last) return '';
       const tz = (await ctx.data.character(p.characterIds[0]!))?.timeZone;

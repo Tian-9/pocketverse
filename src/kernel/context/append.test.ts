@@ -23,6 +23,15 @@ describe('append sections', () => {
     expect(pendingAppends(visibleHistory(cut), items).length).toBe(1);
   });
 
+  it('cuts the window in blocks of 20 so its start only moves every 20 messages', () => {
+    const h = (n: number) => Array.from({ length: n }, (_, i) => msg(`m${i}`, 'user', '…', i));
+    expect(visibleHistory(h(60))[0]!.id).toBe('m0');
+    expect(visibleHistory(h(61))[0]!.id).toBe('m20');
+    expect(visibleHistory(h(80))[0]!.id).toBe('m20');
+    expect(visibleHistory(h(81))[0]!.id).toBe('m40');
+    expect(visibleHistory(h(81)).length).toBe(41);
+  });
+
   it('a new snapshot sits right before your message, never after it', () => {
     const h = [msg('a1', 'assistant', '早啊', 100), msg('u1', 'user', '在干嘛', 200)];
     expect(appendTs(h, 0, 999)).toBe(199.5);

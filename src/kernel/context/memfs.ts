@@ -75,7 +75,7 @@ export async function runMemoryCommand(campaignId: string, cmd: MemCommand): Pro
 }
 
 /**
- * 给 L0 用：笔记正文直接进 system（缓存的），模型不用每轮 view 一遍。
+ * 笔记正文：作为追加段写进历史（变了才写，跟着历史缓存），模型不用每轮 view 一遍。
  * 单个文件超过 perFile 字截断、总量超过 total 字之后只列文件名，都提示用 memory 工具看全文。
  */
 export async function memoryNotes(campaignId: string, { perFile = 1500, total = 4000 } = {}): Promise<string> {

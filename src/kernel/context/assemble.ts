@@ -20,8 +20,6 @@ export interface AssembleInput {
   highlights: EpisodicMemory[];
   /** 自动召回：按你刚说的话从情节记忆里翻出来的几条（memory/recall.ts），进最后一条消息 */
   recalled?: EpisodicMemory[];
-  /** /memories 笔记正文（memfs.memoryNotes 拼好的，空字符串表示没有） */
-  memoryNotes?: string;
   /** 状态事件折叠出来的硬事实行（memory/state.ts 的 stateLines），排在老的 facts 前面 */
   stateLines?: string[];
   history: Message[];
@@ -98,7 +96,7 @@ export interface PromptSection { id: string; place: 'cached' | 'tail'; order: nu
 
 export const ORDER = {
   // cached（system）
-  rules: 100, style: 150, user: 200, world: 300, character: 400, loreConstant: 500, loreDirectory: 600, notes: 700, pluginCached: 800,
+  rules: 100, style: 150, user: 200, world: 300, character: 400, loreConstant: 500, loreDirectory: 600, pluginCached: 800,
   // tail（最后一条用户消息里，越靠后离用户的话越近，越受重视）
   state: 100, highlights: 150, styleHits: 200, loreHits: 300, recall: 400, pluginTail: 500, tailStyle: 800, time: 900,
 } as const;
@@ -179,8 +177,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
     ...input.characters.map((c) => cachedSec(`character:${c.id}`, ORDER.character, input.characters.length > 1 ? `角色：${c.name}` : `你扮演的角色：${c.name}`, c.core)),
     cachedSec('loreConstant', ORDER.loreConstant, '世界书（常驻）', constant.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')),
     cachedSec('loreDirectory', ORDER.loreDirectory, '世界书目录', loreDirectory(loreOnly.filter((e) => !e.constant), input.overlays)),
-    // 笔记最长 4000 字、只在他用 memory 工具写的时候变：放尾巴每轮全价太贵，留在缓存里
-    cachedSec('notes', ORDER.notes, '你的笔记 /memories', input.memoryNotes),
+    // 笔记不在这里：放 system 他一写笔记整段历史缓存作废，走追加段（变了才写进历史，见 chat 引擎）
     // ---- tail：会变的 ----
     // 状态几轮一变（聊天里 state_update、整理），放 system 的话一变整段历史缓存作废
     tailSec('state', ORDER.state, '当前状态', stateText(input.campaign, input.characters, input.stateLines)),

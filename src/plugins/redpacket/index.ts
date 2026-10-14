@@ -244,21 +244,16 @@ export default definePlugin({
   outputHandlers: [{ tag: 'redpacket', component: RedPacketCard }, { tag: 'transfer', component: TransferCard }],
   promptContributors: [{
     id: 'packets',
-    // 余额和最近的红包转账变得少：变了才追加进历史，不每轮全价重发
+    // 变了才追加进历史。只给余额和还没处理的：发过、领过的聊天记录里已经有卡片的文字版，再列一遍是重复，
+    // 而且状态一变（刚收到→领了）就得重写一份快照
     async append(p: PromptContext) {
-      const recent = await redpacketApi.recent(p.campaignId);
       const balance = await redpacketApi.wallet(p.campaignId, p.characterIds[0]!);
-      const lines = recent.map((x) => {
+      const open = (await redpacketApi.recent(p.campaignId, 10)).filter(isPending).map((x) => {
         const what = `${yuan(x.amount)}${x.note ? '「' + x.note + '」' : ''}`;
-        if (isTransfer(x)) {
-          if (x.from === 'char') return `- 你转的 ${what}：${x.refundedAt ? '对方退回来了' : x.openedAt ? '对方收了' : '对方还没收'}`;
-          return `- 对方转给你的 ${what}：${x.refundedAt ? '你退回去了' : x.openedAt ? '你收了' : '还没处理。这轮回复完会自动收下；不想收就用 transfer_refund 退回'}`;
-        }
-        return x.from === 'char'
-          ? `- 你发的红包 ${what}：${x.openedAt ? '对方领了' : '对方还没领'}`
-          : `- 对方发的红包 ${what}：${x.openedAt ? '你领了' : '你刚收到'}`;
+        if (x.from === 'user') return isTransfer(x) ? `- 对方转给你的 ${what}：这轮回复完会自动收下；不想收就用 transfer_refund 退回` : `- 对方发的红包 ${what}：这轮回复完会自动领`;
+        return `- 你${isTransfer(x) ? '转' : '发'}的 ${what}：对方还没${isTransfer(x) ? '收' : '领'}`;
       });
-      return `<钱包>\n你的余额：${yuan(balance)}${lines.length ? '\n最近的红包和转账：\n' + lines.join('\n') : ''}\n</钱包>`;
+      return `<钱包>\n你的余额：${yuan(balance)}${open.length ? '\n还没处理的：\n' + open.join('\n') : ''}\n</钱包>`;
     },
   }],
   onEvent: {

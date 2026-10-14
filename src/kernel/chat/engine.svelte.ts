@@ -49,12 +49,24 @@ class ChatEngine {
 
   statusOf(conversationId: string): TurnStatus { return this.live[conversationId]?.status ?? 'idle'; }
 
+  /** 他回着（或推进时间）的时候你又发来的（「+」面板发红包之类）：先存下，不丢；这一轮说完挪到他的回复后面，再接着回一轮 */
+  private queued = new Map<string, string[]>();
+
   async send(conversationId: string, text: string, extra: Partial<Message> = {}) {
-    if (this.live[conversationId]) return;
-    await repo.addMessage(conversationId, 'user', text, extra);
+    const m = await repo.addMessage(conversationId, 'user', text, extra);
     // 他定的"没回就追一句"：你回了就作废
     const conv = await db().conversations.get(conversationId);
     if (conv) { const w = await wakes.get(conv.campaignId); if (w?.onlyIfSilent) await wakes.clear(conv.campaignId); }
+    if (this.live[conversationId]) { this.queued.set(conversationId, [...(this.queued.get(conversationId) ?? []), m.id]); return; }
+    await this.runTurn(conversationId);
+  }
+
+  private async flush(conversationId: string) {
+    const ids = this.queued.get(conversationId);
+    if (!ids || this.live[conversationId]) return;
+    this.queued.delete(conversationId);
+    const now = Date.now();
+    await Promise.all(ids.map((id, i) => db().messages.update(id, { ts: now + i })));
     await this.runTurn(conversationId);
   }
 
@@ -98,6 +110,7 @@ class ChatEngine {
     // 跳过的时间是两个人各自照常过的，不是「对方消失了」：同学照常上课碰面，没特别的事
     const passed = toTs - fromTs >= 3600_000 ? `这${elapsedText(toTs - fromTs)}你们各自照常过，按你们的关系该见面就见了面，${note ? '除了上面说的' : ''}没发生特别的事，别当成一直没见到对方。` : '';
     await repo.addMessage(conversationId, 'user', `（时间来到：${clock.format(toTs, character?.timeZone)}${note ? '。' + note : ''}。${passed}之前聊的事都过去了，别接着之前的话茬，按现在的时间和情况说。）`, { meta: { narration: true, chapter: true }, storyTs: toTs });
+    await this.flush(conversationId);
   }
 
   /** 手动触发一次合并（设置或角色页用） */
@@ -137,7 +150,9 @@ class ChatEngine {
     const sections: PromptSection[] = [];
     /** 每段插件贡献是谁给的，导出排查用 */
     const contributions: { source: string; kind: 'stable' | 'volatile' | 'append'; text: string }[] = [];
-    const appends: AppendItem[] = [];
+    // 他的笔记最长 4000 字、只在他用 memory 工具写的时候变：变了才追加进历史。放 system 的话一变整段历史缓存作废
+    const appends: AppendItem[] = notes.trim() ? [{ id: 'kernel/notes', text: `<你的笔记 /memories>\n${notes.trim()}\n</你的笔记>` }] : [];
+    if (appends.length) contributions.push({ source: 'kernel/notes', kind: 'append', text: appends[0]!.text });
     for (const p of plugins) for (const c of p.promptContributors ?? []) {
       try {
         if (c.stable) { const t = await c.stable(pctx); sections.push({ id: `${p.id}/${c.id}`, place: 'cached', order: c.order ?? ORDER.pluginCached, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'stable', text: t }); }
@@ -179,7 +194,7 @@ class ChatEngine {
 
     const input: AssembleInput = {
       world, campaign, characters: [character], userName, userProfile: this.userProfile,
-      lore, overlays, highlights, recalled, memoryNotes: notes, stateLines: lines, history,
+      lore, overlays, highlights, recalled, stateLines: lines, history,
       sections, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
       now: new Date(storyNow), story: !clock.aligned(campaign.clock),
     };
@@ -299,6 +314,7 @@ class ChatEngine {
       }
     } finally {
       delete this.live[conversationId];
+      void this.flush(conversationId);
     }
   }
 }

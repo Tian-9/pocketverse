@@ -13,9 +13,14 @@ export interface AppendItem { id: string; text: string }
 
 export const isContext = (m: Pick<Message, 'meta'>) => typeof m.meta?.context === 'string';
 
-/** 拼装时实际进上下文的历史：最近 windowSize 条；推进时间之前只留 chapterTail 条衔接。拼装器和追加段共用 */
-export function visibleHistory(history: Message[], windowSize = 60, chapterTail = 6): Message[] {
-  let recent = history.slice(-windowSize);
+/**
+ * 拼装时实际进上下文的历史；推进时间之前只留 chapterTail 条衔接。拼装器和追加段共用。
+ * 超过 windowSize 条时按块截：开头一次往后跳 step 条（留下 windowSize - step + 1 到 windowSize 条），
+ * 不是每轮滑一条。缓存是前缀匹配，历史开头每轮变一下，整段历史每轮都得重写。
+ */
+export function visibleHistory(history: Message[], windowSize = 60, chapterTail = 6, step = 20): Message[] {
+  const over = history.length - windowSize;
+  let recent = over > 0 ? history.slice(Math.ceil(over / step) * step) : history;
   const cut = recent.map((m, i) => (m.meta?.chapter ? i : -1)).reduce((a, b) => Math.max(a, b), -1);
   if (cut > chapterTail) recent = recent.slice(cut - chapterTail);
   return recent;

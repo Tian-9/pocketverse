@@ -134,7 +134,8 @@ export default definePlugin({
   profileSections: [{ id: 'latest', component: MomentsSection }],
   promptContributors: [{
     id: 'recent-moments',
-    async volatile(p: PromptContext) {
+    // 几天才变一次（发了新的、你点赞评论了）：变了才追加进历史，不每轮在尾巴里全价重发
+    async append(p: PromptContext) {
       // 只带最近两天（剧情钟）的和还没回评论的，老动态他自己翻，不然每轮都看到同一条就反复提
       const fresh = p.now - 48 * 3600_000;
       const posts = (await ctx.table<Post>('posts').where('campaignId').equals(p.campaignId).reverse().sortBy('createdAt')).filter((x) => postAt(x) >= fresh || x.pendingReply);
