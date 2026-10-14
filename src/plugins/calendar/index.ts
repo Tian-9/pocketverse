@@ -3,7 +3,7 @@ import type { PluginContext, PromptContext, CatchupContext } from '$kernel/api';
 import { ulid } from 'ulid';
 import Calendar from './Calendar.svelte';
 import CalendarSection from './CalendarSection.svelte';
-import { PLAN_SYSTEM, planUser, planSchema, parsePlan } from './plan';
+import { PLAN_SYSTEM, planUser, planSchema, parsePlan, shapePlan } from './plan';
 
 /**
  * 日历：挂在存档时钟上的事件。他的安排由便宜模型按周排（像商店进货），聊天里约的事记进来，你也能手填。
@@ -26,8 +26,10 @@ export interface CalendarEvent {
 }
 
 const H = 3600_000, D = 24 * H;
-/** 往后不足这么多天有安排就再排一周 */
+/** 往后不足这么多天「排过」就再排一周（排过但空着的日子也算，工作日大多就是空的） */
 export const HORIZON_DAYS = 3;
+/** 排程规矩的版本：变了就把未来还没过的模型排程清掉重排一次（2 = 工作日不排作息、周末一两件） */
+export const PLAN_POLICY = 2;
 export const PLAN_DAYS = 7;
 
 let ctx: PluginContext;
@@ -75,17 +77,43 @@ export const calendarApi = {
   async update(id: string, patch: Partial<CalendarEvent>) { await this.events().update(id, patch); },
   async remove(id: string) { await this.events().delete(id); },
 
-  /** 从今天起往后，有「他的」安排的日子有几天 */
-  async horizon(campaignId: string, characterId: string, now: number): Promise<number> {
+  /** 排过的日子（日期键）。工作日大多排出来是空的，不能靠「有没有安排」判断排没排过，不然每轮都重排 */
+  async plannedDays(campaignId: string): Promise<Set<string>> {
+    return new Set(await ctx.settings.get<string[]>(`planned.${campaignId}`, []));
+  },
+  async markPlanned(campaignId: string, days: string[]) {
+    const all = [...new Set([...(await this.plannedDays(campaignId)), ...days])].sort().slice(-120);
+    await ctx.settings.set(`planned.${campaignId}`, all);
+  },
+  /**
+   * 排程规矩改了（PLAN_POLICY）：把今天起还没过的模型排程清掉、排过的日子忘掉，下一次 ensure 按新规矩重排。
+   * 聊天里约的、你手填的、已经过去的都不动。
+   */
+  async migratePolicy(campaignId: string, characterId: string, now: number) {
+    if ((await ctx.settings.get<number>(`policy.${campaignId}`, 1)) >= PLAN_POLICY) return;
     const tz = await this.tz(campaignId);
     const [start] = dayRange(clock.dateKey(now, tz), tz);
-    const days = new Set((await this.between(campaignId, start, start + 60 * D)).filter((e) => e.owner === characterId).map((e) => clock.dateKey(e.start, tz)));
+    const stale = (await this.between(campaignId, start, Infinity)).filter((e) => e.owner === characterId && e.source === 'plan' && (e.status ?? 'planned') === 'planned');
+    if (stale.length) await this.events().bulkDelete(stale.map((e) => e.id));
+    const keep = [...(await this.plannedDays(campaignId))].filter((k) => k < clock.dateKey(now, tz));
+    await ctx.settings.set(`planned.${campaignId}`, keep);
+    await ctx.settings.set(`policy.${campaignId}`, PLAN_POLICY);
+  },
+  /** 从今天起往后，排过的日子有几天（有他的安排的日子也算，兼容老数据） */
+  async horizon(campaignId: string, characterId: string, now: number): Promise<number> {
+    const tz = await this.tz(campaignId);
+    const today = clock.dateKey(now, tz);
+    const [start] = dayRange(today, tz);
+    const days = new Set([...(await this.plannedDays(campaignId))].filter((k) => k >= today));
+    for (const e of await this.between(campaignId, start, start + 60 * D)) if (e.owner === characterId && e.source === 'plan') days.add(clock.dateKey(e.start, tz));
     return days.size;
   },
   /** 不足 HORIZON_DAYS 天就排一周；不等结果（给易变段用，不拖慢这一轮） */
   ensure(campaignId: string, characterId: string, now: number) {
     if (!ctx.llm.configured || planning.has(campaignId)) return;
-    this.horizon(campaignId, characterId, now).then((n) => { if (n < HORIZON_DAYS) return this.planWeek(campaignId, characterId, now); }).catch(() => {});
+    this.migratePolicy(campaignId, characterId, now)
+      .then(() => this.horizon(campaignId, characterId, now))
+      .then((n) => { if (n < HORIZON_DAYS) return this.planWeek(campaignId, characterId, now); }).catch(() => {});
   },
 
   /**
@@ -95,13 +123,15 @@ export const calendarApi = {
     if (!ctx.llm.configured || planning.has(campaignId)) return null;
     planning.add(campaignId);
     try {
+      // 老规矩排的还没过的先清掉（只跑一次），再按新规矩排
+      await this.migratePolicy(campaignId, characterId, now);
       const cp = await ctx.data.campaign(campaignId);
       const ch = await ctx.data.character(characterId);
       if (!cp || !ch) return null;
       const tz = ch.timeZone;
       const [start] = dayRange(clock.dateKey(now, tz), tz);
       const have = await this.between(campaignId, start, start + 60 * D);
-      const covered = new Set(have.filter((e) => e.owner === characterId && e.source === 'plan').map((e) => clock.dateKey(e.start, tz)));
+      const covered = new Set([...(await this.plannedDays(campaignId)), ...have.filter((e) => e.owner === characterId && e.source === 'plan').map((e) => clock.dateKey(e.start, tz))]);
       const days: string[] = [];
       for (let i = 0; days.length < PLAN_DAYS && i < 60; i++) { const k = clock.dateKey(start + i * D + H, tz); if (!covered.has(k)) days.push(k); }
       const existing = have.filter((e) => days.includes(clock.dateKey(e.start, tz))).map((e) => `${clock.dateKey(e.start, tz)} ${clock.formatTime(e.start, tz)} ${e.title}${e.owner === 'user' ? '（对方的）' : ''}`);
@@ -115,7 +145,9 @@ export const calendarApi = {
         }),
         cheap: true, maxTokens: 2500, jsonSchema: planSchema(),
       });
-      const items = parsePlan(text, days);
+      // 按规矩收一收（工作日去掉固定作息、每天封顶），这几天都记成排过，空着的也算
+      const items = shapePlan(parsePlan(text, days));
+      await this.markPlanned(campaignId, days.map((d) => d.slice(0, 10)));
       const at = (date: string, time: string) => clock.zoned(date, time, tz);
       const rows: CalendarEvent[] = items.map((it) => ({
         id: ulid(), campaignId, owner: characterId, start: at(it.date, it.start), ...(it.end && at(it.date, it.end) > at(it.date, it.start) ? { end: at(it.date, it.end) } : {}),
@@ -130,14 +162,21 @@ export const calendarApi = {
 
 const line = (e: CalendarEvent, tz?: string) => `${clock.formatTime(e.start, tz)}${e.end ? '–' + clock.formatTime(e.end, tz) : ''} ${e.title}${e.place ? '（' + e.place + '）' : ''}${e.together ? '，和对方一起' : ''}`;
 
-/** 易变段：今天的安排、现在正在干什么、接下来一件。只给他自己的 */
+/** 提前多久提一句「接下来」：再远的事不用每轮念叨 */
+export const UPCOMING_WITHIN = 2 * D;
+
+/**
+ * 易变段：今天的安排、现在正在干什么、接下来一件。只给他自己的。
+ * 日历只记特别的事，工作日大多是空的：今天没事、两天内也没事就整行不出现，作息让他按身份自己过。
+ */
 export async function volatileLine(campaignId: string, characterId: string, now: number): Promise<string> {
   const tz = await calendarApi.tz(campaignId);
   const today = (await calendarApi.today(campaignId, now)).filter((e) => e.owner === characterId);
   const current = today.find((e) => e.start <= now && now < (e.end ?? e.start + H));
-  const upcoming = today.find((e) => e.start > now) ?? (await calendarApi.next(campaignId, now));
+  const next = today.find((e) => e.start > now) ?? (await calendarApi.next(campaignId, now));
+  const upcoming = next && next.start - now <= UPCOMING_WITHIN ? next : undefined;
   if (!today.length && !upcoming) return '';
-  const parts = [`你今天的安排：${today.length ? today.map((e) => line(e, tz)).join(' · ') : '没有'}`];
+  const parts = today.length ? [`你今天的安排：${today.map((e) => line(e, tz)).join(' · ')}`] : [];
   if (current) parts.push(`现在正在：${current.title}`);
   if (upcoming) parts.push(`接下来：${clock.dateKey(upcoming.start, tz) === clock.dateKey(now, tz) ? '' : clock.formatShort(upcoming.start, tz).split(' ')[0] + ' '}${line(upcoming, tz)}`);
   return `（${parts.join('。')}。）`;
