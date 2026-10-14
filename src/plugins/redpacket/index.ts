@@ -1,5 +1,5 @@
 import { definePlugin, icons, gradients } from '$kernel/api';
-import type { PluginContext, PromptContext } from '$kernel/api';
+import type { PluginContext, PromptContext, Retraction } from '$kernel/api';
 import { ulid } from 'ulid';
 import SendPacket from './SendPacket.svelte';
 import SendTransfer from './SendTransfer.svelte';
@@ -14,6 +14,9 @@ import WalletSection from './WalletSection.svelte';
  *
  * 红包是送礼：金额藏着，拆了才到账。转账是付钱：金额明摆着，对方点「收款」才到账，也可以退回。
  * 两种共用一张表、一套钱包，用 kind 区分。
+ *
+ * 钱包是流水账（表 ledger）：一笔一笔记进出，余额是加出来的。每笔带 sourceId（哪条消息 / 哪一轮带来的）和关联的红包，
+ * 删消息、重新生成时按它删掉那几笔，钱自然回来（ARCHITECTURE 5.12）。
  */
 export interface Packet {
   id: string; conversationId: string; campaignId: string;
@@ -26,12 +29,30 @@ export interface Packet {
   openedAt?: number;
   /** 转账被退回的时间；退回后钱回到发的人钱包 */
   refundedAt?: number;
+  /** 谁发的：你发的是那条消息的 id，他发的是那一轮的 turnId。那条消息 / 那一轮被删，红包连同进出的钱一起撤回 */
+  sourceId?: string;
+  /** 他在哪一轮领的 / 退的（turnId）：只重新生成那一轮时退回「还没领」 */
+  openedBy?: string; refundedBy?: string;
 }
 export const isTransfer = (p: Packet) => p.kind === 'transfer';
 export const isPending = (p: Packet) => !p.openedAt && !p.refundedAt;
 
-/** 钱包：主键 `${campaignId}:${ownerId}`，ownerId 是 'user' 或角色 id */
+/** 老钱包：主键 `${campaignId}:${ownerId}`，ownerId 是 'user' 或角色 id。改成流水账后只读，第一次用到时折成一笔期初 */
 export interface Wallet { id: string; campaignId: string; ownerId: string; balance: number }
+
+/** 一笔进出 */
+export interface LedgerEntry {
+  id: string; campaignId: string;
+  /** 'user' 或角色 id */
+  ownerId: string;
+  delta: number;
+  reason: string;
+  at: number;
+  /** 哪条消息 / 哪一轮带来的；手改、手点的没有 */
+  sourceId?: string;
+  /** 关联的红包、转账：它被撤回时这几笔一起删 */
+  packetId?: string;
+}
 
 let ctx: PluginContext;
 export const DEFAULT_WALLET = 888;
@@ -39,26 +60,43 @@ export const DEFAULT_CHAR_WALLET = 2000;
 export const yuan = (n: number) => '¥' + n.toFixed(2);
 const round = (n: number) => Math.round(n * 100) / 100;
 
+const sum = (xs: LedgerEntry[]) => round(xs.reduce((t, x) => t + x.delta, 0));
+
 export const redpacketApi = {
   packets: () => ctx.table<Packet>('packets'),
   wallets: () => ctx.table<Wallet>('wallets'),
-  /** 某一局里某人的余额；第一次问到才建：你的从旧的全局钱包继承，他的给个默认值 */
+  ledger: () => ctx.table<LedgerEntry>('ledger'),
+  /** 某一局里某人的余额；第一次问到才记期初：老钱包有就用老余额，你的从旧的全局钱包继承，他的给个默认值 */
   async wallet(campaignId: string, ownerId: string): Promise<number> {
-    const id = `${campaignId}:${ownerId}`;
-    const found = await this.wallets().get(id);
-    if (found) return found.balance;
-    const balance = ownerId === 'user' ? await ctx.settings.get<number>('wallet', DEFAULT_WALLET) : DEFAULT_CHAR_WALLET;
-    await this.wallets().put({ id, campaignId, ownerId, balance });
-    return balance;
+    const rows = await this.ledger().where('campaignId').equals(campaignId).filter((x) => x.ownerId === ownerId).toArray();
+    if (rows.length) return sum(rows);
+    const old = await this.wallets().get(`${campaignId}:${ownerId}`);
+    const balance = old ? old.balance : ownerId === 'user' ? await ctx.settings.get<number>('wallet', DEFAULT_WALLET) : DEFAULT_CHAR_WALLET;
+    await this.ledger().add({ id: ulid(), campaignId, ownerId, delta: round(balance), reason: '期初', at: Date.now() });
+    return round(balance);
   },
+  /** 只读：这一局各人的余额，还没用过的不在里面。界面的响应式查询用它（liveQuery 里不能写库） */
+  async balances(campaignId: string): Promise<Record<string, number>> {
+    const out: Record<string, number> = {};
+    for (const w of await this.wallets().where('campaignId').equals(campaignId).toArray()) out[w.ownerId] = w.balance;
+    const byOwner = new Map<string, LedgerEntry[]>();
+    for (const x of await this.ledger().where('campaignId').equals(campaignId).toArray()) byOwner.set(x.ownerId, [...(byOwner.get(x.ownerId) ?? []), x]);
+    for (const [o, xs] of byOwner) out[o] = sum(xs);
+    return out;
+  },
+  /** 手改余额：记一笔差额 */
   async setBalance(campaignId: string, ownerId: string, balance: number) {
-    const b = round(Math.max(0, balance));
-    await this.wallets().put({ id: `${campaignId}:${ownerId}`, campaignId, ownerId, balance: b });
+    const target = round(Math.max(0, balance));
+    return this.adjust(campaignId, ownerId, target - (await this.wallet(campaignId, ownerId)), { reason: '手改' });
+  },
+  /** 记一笔。扣到负数就只扣到 0 */
+  async adjust(campaignId: string, ownerId: string, delta: number, o: { reason?: string; sourceId?: string; packetId?: string } = {}) {
+    const cur = await this.wallet(campaignId, ownerId);
+    const d = round(Math.max(delta, -cur));
+    if (d !== 0) await this.ledger().add({ id: ulid(), campaignId, ownerId, delta: d, reason: o.reason ?? '', at: Date.now(), ...(o.sourceId ? { sourceId: o.sourceId } : {}), ...(o.packetId ? { packetId: o.packetId } : {}) });
+    const b = round(cur + d);
     ctx.emit('redpacket.wallet', { campaignId, ownerId, wallet: b });
     return b;
-  },
-  async adjust(campaignId: string, ownerId: string, delta: number) {
-    return this.setBalance(campaignId, ownerId, (await this.wallet(campaignId, ownerId)) + delta);
   },
   async create(p: Omit<Packet, 'id' | 'createdAt'>) {
     const packet: Packet = { ...p, id: ulid(), createdAt: Date.now() };
@@ -70,16 +108,17 @@ export const redpacketApi = {
     const p = await this.packets().get(id);
     if (!p || p.from !== 'char' || !isPending(p)) return p;
     await this.packets().update(id, { openedAt: Date.now() });
-    await this.adjust(p.campaignId, 'user', p.amount);
+    await this.adjust(p.campaignId, 'user', p.amount, { reason: isTransfer(p) ? '收款' : '领红包', packetId: p.id });
     return { ...p, openedAt: Date.now() };
   },
-  /** 退回一笔还没收的转账：钱回到发的人那边。你退他的，他退你的，都走这里 */
-  async refund(id: string) {
+  /** 退回一笔还没收的转账：钱回到发的人那边。你退他的，他退你的，都走这里；by 是他退的那一轮 */
+  async refund(id: string, by?: string) {
     const p = await this.packets().get(id);
     if (!p || !isTransfer(p) || !isPending(p)) return p;
-    await this.packets().update(id, { refundedAt: Date.now() });
-    if (p.from === 'user') await this.adjust(p.campaignId, 'user', p.amount);
-    else if (p.characterId) await this.adjust(p.campaignId, p.characterId, p.amount);
+    await this.packets().update(id, { refundedAt: Date.now(), ...(by ? { refundedBy: by } : {}) });
+    const o = { reason: '退回转账', packetId: p.id, ...(by ? { sourceId: by } : {}) };
+    if (p.from === 'user') await this.adjust(p.campaignId, 'user', p.amount, o);
+    else if (p.characterId) await this.adjust(p.campaignId, p.characterId, p.amount, o);
     return { ...p, refundedAt: Date.now() };
   },
   /** 这个对话里对方转给角色、还没处理的转账（给 transfer_refund 和回合结束自动收款用） */
@@ -90,6 +129,26 @@ export const redpacketApi = {
   recent(campaignId: string, n = 3) {
     return this.packets().where('campaignId').equals(campaignId).reverse().sortBy('createdAt').then((xs) => xs.slice(0, n));
   },
+  /**
+   * 撤回：这些来源发的红包连同进出的钱删掉（卡片指向的老红包也删，但老红包没有流水，钱退不回来）；
+   * 某一轮领的、退的，退回「还没处理」；这些来源记的其他流水（商店扣款之类）也删掉。
+   */
+  async retract(r: Retraction) {
+    const S = new Set(r.sources);
+    const cardIds = new Set(r.cards.map((c) => { try { return String((JSON.parse(c.body) as { id?: unknown }).id ?? ''); } catch { return ''; } }).filter(Boolean));
+    const packets = await this.packets().where('campaignId').equals(r.campaignId).toArray();
+    const gone = packets.filter((p) => (p.sourceId && S.has(p.sourceId)) || cardIds.has(p.id));
+    const goneIds = new Set(gone.map((p) => p.id));
+    for (const p of packets) {
+      if (goneIds.has(p.id)) continue;
+      if (p.openedBy && S.has(p.openedBy)) await this.packets().update(p.id, { openedAt: undefined, openedBy: undefined });
+      if (p.refundedBy && S.has(p.refundedBy)) await this.packets().update(p.id, { refundedAt: undefined, refundedBy: undefined });
+    }
+    if (gone.length) await this.packets().bulkDelete([...goneIds]);
+    const entries = await this.ledger().where('campaignId').equals(r.campaignId).filter((x) => (!!x.sourceId && S.has(x.sourceId)) || (!!x.packetId && goneIds.has(x.packetId))).toArray();
+    if (entries.length) await this.ledger().bulkDelete(entries.map((x) => x.id));
+    for (const o of new Set(entries.map((x) => x.ownerId))) ctx.emit('redpacket.wallet', { campaignId: r.campaignId, ownerId: o, wallet: await this.wallet(r.campaignId, o) });
+  },
 };
 
 /**
@@ -99,24 +158,24 @@ export const redpacketApi = {
 export interface WalletService {
   /** 某一局里某人（'user' 或角色 id）的余额 */
   balance(campaignId: string, ownerId: string): Promise<number>;
-  /** 扣钱。不够返回 false，一分不动 */
-  charge(campaignId: string, ownerId: string, amount: number, reason: string): Promise<boolean>;
+  /** 扣钱。不够返回 false，一分不动。sourceId 是这笔是哪条消息 / 哪一轮带来的，撤回时这笔自动删掉 */
+  charge(campaignId: string, ownerId: string, amount: number, reason: string, sourceId?: string): Promise<boolean>;
   /** 进账 */
-  credit(campaignId: string, ownerId: string, amount: number, reason: string): Promise<void>;
+  credit(campaignId: string, ownerId: string, amount: number, reason: string, sourceId?: string): Promise<void>;
 }
 
 export const walletService: WalletService = {
   balance: (campaignId, ownerId) => redpacketApi.wallet(campaignId, ownerId),
-  async charge(campaignId, ownerId, amount, _reason) {
+  async charge(campaignId, ownerId, amount, reason, sourceId) {
     const n = round(amount);
     if (!(n > 0)) return false;
     if ((await redpacketApi.wallet(campaignId, ownerId)) < n) return false;
-    await redpacketApi.adjust(campaignId, ownerId, -n);
+    await redpacketApi.adjust(campaignId, ownerId, -n, { reason, ...(sourceId ? { sourceId } : {}) });
     return true;
   },
-  async credit(campaignId, ownerId, amount, _reason) {
+  async credit(campaignId, ownerId, amount, reason, sourceId) {
     const n = round(amount);
-    if (n > 0) await redpacketApi.adjust(campaignId, ownerId, n);
+    if (n > 0) await redpacketApi.adjust(campaignId, ownerId, n, { reason, ...(sourceId ? { sourceId } : {}) });
   },
 };
 
@@ -125,7 +184,8 @@ export default definePlugin({
   name: '钱包',
   version: '0.2.0',
   description: '你和角色互相发红包、转账。钱包是本机的一个数字，每一局各一个，纯玩。',
-  storage: { tables: { packets: 'id, conversationId, campaignId, createdAt', wallets: 'id, campaignId, ownerId' } },
+  storage: { tables: { packets: 'id, conversationId, campaignId, createdAt', wallets: 'id, campaignId, ownerId', ledger: 'id, campaignId' } },
+  retract: (r) => redpacketApi.retract(r),
   composerActions: [
     { id: 'send', label: '红包', icon: { paths: icons.redpacket, background: gradients.red }, component: SendPacket },
     { id: 'transfer', label: '转账', icon: { paths: icons.transfer, background: gradients.orange }, component: SendTransfer },
@@ -145,8 +205,8 @@ export default definePlugin({
       const me = p.characterIds[0]!;
       const balance = await redpacketApi.wallet(p.campaignId, me);
       if (amount > balance) return `你钱包里只有 ${yuan(balance)}，不够发 ${yuan(amount)} 的红包。少发点，或者这次别发。`;
-      await redpacketApi.adjust(p.campaignId, me, -amount);
-      const packet = await redpacketApi.create({ conversationId: p.conversationId, campaignId: p.campaignId, characterId: me, from: 'char', amount, note });
+      const packet = await redpacketApi.create({ conversationId: p.conversationId, campaignId: p.campaignId, characterId: me, from: 'char', amount, note, ...(p.sourceId ? { sourceId: p.sourceId } : {}) });
+      await redpacketApi.adjust(p.campaignId, me, -amount, { reason: '发红包', packetId: packet.id, ...(p.sourceId ? { sourceId: p.sourceId } : {}) });
       p.addCard?.('redpacket', JSON.stringify({ id: packet.id }), {}, `[发了一个红包：${yuan(amount)}，留言「${note}」]`);
       return `已发出 ${yuan(amount)} 的红包，卡片在对话里，对方点开才会领。你钱包里还剩 ${yuan(balance - amount)}。不用再描述红包。`;
     },
@@ -163,8 +223,8 @@ export default definePlugin({
       const me = p.characterIds[0]!;
       const balance = await redpacketApi.wallet(p.campaignId, me);
       if (amount > balance) return `你钱包里只有 ${yuan(balance)}，转不出 ${yuan(amount)}。少转点，或者这次别转。`;
-      await redpacketApi.adjust(p.campaignId, me, -amount);
-      const t = await redpacketApi.create({ conversationId: p.conversationId, campaignId: p.campaignId, characterId: me, kind: 'transfer', from: 'char', amount, note });
+      const t = await redpacketApi.create({ conversationId: p.conversationId, campaignId: p.campaignId, characterId: me, kind: 'transfer', from: 'char', amount, note, ...(p.sourceId ? { sourceId: p.sourceId } : {}) });
+      await redpacketApi.adjust(p.campaignId, me, -amount, { reason: '转账', packetId: t.id, ...(p.sourceId ? { sourceId: p.sourceId } : {}) });
       p.addCard?.('transfer', JSON.stringify({ id: t.id }), {}, `[转账 ${yuan(amount)}${note ? '，备注「' + note + '」' : ''}]`);
       return `已转出 ${yuan(amount)}，卡片在对话里，对方点收款才到账，也可能退回。你钱包里还剩 ${yuan(balance - amount)}。不用再描述转账。`;
     },
@@ -177,7 +237,7 @@ export default definePlugin({
       const pending = (await redpacketApi.pendingFromUser(p.conversationId)).filter(isTransfer).sort((a, b) => b.createdAt - a.createdAt);
       const t = pending[0];
       if (!t) return '现在没有对方转给你、还没收的转账。';
-      await redpacketApi.refund(t.id);
+      await redpacketApi.refund(t.id, p.sourceId);
       return `已把 ${yuan(t.amount)} 退回给对方，卡片上会显示「已退还」。不用再描述退款这个动作本身，直接说你的话。`;
     },
   }],
@@ -203,11 +263,12 @@ export default definePlugin({
   }],
   onEvent: {
     /** 角色回完消息，就算把你发的红包领了、转账收了，钱进他这局的钱包。回复中途用 transfer_refund 退掉的不在这里 */
-    async 'llm.turn.end'({ conversationId }) {
+    async 'llm.turn.end'({ conversationId, turn }) {
       const mine = await redpacketApi.pendingFromUser(conversationId);
       for (const x of mine) {
-        await ctx.table<Packet>('packets').update(x.id, { openedAt: Date.now() });
-        if (x.characterId) await redpacketApi.adjust(x.campaignId, x.characterId, x.amount);
+        // 记下是哪一轮领的：只重新生成这一轮时退回「还没领」，新的一轮再领
+        await ctx.table<Packet>('packets').update(x.id, { openedAt: Date.now(), ...(turn ? { openedBy: turn } : {}) });
+        if (x.characterId) await redpacketApi.adjust(x.campaignId, x.characterId, x.amount, { reason: isTransfer(x) ? '收款' : '领红包', packetId: x.id, ...(turn ? { sourceId: turn } : {}) });
       }
     },
   },

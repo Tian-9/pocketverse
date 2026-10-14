@@ -159,7 +159,7 @@ export const kernelTools: KernelTool[] = [
       if (loreEntryId && !ctx.lore.some((e) => e.id === loreEntryId)) return '没有这个世界书条目，loreEntryId 留空即可。';
       const ov: LoreOverlay = {
         id: ulid(), campaignId: ctx.campaign.id, loreEntryId, title: toUserMacro(str(input?.title, 80), ctx.userName), summary: toUserMacro(str(input?.summary, 200), ctx.userName),
-        content: toUserMacro(str(input?.content, 4000), ctx.userName), reason: toUserMacro(str(input?.reason, 200), ctx.userName), createdAt: Date.now(),
+        content: toUserMacro(str(input?.content, 4000), ctx.userName), reason: toUserMacro(str(input?.reason, 200), ctx.userName), createdAt: Date.now(), sourceId: ctx.turnId,
       };
       // 角色自己写的覆盖直接生效；合并任务提的才需要确认
       await db().overlays.add(ov);
@@ -186,7 +186,7 @@ export const kernelTools: KernelTool[] = [
       const me = ctx.characters[0];
       if (!me) return '没有在场角色。';
       const now = Date.now(), storyNow = clock.now(ctx.campaign.clock, now);
-      await wakes.set({ campaignId: ctx.campaign.id, characterId: me.id, fireAt: storyNow + minutes * 60_000, intent, createdAt: now, createdStoryTs: storyNow, onlyIfSilent: input?.onlyIfSilent === true });
+      await wakes.set({ campaignId: ctx.campaign.id, characterId: me.id, fireAt: storyNow + minutes * 60_000, intent, createdAt: now, createdStoryTs: storyNow, onlyIfSilent: input?.onlyIfSilent === true, sourceId: ctx.turnId });
       catchup.armWake(now).catch(() => {});
       log.info('catchup', `${me.name} 定了 ${minutes} 分钟后联系：${intent}`, { campaignId: ctx.campaign.id });
       const at = new Date(storyNow + minutes * 60_000).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', ...(me.timeZone && isValidTimeZone(me.timeZone) ? { timeZone: me.timeZone } : {}) });

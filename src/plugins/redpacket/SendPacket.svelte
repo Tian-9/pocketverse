@@ -3,7 +3,7 @@
   import { List, Field, Button } from '$kernel/api';
   import type { ComposerActionProps } from '$kernel/api';
   import { redpacketApi, yuan } from './index';
-  let { conversationId, campaignId, characterId, onsend, onclose }: ComposerActionProps = $props();
+  let { conversationId, campaignId, characterId, sourceId, onsend, onclose }: ComposerActionProps = $props();
   let amount = $state('');
   let note = $state('恭喜发财，大吉大利');
   let wallet = $state<number | null>(null);
@@ -14,8 +14,9 @@
     if (!(n >= 0.01)) { error = '金额至少 0.01'; return; }
     if (wallet !== null && n > wallet) { error = '钱包不够了'; return; }
     const text = note.trim() || '恭喜发财，大吉大利';
-    const p = await redpacketApi.create({ conversationId, campaignId, characterId, from: 'user', amount: n, note: text });
-    await redpacketApi.adjust(campaignId, 'user', -n);
+    // 带上这条消息的 id：删了它，红包和钱一起撤回
+    const p = await redpacketApi.create({ conversationId, campaignId, characterId, from: 'user', amount: n, note: text, sourceId });
+    await redpacketApi.adjust(campaignId, 'user', -n, { reason: '发红包', sourceId, packetId: p.id });
     onsend({ text: `[发了一个红包：${yuan(n)}，留言「${text}」]`, cards: [{ tag: 'redpacket', body: JSON.stringify({ id: p.id }), alt: `[红包] ${text}` }], cardOnly: true });
   }
 </script>

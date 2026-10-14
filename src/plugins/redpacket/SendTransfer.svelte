@@ -3,7 +3,7 @@
   import { List, Field, Button } from '$kernel/api';
   import type { ComposerActionProps } from '$kernel/api';
   import { redpacketApi, yuan } from './index';
-  let { conversationId, campaignId, characterId, onsend, onclose }: ComposerActionProps = $props();
+  let { conversationId, campaignId, characterId, sourceId, onsend, onclose }: ComposerActionProps = $props();
   let amount = $state('');
   let note = $state('');
   let wallet = $state<number | null>(null);
@@ -14,8 +14,8 @@
     if (!(n >= 0.01)) { error = '金额至少 0.01'; return; }
     if (wallet !== null && n > wallet) { error = '钱包不够了'; return; }
     const text = note.trim();
-    const t = await redpacketApi.create({ conversationId, campaignId, characterId, kind: 'transfer', from: 'user', amount: n, note: text });
-    await redpacketApi.adjust(campaignId, 'user', -n);
+    const t = await redpacketApi.create({ conversationId, campaignId, characterId, kind: 'transfer', from: 'user', amount: n, note: text, sourceId });
+    await redpacketApi.adjust(campaignId, 'user', -n, { reason: '转账', sourceId, packetId: t.id });
     onsend({ text: `[转给他 ${yuan(n)}${text ? '，备注「' + text + '」' : ''}]`, cards: [{ tag: 'transfer', body: JSON.stringify({ id: t.id }), alt: `[转账] ${yuan(n)}${text ? ' ' + text : ''}` }], cardOnly: true });
   }
 </script>

@@ -63,7 +63,12 @@ export interface Campaign {
   playedStoryTs?: number; catchupStoryTs?: number;
   /** 上次整理失败（出错或预览里取消）时处理到的消息 ts；之后再攒够一批回复才会再试 */
   consolidateFailedAt?: number;
+  /** 整理过的批次（最近的在后）：id 是这批最后一条消息的 id（也是那批硬事实的 source），范围是 (from, to] 的消息 ts */
+  batches?: ConsolidateBatch[];
+  /** 被删了消息、已经撤回、等着重新整理的范围。下次整理检查时先做 */
+  redo?: { conversationId: string; from: number; to: number }[];
 }
+export interface ConsolidateBatch { id: string; conversationId: string; from: number; to: number }
 export interface Conversation { id: string; campaignId: string; kind: string; participantIds: string[]; pluginId: string }
 export interface Message {
   id: string; conversationId: string; role: 'user' | 'assistant' | 'system';
@@ -88,6 +93,8 @@ export interface LoreOverlay {
   content: string; reason: string; createdAt: number;
   /** 合并任务提出、尚未被用户采纳 */
   pending?: boolean;
+  /** 谁写的：聊天里 overlay_write 是那一轮的 turnId，整理是那一批的批次 id。撤回时按它删（见 ARCHITECTURE 5.12） */
+  sourceId?: string;
 }
 export interface MemFile { campaignId: string; path: string; content: string; updatedAt: number }
 export interface KV { key: string; value: unknown }
@@ -115,7 +122,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 9;
+const KERNEL_VERSION = 10;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -182,6 +189,11 @@ export class PocketDB extends Dexie {
         const src = ((await tx.table('messages').bulkGet(m.sourceMessageIds)) as (Message | undefined)[]).filter((x): x is Message => !!x);
         if (src.length) await tx.table('memories').update(m.id, { storyTs: Math.max(...src.map(msgTs)) });
       }
+      // v10：整理批次。老记忆的 sourceMessageIds 就是那一批，最后一条的 id 当批次 id（老的硬事实 source 也是它）。可重复跑（有了就不动）
+      for (const c of (await tx.table('campaigns').toArray()) as Campaign[]) {
+        if (c.batches !== undefined) continue;
+        await tx.table('campaigns').update(c.id, { batches: await legacyBatches((await tx.table('memories').where('campaignId').equals(c.id).toArray()) as EpisodicMemory[], (ids) => tx.table('messages').bulkGet(ids) as Promise<(Message | undefined)[]>) });
+      }
     });
   }
 
@@ -192,6 +204,20 @@ export class PocketDB extends Dexie {
   async setKV<T>(key: string, value: T): Promise<void> {
     await this.kv.put({ key, value });
   }
+}
+
+/** 从老记忆推出整理批次：同一批的记忆 sourceMessageIds 一样，按批次最后一条消息的时间排，from 接上一批的 to */
+export async function legacyBatches(mems: EpisodicMemory[], getMessages: (ids: string[]) => Promise<(Message | undefined)[]>): Promise<ConsolidateBatch[]> {
+  const groups = new Map<string, string[]>();
+  for (const m of mems) { const id = m.sourceMessageIds?.at(-1); if (id && !groups.has(id)) groups.set(id, m.sourceMessageIds); }
+  const out: { id: string; conversationId: string; to: number }[] = [];
+  for (const [id, ids] of groups) {
+    const msgs = (await getMessages(ids)).filter((x): x is Message => !!x);
+    if (!msgs.length) continue;
+    out.push({ id, conversationId: msgs[0]!.conversationId, to: Math.max(...msgs.map((x) => x.ts)) });
+  }
+  out.sort((a, b) => a.to - b.to);
+  return out.map((b, i) => ({ ...b, from: out.slice(0, i).reverse().find((x) => x.conversationId === b.conversationId)?.to ?? 0 }));
 }
 
 export function pluginTable(pluginId: string, table: string): string {

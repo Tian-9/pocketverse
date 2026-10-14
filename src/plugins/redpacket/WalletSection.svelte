@@ -3,14 +3,14 @@
   import { List, Cell, Sheet, Field, Button } from '$kernel/api';
   import type { ProfileSectionProps } from '$kernel/api';
   import { live } from '$kernel/api';
-  import { redpacketApi, yuan, isTransfer, type Packet, type Wallet } from './index';
+  import { redpacketApi, yuan, isTransfer, type Packet } from './index';
   let { campaignId, characterId }: ProfileSectionProps = $props();
   const deps = () => [campaignId, characterId];
-  // 余额行不存在时 wallet() 会建；这里只读，没有就显示默认值，等第一次发红包再建
-  const rows = live(() => redpacketApi.wallets().where('campaignId').equals(campaignId).toArray(), [] as Wallet[], deps);
+  // 只读（liveQuery 里不能写库）：还没用过的人不在里面，等第一次用到再记期初
+  const bal = live(() => redpacketApi.balances(campaignId), {} as Record<string, number>, deps);
   const recent = live(() => redpacketApi.recent(campaignId, 3), [] as Packet[], deps);
-  const his = $derived(rows.value.find((w) => w.ownerId === characterId)?.balance);
-  const mine = $derived(rows.value.find((w) => w.ownerId === 'user')?.balance);
+  const his = $derived(bal.value[characterId]);
+  const mine = $derived(bal.value['user']);
   let editing = $state<string | null>(null);
   let draft = $state('');
   async function edit(owner: string) {

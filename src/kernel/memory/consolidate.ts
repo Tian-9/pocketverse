@@ -2,11 +2,11 @@ import { ulid } from 'ulid';
 import { parseBag, rebuildIndex } from 'annals';
 import { BAG_SCHEMA, PATCHES_SCHEMA, parsePatches } from 'annals/airp';
 import { db } from '../storage/db';
-import { applyPatches, stateLines } from './state';
+import { applyPatches, loadState, retractSource, stateLines } from './state';
 import { toUserMacro } from '../context/userref';
 import { repo } from '../data/repo';
 import { dayDivider, dayOf, memoryWhen, storyStartOf } from '../context/days';
-import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Message } from '../storage/db';
+import type { Campaign, Character, ConsolidateBatch, EpisodicMemory, LoreEntry, LoreOverlay, Message } from '../storage/db';
 import { textOf } from '../data/repo';
 import { loreApplies } from '../data/lore';
 import { llm } from '../llm/gateway.svelte';
@@ -83,8 +83,10 @@ export function buildPrompt(campaign: Campaign, character: Character, lore: Lore
 /**
  * days：这批对话里每一天（Day N）最后一条消息的剧情时刻。模型给的 day 在里面就用那天的时刻，不在（编的、抄错的）就用 at（最后一条）。
  */
-export async function applyOutput(campaign: Campaign, character: Character, lore: LoreEntry[], out: ConsolidateOutput, sourceIds: string[], at = clock.now(campaign.clock), userName?: string, days: Map<number, number> = new Map()) {
-  const now = Date.now();
+export async function applyOutput(campaign: Campaign, character: Character, lore: LoreEntry[], out: ConsolidateOutput, sourceIds: string[], at = clock.now(campaign.clock), userName?: string, days: Map<number, number> = new Map(), opts: { redo?: boolean; createdAt?: number } = {}) {
+  const now = opts.createdAt ?? Date.now();
+  // 批次 id：这批最后一条消息的 id。记忆的 sourceMessageIds 最后一个、硬事实的 source、世界变化的 sourceId 都是它，撤回整批按它找
+  const batchId = sourceIds[sourceIds.length - 1] ?? 'consolidate';
   // 存库前名字和「用户」换成 {{user}}：改名后旧记忆自动跟着变，也不会把「用户」喂回给聊天模型
   const u = (t: string) => toUserMacro(t, userName);
   // schema 里的条数上限发给 API 时会被剥掉（结构化输出不支持），这里兜底
@@ -96,20 +98,58 @@ export async function applyOutput(campaign: Campaign, character: Character, lore
   }));
   if (mems.length) await db().memories.bulkAdd(mems);
 
-  const st = out.state ?? {};
+  // 重整老批次时不动地点、关系、情绪：那是「现在」的样子，老对话里的会盖掉新的
+  const st = opts.redo ? {} : out.state ?? {};
   const state = { ...campaign.state, relations: { ...campaign.state.relations }, mood: { ...campaign.state.mood } };
   if (st.location) state.location = u(st.location);
   if (st.relation) state.relations[character.id] = u(st.relation);
   if (st.mood) state.mood[character.id] = u(st.mood);
-  // 硬事实走 annals 状态事件：来源挂这批的最后一条消息，删了它或重新生成就一起撤回
-  const patches = await applyPatches(campaign.id, parsePatches(out.patches).map((p) => ({ ...p, entity: u(p.entity), value: u(p.value) })), { source: sourceIds[sourceIds.length - 1] ?? 'consolidate', at });
+  // 硬事实走 annals 状态事件：来源挂这一批，删了其中的消息或重新生成就一起撤回
+  let parsed = parsePatches(out.patches).map((p) => ({ ...p, entity: u(p.entity), value: u(p.value) }));
+  if (opts.redo) {
+    // 重整老批次：这批之后又改过的条目不补，不然老结论会盖掉新的
+    const later = new Set((await loadState(campaign.id)).filter((e) => e.at > at).map((e) => `${e.payload.entity}\u0000${e.payload.attr}`));
+    parsed = parsed.filter((p) => !later.has(`${p.entity}\u0000${p.attr}`));
+  }
+  const patches = await applyPatches(campaign.id, parsed, { source: batchId, at });
 
   const overlays: LoreOverlay[] = (out.overlays ?? []).filter((o) => o.title && o.content).slice(0, 5).map((o) => ({
     id: ulid(), campaignId: campaign.id, loreEntryId: o.loreEntryId && lore.some((e) => e.id === o.loreEntryId) ? o.loreEntryId : undefined,
-    title: u(o.title), summary: u(o.summary ?? ''), content: u(o.content), reason: u(o.reason ?? ''), createdAt: now, pending: true,
+    title: u(o.title), summary: u(o.summary ?? ''), content: u(o.content), reason: u(o.reason ?? ''), createdAt: now, pending: true, sourceId: batchId,
   }));
   if (overlays.length) await db().overlays.bulkAdd(overlays);
   return { mems, state, overlays, patches };
+}
+
+/**
+ * 删到已经整理过的消息：撤回它所在的整批（那批的记忆、硬事实、还没确认的世界变化），范围记进 redo，
+ * 下次整理检查时把剩下的消息重整一遍。同批其他回复的记忆不会白白丢掉，代价是一次整理档调用（ARCHITECTURE 5.12）。
+ */
+export async function unconsolidate(campaignId: string, deleted: Message[]): Promise<void> {
+  const cp = await db().campaigns.get(campaignId);
+  const upTo = cp?.consolidatedUpTo ?? 0;
+  const hit = deleted.filter((m) => m.ts <= upTo);
+  if (!cp || !hit.length) return;
+  const batches = cp.batches ?? [];
+  const gone = batches.filter((b) => hit.some((m) => m.conversationId === b.conversationId && m.ts > b.from && m.ts <= b.to));
+  if (!gone.length) return;
+  const ids = new Set(gone.map((b) => b.id));
+  const mems = await db().memories.where('campaignId').equals(campaignId).filter((m) => ids.has(m.sourceMessageIds?.at(-1) ?? '')).primaryKeys();
+  if (mems.length) await db().memories.bulkDelete(mems);
+  for (const id of ids) await retractSource(campaignId, id);
+  const ovs = await db().overlays.where('campaignId').equals(campaignId).filter((o) => !!o.pending && !!o.sourceId && ids.has(o.sourceId)).primaryKeys();
+  if (ovs.length) await db().overlays.bulkDelete(ovs);
+  await db().campaigns.update(campaignId, {
+    batches: batches.filter((b) => !ids.has(b.id)),
+    redo: [...(cp.redo ?? []), ...gone.map((b) => ({ conversationId: b.conversationId, from: b.from, to: b.to }))],
+  });
+  bus.emit('memory.written', { kind: 'episodic', id: campaignId });
+  log.info('consolidate', `删到了整理过的消息：撤回 ${gone.length} 批（${mems.length} 条记忆），下次整理时重整`, { campaignId });
+}
+
+/** 记一批：按时间排，最多留 300 批 */
+function withBatch(cp: Campaign, b: ConsolidateBatch): ConsolidateBatch[] {
+  return [...(cp.batches ?? []).filter((x) => x.id !== b.id), b].sort((x, y) => x.to - y.to).slice(-300);
 }
 
 const inflight = new Set<string>();
@@ -126,11 +166,28 @@ export async function consolidate(conversationId: string, opts: { force?: boolea
 async function run(conversationId: string, opts: { force?: boolean; reason?: string }): Promise<boolean> {
   const conv = await db().conversations.get(conversationId);
   if (!conv) return false;
-  const campaign = await db().campaigns.get(conv.campaignId);
+  let campaign = await db().campaigns.get(conv.campaignId);
   const character = conv.participantIds[0] ? await db().characters.get(conv.participantIds[0]) : undefined;
   if (!campaign || !character || !llm.configured) return false;
+  const all = await db().messages.where('conversationId').equals(conversationId).sortBy('ts');
+
+  // 先重整删过消息的批次：不管攒没攒够，整理进度不动
+  for (const r of (campaign.redo ?? []).filter((x) => x.conversationId === conversationId)) {
+    const msgs = all.filter((m) => m.ts > r.from && m.ts <= r.to);
+    const drop = async (batch?: ConsolidateBatch) => {
+      const cp = (await db().campaigns.get(campaign!.id))!;
+      await db().campaigns.update(cp.id, { redo: (cp.redo ?? []).filter((x) => !(x.conversationId === r.conversationId && x.from === r.from && x.to === r.to)), ...(batch ? { batches: withBatch(cp, batch) } : {}) });
+    };
+    if (!msgs.some((m) => m.role === 'assistant')) { await drop(); continue; }
+    log.info('consolidate', `重整：${msgs.length} 条消息（有消息被删过）`, { conversationId });
+    const done = await extract(campaign, character, conversationId, msgs, true);
+    // 模型没给合法 JSON 也丢掉这个范围，不反复重试；出错（断网）就抛出去，下次再来
+    await drop(done ? { id: msgs[msgs.length - 1]!.id, conversationId, from: r.from, to: r.to } : undefined);
+    campaign = (await db().campaigns.get(campaign.id))!;
+  }
+
   const since = campaign.consolidatedUpTo ?? 0;
-  const msgs = (await db().messages.where('conversationId').equals(conversationId).sortBy('ts')).filter((m) => m.ts > since);
+  const msgs = all.filter((m) => m.ts > since);
   const replies = msgs.filter((m) => m.role === 'assistant').length;
   if (!opts.force && replies < CONSOLIDATE_EVERY) return false;
   if (replies === 0) return false;
@@ -142,42 +199,50 @@ async function run(conversationId: string, opts: { force?: boolean; reason?: str
     if (sinceFail < CONSOLIDATE_EVERY) { log.info('consolidate', `跳过：上次失败后只有 ${sinceFail} 条新回复，攒够 ${CONSOLIDATE_EVERY} 条再试`, { conversationId }); return false; }
   }
 
-  const t0 = Date.now();
   log.info('consolidate', `开始：${character.name}，${msgs.length} 条消息（${replies} 条回复），触发：${opts.reason ?? (opts.force ? '手动' : '未知')}`, { conversationId, since });
   try {
-    const lore = await db().lore.filter((e) => e.enabled && e.kind !== 'style' && loreApplies(e, campaign.worldId, [character.id])).toArray();
-    const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
-    // 已有词表给模型复用，词表才会收敛到这一局自己的说法
-    const vocab = rebuildIndex(existing, (m) => (m.bag ? { id: m.id, bag: m.bag } : null)).vocabulary().slice(0, 60).map((v) => v.term);
-    const prompt0 = buildPrompt(campaign, character, lore, msgs, existing, { stateLines: await stateLines(campaign.id), vocab });
-    const userName = await repo.userNameOf(campaign);
-    const names = { user: userName, char: character.name };
-    const prompt = { system: expandMacros(prompt0.system, names), user: expandMacros(prompt0.user, names) };
-    const r = await llm.chat({
-      maxTokens: 4000, purpose: 'consolidate', conversationId,
-      system: [{ type: 'text', text: prompt.system }], messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
-      jsonSchema: SCHEMA,
-    });
-    let out: ConsolidateOutput;
-    try { out = JSON.parse(r.text) as ConsolidateOutput; }
-    catch {
-      await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs });
-      log.error('consolidate', '模型没有返回合法 JSON，这批消息不再自动重试', { conversationId, stopReason: r.stopReason, head: r.text.slice(0, 120) });
-      return false;
-    }
-    const last = msgs[msgs.length - 1]!;
-    // 每一天最后一条消息的剧情时刻：模型给的 day 落到这里
-    const start = storyStartOf(campaign), days = new Map<number, number>();
-    for (const m of msgs) { const ts = m.storyTs ?? m.ts; days.set(dayOf(ts, start, character.timeZone), ts); }
-    const { mems, state, overlays, patches } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id), last.storyTs ?? clock.now(campaign.clock), userName, days);
-    await db().campaigns.update(campaign.id, { state, consolidatedUpTo: lastTs, consolidateFailedAt: undefined });
-    log.info('consolidate', `完成：${mems.length} 条记忆，${patches.length} 条状态，${overlays.length} 条变化，${Date.now() - t0} ms`, { conversationId });
-    bus.emit('memory.consolidated', { campaignId: campaign.id, memories: mems.length, overlays: overlays.length });
-    if (overlays.length) bus.emit('notify', { title: `${character.name} 的世界有 ${overlays.length} 处变化待确认`, body: overlays[0]!.title, pluginId: 'lore', screen: 'overlays' });
+    const done = await extract(campaign, character, conversationId, msgs, false);
+    if (!done) { await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs }); return false; }
+    const cp = (await db().campaigns.get(campaign.id))!;
+    await db().campaigns.update(campaign.id, { state: done.state, consolidatedUpTo: lastTs, consolidateFailedAt: undefined, batches: withBatch(cp, { id: msgs[msgs.length - 1]!.id, conversationId, from: since, to: lastTs }) });
     return true;
   } catch (e) {
     await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs });
     log.error('consolidate', `失败：${e instanceof Error ? e.message : String(e)}，这批消息不再自动重试`, { conversationId });
     throw e;
   }
+}
+
+/** 调整理档模型整理一批消息并落库。模型没给合法 JSON 返回 null */
+async function extract(campaign: Campaign, character: Character, conversationId: string, msgs: Message[], redo: boolean) {
+  const t0 = Date.now();
+  const lore = await db().lore.filter((e) => e.enabled && e.kind !== 'style' && loreApplies(e, campaign.worldId, [character.id])).toArray();
+  const existing = await db().memories.where('campaignId').equals(campaign.id).sortBy('createdAt');
+  // 已有词表给模型复用，词表才会收敛到这一局自己的说法
+  const vocab = rebuildIndex(existing, (m) => (m.bag ? { id: m.id, bag: m.bag } : null)).vocabulary().slice(0, 60).map((v) => v.term);
+  const prompt0 = buildPrompt(campaign, character, lore, msgs, existing, { stateLines: await stateLines(campaign.id), vocab });
+  const userName = await repo.userNameOf(campaign);
+  const names = { user: userName, char: character.name };
+  const prompt = { system: expandMacros(prompt0.system, names), user: expandMacros(prompt0.user, names) };
+  const r = await llm.chat({
+    maxTokens: 4000, purpose: 'consolidate', conversationId,
+    system: [{ type: 'text', text: prompt.system }], messages: [{ role: 'user', content: [{ type: 'text', text: prompt.user }] }],
+    jsonSchema: SCHEMA,
+  });
+  let out: ConsolidateOutput;
+  try { out = JSON.parse(r.text) as ConsolidateOutput; }
+  catch {
+    log.error('consolidate', '模型没有返回合法 JSON，这批消息不再自动重试', { conversationId, stopReason: r.stopReason, head: r.text.slice(0, 120) });
+    return null;
+  }
+  const last = msgs[msgs.length - 1]!;
+  // 每一天最后一条消息的剧情时刻：模型给的 day 落到这里
+  const start = storyStartOf(campaign), days = new Map<number, number>();
+  for (const m of msgs) { const ts = m.storyTs ?? m.ts; days.set(dayOf(ts, start, character.timeZone), ts); }
+  // 重整的记忆按那批最后一条消息的时间排，不当成最新的
+  const res = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id), last.storyTs ?? clock.now(campaign.clock), userName, days, redo ? { redo: true, createdAt: last.ts } : {});
+  log.info('consolidate', `${redo ? '重整' : '完成'}：${res.mems.length} 条记忆，${res.patches.length} 条状态，${res.overlays.length} 条变化，${Date.now() - t0} ms`, { conversationId });
+  bus.emit('memory.consolidated', { campaignId: campaign.id, memories: res.mems.length, overlays: res.overlays.length });
+  if (res.overlays.length) bus.emit('notify', { title: `${character.name} 的世界有 ${res.overlays.length} 处变化待确认`, body: res.overlays[0]!.title, pluginId: 'lore', screen: 'overlays' });
+  return res;
 }

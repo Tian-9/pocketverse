@@ -8,6 +8,7 @@
   import { llm } from '$kernel/llm/gateway.svelte';
   import { nav } from '$kernel/nav/nav.svelte';
   import { tick } from 'svelte';
+  import { ulid } from 'ulid';
   import { toolLabel } from '$kernel/context/tools';
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
@@ -55,18 +56,22 @@
   type Action = ComposerAction & { pluginId: string };
   const actions = $derived<Action[]>(registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.composerActions ?? []).map((a) => ({ ...a, pluginId: p.id }))));
   let active = $state<Action | null>(null);
+  // 这条要发出去的消息预先分好 id：面板扣钱、建红包时带上它，删这条消息就能撤回（ARCHITECTURE 5.12）
+  let sourceId = $state('');
+  function openAction(a: Action) { sourceId = ulid(); active = a; }
   async function sendOutgoing(a: Action, msg: OutgoingMessage) {
     active = null; panel = false;
     if (!llm.configured) { nav.push('settings', 'api'); return; }
     // 事件（撤回、拍一拍）：一行小灰字，text 只给模型看
-    if (msg.narration) { await chat.send(id, msg.narration, { meta: { narration: true, modelText: msg.text } }); return; }
+    const msgId = sourceId;
+    if (msg.narration) { await chat.send(id, msg.narration, { id: msgId, meta: { narration: true, modelText: msg.text } }); return; }
     const meta: Record<string, unknown> = {};
     if (msg.cards?.length) meta.cards = msg.cards.map((c): MessageCard => ({ pluginId: a.pluginId, tag: c.tag, body: c.body, attrs: c.attrs ?? {}, ...(c.alt ? { alt: c.alt } : {}) }));
     if (msg.cardOnly) meta.cardOnly = true;
     // 随卡片说的一句：单独存着给界面当气泡，模型看到的 text 后面接一行
     const note = msg.note?.trim();
     if (note) meta.note = note;
-    await chat.send(id, withNote(msg.text, note), Object.keys(meta).length ? { meta } : {});
+    await chat.send(id, withNote(msg.text, note), { id: msgId, ...(Object.keys(meta).length ? { meta } : {}) });
   }
   const wechat = $derived(theme.chatStyle === 'wechat');
   // 推进时间：快捷项按这局的钟算，也能自己选一个时刻
@@ -150,7 +155,8 @@
   /** 点头像进他的主页（角色插件的 profile 页） */
   function openProfile() { if (character.value) nav.push('characters', 'profile', { id: character.value.id }); }
   async function clearAll() {
-    for (const m of messages.value) await chat.deleteMessage(m.id);
+    if (!confirm('删掉这个对话的所有消息？它们带来的记忆、事实、钱和东西会一起撤回；你手动加的不动。')) return;
+    await chat.deleteMessages(messages.value.map((m) => m.id));
     const ch = character.value;
     if (ch?.useFirstMessage && ch.firstMessage) await repo.addMessage(id, 'assistant', ch.firstMessage);
     menu = false;
@@ -251,7 +257,7 @@
   {#if panel && actions.length}
     <div class="panel">
       {#each actions as a (a.pluginId + '/' + a.id)}
-        <button class="act" onclick={() => { active = a; }}>
+        <button class="act" onclick={() => openAction(a)}>
           <Icon spec={a.icon} size={54} radius="14px" shadow={false} />
           <span>{a.label}</span>
         </button>
@@ -264,7 +270,7 @@
   {#if active && conv.value && character.value}
     {@const Comp = active.component}
     {@const a = active}
-    <Comp conversationId={id} campaignId={conv.value.campaignId} characterId={character.value.id} onsend={(m: OutgoingMessage) => sendOutgoing(a, m)} onclose={() => (active = null)} />
+    <Comp conversationId={id} {sourceId} campaignId={conv.value.campaignId} characterId={character.value.id} onsend={(m: OutgoingMessage) => sendOutgoing(a, m)} onclose={() => (active = null)} />
   {/if}
 </Sheet>
 

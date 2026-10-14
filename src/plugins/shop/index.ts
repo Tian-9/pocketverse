@@ -44,6 +44,8 @@ export interface Order {
   storyTs?: number;
   /** 留给以后的物流，先不用 */
   deliveredAt?: number;
+  /** 聊天里他买的：那一轮的 turnId。那一轮被删或重新生成，订单删掉，钱由钱包按同一个来源退回 */
+  sourceId?: string;
 }
 
 /** 订单的剧情时刻：「刚买过」和显示都按它 */
@@ -52,7 +54,7 @@ export const orderAt = (o: Order) => o.storyTs ?? o.createdAt;
 /** 钱包插件提供的服务，形状见 plugins/redpacket/index.ts 的 WalletService；这里只声明用到的 */
 export interface ShopWallet {
   balance(campaignId: string, ownerId: string): Promise<number>;
-  charge(campaignId: string, ownerId: string, amount: number, reason: string): Promise<boolean>;
+  charge(campaignId: string, ownerId: string, amount: number, reason: string, sourceId?: string): Promise<boolean>;
 }
 
 let ctx: PluginContext;
@@ -158,15 +160,15 @@ export const shopApi = {
    * 买：从 buyer 这局的钱包扣钱，记一条订单。钱包没开抛错；钱不够返回 null，一分不动。
    * buyer 是谁出钱，to 是东西归谁；characterId 是这局的他（买家或收礼的人）。
    */
-  async buy(product: Product, o: { buyer: Order['buyer']; to: Order['to']; characterId: string; note?: string; conversationId?: string; source: Order['source'] }): Promise<Order | null> {
+  async buy(product: Product, o: { buyer: Order['buyer']; to: Order['to']; characterId: string; note?: string; conversationId?: string; source: Order['source']; sourceId?: string }): Promise<Order | null> {
     const wallet = this.wallet();
     if (!wallet) throw new Error('钱包插件没开，买不了');
     const owner = o.buyer === 'user' ? 'user' : o.characterId;
-    if (!(await wallet.charge(product.campaignId, owner, product.price, `买 ${product.name}`))) return null;
+    if (!(await wallet.charge(product.campaignId, owner, product.price, `买 ${product.name}`, o.sourceId))) return null;
     const order: Order = {
       id: ulid(), campaignId: product.campaignId, productId: product.id, name: product.name, price: product.price,
       buyer: o.buyer, to: o.to, characterId: o.characterId, source: o.source, createdAt: Date.now(), storyTs: (await ctx.data.campaign(product.campaignId))?.now ?? Date.now(),
-      ...(o.note ? { note: o.note } : {}), ...(o.conversationId ? { conversationId: o.conversationId } : {}),
+      ...(o.note ? { note: o.note } : {}), ...(o.conversationId ? { conversationId: o.conversationId } : {}), ...(o.sourceId ? { sourceId: o.sourceId } : {}),
     };
     await this.orders().add(order);
     await this.products().update(product.id, { keep: true } as Partial<Product>);
@@ -196,6 +198,12 @@ export default definePlugin({
   app: { screen: Shop, icon: { paths: icons.shop, background: gradients.orange } },
   screens: { product: ProductScreen, orders: OrdersScreen },
   storage: { tables: { products: 'id, campaignId, category, createdAt', orders: 'id, campaignId, createdAt' } },
+  // 聊天里他买的那一轮被删或重新生成：订单删掉（钱由钱包按同一个来源退回）
+  async retract(r) {
+    const S = new Set(r.sources);
+    const gone = await shopApi.orders().where('campaignId').equals(r.campaignId).filter((o) => !!o.sourceId && S.has(o.sourceId)).primaryKeys();
+    if (gone.length) await shopApi.orders().bulkDelete(gone);
+  },
   profileSections: [{ id: 'things', label: '他的东西', component: ShopSection }],
   shares: [productResolver],
   composerActions: [{ id: 'product', label: '商品', icon: { paths: icons.shop, background: gradients.orange }, component: ProductPicker }],

@@ -132,3 +132,20 @@ describe('character shops', () => {
     expect(buildCard(p).subtype).toBeUndefined();
   });
 });
+
+describe('retract', () => {
+  it('an order bought in a turn goes away with that turn, and the charge carries the turn as its source', async () => {
+    const seen: (string | undefined)[] = [];
+    const prev = wallet.charge;
+    wallet.charge = async (cp, owner, amount, reason, sourceId) => { seen.push(sourceId); return prev(cp, owner, amount, reason); };
+    await tool('shop_browse').handler({ query: '面包' }, pc());
+    const r = await tool('shop_buy').handler({ n: 1, buy_for_them: true }, { ...pc(), sourceId: 'turn-x' });
+    wallet.charge = prev;
+    expect(r).toContain('已买下');
+    expect(seen).toEqual(['turn-x']);
+    const mine = () => shopApi.orders().where('campaignId').equals('cp1').filter((o) => o.sourceId === 'turn-x').count();
+    expect(await mine()).toBe(1);
+    await plugin.retract!({ campaignId: 'cp1', conversationId: 'cv1', sources: ['turn-x'], cards: [] });
+    expect(await mine()).toBe(0);
+  });
+});

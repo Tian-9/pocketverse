@@ -23,6 +23,8 @@ export interface CalendarEvent {
   source: 'plan' | 'chat' | 'manual';
   /** 过了时间之后由补发标记：做了 / 没做 */
   status?: 'planned' | 'done' | 'skipped';
+  /** 聊天里约的：那一轮的 turnId。那一轮被删或重新生成就删掉 */
+  sourceId?: string;
 }
 
 const H = 3600_000, D = 24 * H;
@@ -69,7 +71,7 @@ export const calendarApi = {
     return row;
   },
   /** 聊天里约的事：和对方一起时你的日历也一条 */
-  async addTogether(campaignId: string, characterId: string, e: Pick<CalendarEvent, 'start' | 'end' | 'title' | 'place' | 'note' | 'source'>, together: boolean): Promise<CalendarEvent> {
+  async addTogether(campaignId: string, characterId: string, e: Pick<CalendarEvent, 'start' | 'end' | 'title' | 'place' | 'note' | 'source' | 'sourceId'>, together: boolean): Promise<CalendarEvent> {
     const mine = await this.add({ campaignId, owner: characterId, ...e, status: 'planned', ...(together ? { together: true } : {}) });
     if (together) await this.add({ campaignId, owner: 'user', ...e, together: true });
     return mine;
@@ -219,6 +221,11 @@ export default definePlugin({
   description: '他的日程：按周自动排，聊天里约的事记进来，你也能手填。时间按这局的钟走，推进时间时他把过去的安排过完。',
   app: { screen: Calendar, icon: { paths: icons.calendar, background: gradients.red } },
   storage: { tables: { events: 'id, campaignId, owner, start' } },
+  async retract(r) {
+    const S = new Set(r.sources);
+    const gone = await calendarApi.events().where('campaignId').equals(r.campaignId).filter((e) => !!e.sourceId && S.has(e.sourceId)).primaryKeys();
+    if (gone.length) await calendarApi.events().bulkDelete(gone);
+  },
   profileSections: [{ id: 'today', label: '他今天', component: CalendarSection }],
   services: { calendar: {
     today: (campaignId: string, now: number) => calendarApi.today(campaignId, now),
@@ -248,7 +255,7 @@ export default definePlugin({
         const title = str(o?.title, 40), start = parseWhen(o?.start, tz), end = parseWhen(o?.end, tz), place = str(o?.place, 40);
         if (!title) return 'title 不能为空。';
         if (start === null) return 'start 格式不对，写「YYYY-MM-DD HH:MM」。';
-        const e = await calendarApi.addTogether(p.campaignId, p.characterIds[0]!, { start, ...(end !== null && end > start ? { end } : {}), title, ...(place ? { place } : {}), source: 'chat' }, o?.together === true);
+        const e = await calendarApi.addTogether(p.campaignId, p.characterIds[0]!, { start, ...(end !== null && end > start ? { end } : {}), title, ...(place ? { place } : {}), source: 'chat', ...(p.sourceId ? { sourceId: p.sourceId } : {}) }, o?.together === true);
         return `记下了：${clock.format(e.start, tz)} ${e.title}${e.together ? '（对方的日历里也有了）' : ''}。`;
       },
     },

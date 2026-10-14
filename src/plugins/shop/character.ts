@@ -75,7 +75,7 @@ export const tools: ToolDef[] = [
       const msg = String(note ?? '').trim().slice(0, 60);
       let order: Order | null;
       try {
-        order = await shopApi.buy(it, { buyer: 'char', to: gift ? 'user' : 'char', characterId: me, conversationId: p.conversationId, source: 'chat', ...(msg ? { note: msg } : {}) });
+        order = await shopApi.buy(it, { buyer: 'char', to: gift ? 'user' : 'char', characterId: me, conversationId: p.conversationId, source: 'chat', ...(p.sourceId ? { sourceId: p.sourceId } : {}), ...(msg ? { note: msg } : {}) });
       } catch (e) { return e instanceof Error ? e.message : String(e); }
       const wallet = shopApi.wallet();
       const balance = wallet ? await wallet.balance(p.campaignId, me) : 0;

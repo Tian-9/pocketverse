@@ -14,6 +14,8 @@ export interface Post {
   source: 'chat' | 'catchup' | 'manual';
   /** 用户评论了、角色还没看到；补发时一起处理，处理过（回了或决定不回）就清掉 */
   pendingReply?: boolean;
+  /** 聊天里发的：那一轮的 turnId。那一轮被删或重新生成就删掉 */
+  sourceId?: string;
 }
 
 /** 日历插件的服务（形状见 plugins/calendar/index.ts），这里只声明用到的；没开日历就没有 */
@@ -123,6 +125,12 @@ export default definePlugin({
   description: '角色会发动态；离开一段时间回来会补发、回评论；你的点赞评论他聊天时也知道。',
   app: { screen: Moments, icon: { paths: icons.clock, background: gradients.yellow } },
   storage: { tables: { posts: 'id, campaignId, characterId, createdAt' } },
+  async retract(r) {
+    const S = new Set(r.sources);
+    const posts = ctx.table<Post>('posts');
+    const gone = await posts.where('campaignId').equals(r.campaignId).filter((x) => !!x.sourceId && S.has(x.sourceId)).primaryKeys();
+    if (gone.length) await posts.bulkDelete(gone);
+  },
   profileSections: [{ id: 'latest', component: MomentsSection }],
   promptContributors: [{
     id: 'recent-moments',
@@ -144,7 +152,7 @@ export default definePlugin({
       const text = String((input as { text?: unknown })?.text ?? '').trim().slice(0, 500);
       if (!text) return '正文不能为空';
       const characterId = p.characterIds[0]!;
-      await momentsApi.add({ campaignId: p.campaignId, characterId, text, createdAt: Date.now(), storyTs: p.now, source: 'chat' });
+      await momentsApi.add({ campaignId: p.campaignId, characterId, text, createdAt: Date.now(), storyTs: p.now, source: 'chat', ...(p.sourceId ? { sourceId: p.sourceId } : {}) });
       return '已发布到朋友圈。';
     },
   }],
@@ -153,7 +161,7 @@ export default definePlugin({
     component: MomentCard,
     async onParsed(body, _attrs, p) {
       if (!body.trim()) return;
-      await momentsApi.add({ campaignId: p.campaignId, characterId: p.characterIds[0]!, text: body.trim().slice(0, 500), createdAt: Date.now(), storyTs: p.now, source: 'chat' });
+      await momentsApi.add({ campaignId: p.campaignId, characterId: p.characterIds[0]!, text: body.trim().slice(0, 500), createdAt: Date.now(), storyTs: p.now, source: 'chat', ...(p.sourceId ? { sourceId: p.sourceId } : {}) });
     },
   }],
   catchup: [

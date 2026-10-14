@@ -21,6 +21,8 @@ export interface Wake {
   createdAt: number;
   /** 记下时的剧情时刻，没有就当和 createdAt 一样（旧数据） */
   createdStoryTs?: number;
+  /** 哪一轮定的（turnId）：那一轮被删或重新生成就作废 */
+  sourceId?: string;
   /** 只在对方到时候还没回消息时才联系（追一句）；对方回了就作废 */
   onlyIfSilent?: boolean;
 }

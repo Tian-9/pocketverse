@@ -1,7 +1,8 @@
 import { ulid } from 'ulid';
 import { db } from '../storage/db';
 import type { Message } from '../storage/db';
-import { loadState, retractSource, stateLines } from '../memory/state';
+import { loadState, stateLines } from '../memory/state';
+import { lastReply, rememberTurn, removeMessages, retract } from './retract';
 import { recallMemories, recallQuery } from '../memory/recall';
 import { appendTs, contextMessage, pendingAppends, visibleHistory, type AppendItem } from '../context/append';
 import { render } from '../llm/gate.svelte';
@@ -57,26 +58,17 @@ class ChatEngine {
     await this.runTurn(conversationId);
   }
 
+  /** 重新生成：最后一条你说的话之后的整次回复一起删，撤回它带来的一切（ARCHITECTURE 5.12），再跑一轮 */
   async regenerate(conversationId: string) {
     if (this.live[conversationId]) return;
-    const msgs = await repo.messagesOf(conversationId);
-    const last = msgs[msgs.length - 1];
-    if (last?.role === 'assistant') await this.forget(last);
+    await removeMessages(lastReply(await repo.messagesOf(conversationId)));
     await this.runTurn(conversationId);
   }
 
   stop(conversationId: string) { this.live[conversationId]?.abort.abort(); }
-  async deleteMessage(id: string) { const m = await db().messages.get(id); if (m) await this.forget(m); }
-
-  /** 删一条消息，连它带来的状态一起撤回：整理挂在消息 id 上，聊天里 state_update 挂在这一轮的 meta.turn 上 */
-  private async forget(m: Message) {
-    await db().messages.delete(m.id);
-    const conv = await db().conversations.get(m.conversationId);
-    if (!conv) return;
-    await retractSource(conv.campaignId, m.id);
-    const turn = m.meta?.turn;
-    if (typeof turn === 'string') await retractSource(conv.campaignId, turn);
-  }
+  /** 删消息：撤回它自己带的（你发的东西、上面的卡片）；一轮回复的效果等这一轮的气泡删光了才撤 */
+  async deleteMessage(id: string) { const m = await db().messages.get(id); if (m) await removeMessages([m]); }
+  async deleteMessages(ids: string[]) { await removeMessages((await db().messages.bulkGet(ids)).filter((m): m is Message => !!m)); }
   async editMessage(id: string, text: string) { await db().messages.update(id, { content: [{ type: 'text', text }] }); }
 
   /**
@@ -139,7 +131,7 @@ class ChatEngine {
     const recalled = recallMemories(allMemories, recallQuery(history), new Set(highlights.map((m) => m.id)));
 
     const storyNow = clock.now(campaign.clock);
-    const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow };
+    const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow, sourceId: turnId };
     const plugins = registry.plugins.filter((p) => registry.isEnabled(p.id));
     // 内核之外的段：插件的提示词片段、稍后联系、顺手处理的事。位置和先后见 context/assemble.ts 的 PromptSection
     const sections: PromptSection[] = [];
@@ -230,6 +222,8 @@ class ChatEngine {
     const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, userName, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
 
     const abort = new AbortController();
+    // 地点、情绪、时钟是覆盖写：记下这一轮开始时的样子，撤回这一轮时退回去
+    const before = { state: campaign.state, clock: campaign.clock };
     this.live[conversationId] = { conversationId, status: 'thinking', statusText: '正在思考…', text: '', abort };
     bus.emit('llm.turn.start', { conversationId });
     const setStatus = (s: string) => {
@@ -267,7 +261,7 @@ class ChatEngine {
       if (thinking) meta.thinking = thinking;
       // 一次写进库：工具旁白（他拍了拍你，发生在回复之前）在前，回复按行拆成的几条在后。
       // 流式时聊天页已经按同一个 splitReply 一条条显示过了，这里不再故意隔开冒出来
-      const batch: { role: Message['role']; text: string; extra?: Partial<Message> }[] = tctx.events.map((ev) => ({ role: 'assistant' as const, text: ev.text, extra: { meta: { narration: true, modelText: ev.modelText } } }));
+      const batch: { role: Message['role']; text: string; extra?: Partial<Message> }[] = tctx.events.map((ev) => ({ role: 'assistant' as const, text: ev.text, extra: { meta: { narration: true, modelText: ev.modelText, turn: turnId } } }));
       if (r.refusal) {
         batch.push({ role: 'system', text: `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）` });
       } else if (text || cards.length) {
@@ -281,15 +275,23 @@ class ChatEngine {
         if (!parts.length && cards.length) batch.push({ role: 'assistant', text: '', extra: { meta } });
       }
       await repo.addMessages(conversationId, batch);
-      bus.emit('llm.turn.end', { conversationId, usage: r.usage, model: r.model });
+      await rememberTurn(campaign.id, turnId, before);
+      bus.emit('llm.turn.end', { conversationId, turn: turnId, usage: r.usage, model: r.model });
       if (tctx.attached.length) log.warn('chat', `模型没处理顺手的事：${tctx.attached.map((t) => t.item.label).join('、')}，下一轮再给他`, { conversationId });
       log.info('chat', `回复完成：${toolsUsed.length} 次工具，${cards.length} 张卡片`, { conversationId, model: r.model, stopReason: r.stopReason });
       consolidate(conversationId, { reason: '回复后检查' }).catch(() => { /* 已记日志 */ });
     } catch (e) {
       const partial = this.live[conversationId]?.text.trim();
+      // 中断有半截文字：存下来，挂上这一轮和已经产生的卡片（删它时一起撤回）。什么都没出来、或者出错了：这一轮的效果当场撤回
+      const cards: MessageCard[] = [...tctx.cards.map((c) => ({ pluginId: 'kernel', tag: 'share', body: JSON.stringify(c), attrs: {}, alt: shareAlt(c, plugins) })), ...pluginCards];
+      if (e instanceof LlmError && e.kind === 'aborted' && partial) {
+        await repo.addMessage(conversationId, 'assistant', partial, { meta: { turn: turnId, ...(cards.length ? { cards } : {}) } });
+        await rememberTurn(campaign.id, turnId, before);
+      } else {
+        await retract(campaign.id, conversationId, [turnId], cards).catch(() => { /* 已记日志 */ });
+      }
       if (e instanceof LlmError && e.kind === 'aborted') {
-        if (partial) await repo.addMessage(conversationId, 'assistant', partial);
-        else if (e.message.includes('取消')) await repo.addMessage(conversationId, 'system', '（你在预览里取消了发送，这条没有发出去）');
+        if (!partial && e.message.includes('取消')) await repo.addMessage(conversationId, 'system', '（你在预览里取消了发送，这条没有发出去）');
       } else {
         const msg = e instanceof Error ? e.message : String(e);
         await repo.addMessage(conversationId, 'system', `（出错了：${msg}）`);

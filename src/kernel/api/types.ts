@@ -39,6 +39,11 @@ export interface PluginManifest {
   services?: Record<string, unknown>;
   /** 自有数据表：表名 -> Dexie schema 字符串，内核会加 p_<id>_ 前缀 */
   storage?: { tables: Record<string, string> };
+  /**
+   * 删消息、重新生成时撤回：删掉或退回这些来源（sourceId）写的记录。内核会等它做完再往下走（重新生成要等钱退回来）。
+   * 没登记来源的老记录可以靠 cards（被删消息上属于本插件的卡片）认出来。见 ARCHITECTURE 5.12
+   */
+  retract?(r: Retraction): Promise<void>;
   /** 事件订阅 */
   onEvent?: Partial<EventHandlers>;
   /** 启用时调用 */
@@ -99,6 +104,21 @@ export interface PromptContext {
    * alt 是这张卡的一句话文字版（如「[发了一个红包：¥8.88「生日快乐」]」），进后续轮次的历史和聊天列表预览；不给的话模型下一轮就不记得发过。
    */
   addCard?(tag: string, body: string, attrs?: Record<string, string>, alt?: string): void;
+  /**
+   * 这次写入是谁带来的：聊天里工具和输出标签处理时是这一轮的 turnId。落库的东西（订单、日程、动态、钱包流水）带上它，
+   * 这一轮被删或重新生成时内核按它叫插件的 retract。补发、界面上手点的没有
+   */
+  sourceId?: string;
+}
+
+/** 撤回请求：这些来源写的东西都不算数了 */
+export interface Retraction {
+  campaignId: string;
+  conversationId: string;
+  /** 被撤回的来源：你发的消息 id、他整轮被删掉的 turnId */
+  sources: string[];
+  /** 被删消息上属于本插件的卡片（只删了带卡的那个气泡时靠它） */
+  cards: MessageCard[];
 }
 
 /** 消息里的一张卡片：pluginId + tag 决定用哪个组件渲染，alt 是给模型和列表预览看的一句话 */
@@ -125,6 +145,8 @@ export interface OutgoingMessage {
 
 export interface ComposerActionProps {
   conversationId: string;
+  /** 这条要发出去的消息预先分好的 id：落库（扣钱、建红包）时作为 sourceId 带上，这条消息被删时就能撤回 */
+  sourceId: string;
   campaignId: string;
   characterId: string;
   onsend(msg: OutgoingMessage): void;
@@ -220,7 +242,7 @@ export interface KernelEvents {
   'theme.changed': { themeId: string };
   'notify': { title: string; body?: string; pluginId?: string; screen?: string; action?: () => void };
   'llm.turn.start': { conversationId: string };
-  'llm.turn.end': { conversationId: string; usage: { input: number; output: number; cacheRead: number; cacheWrite: number }; model: string };
+  'llm.turn.end': { conversationId: string; /** 这一轮的 turnId，这时写的东西带上它作 sourceId */ turn: string; usage: { input: number; output: number; cacheRead: number; cacheWrite: number }; model: string };
   'llm.turn.error': { conversationId: string; message: string };
   'memory.written': { kind: 'state' | 'overlay' | 'episodic' | 'memfs'; id: string };
   'memory.consolidated': { campaignId: string; memories: number; overlays: number };

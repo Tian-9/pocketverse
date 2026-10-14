@@ -84,3 +84,14 @@ describe('wallet service for other plugins', () => {
     expect(plugin.services?.wallet).toBe(walletService);
   });
 });
+
+describe('ledger', () => {
+  it('folds an old wallet row into an opening entry the first time it is used', async () => {
+    await redpacketApi.wallets().put({ id: 'cp-old:user', campaignId: 'cp-old', ownerId: 'user', balance: 123.45 });
+    expect(await redpacketApi.balances('cp-old')).toEqual({ user: 123.45 });
+    expect(await redpacketApi.wallet('cp-old', 'user')).toBe(123.45);
+    await redpacketApi.adjust('cp-old', 'user', -200);
+    expect(await redpacketApi.wallet('cp-old', 'user')).toBe(0);
+    expect(await redpacketApi.balances('cp-old')).toEqual({ user: 0 });
+  });
+});
