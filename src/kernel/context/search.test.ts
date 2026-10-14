@@ -8,13 +8,15 @@ describe('search', () => {
     expect(t).not.toContain('的');
     expect(tokenize('书')).toEqual(['书']);
   });
-  it('uses the model bag when a memory has one, with the text as weak hints', () => {
+  it('uses the model bag when a memory has one, and nothing from its text', () => {
     const docs = [
       { id: 'fish', kind: 'mem', title: '昨晚', text: '猫偷吃了案板上的小鱼干', bag: { core: ['猫', '黑炭', '小鱼干'], related: ['偷吃'] } },
       { id: 'cat2', kind: 'mem', title: '上周', text: '猫在客栈门口晒太阳' },
     ];
     expect(docBag(docs[1]!).core).toEqual(['上周']);
-    expect(docBag(docs[0]!).hint).toContain('案板');
+    expect(docBag(docs[1]!).related?.every((t) => [...t].length >= 2)).toBe(true);
+    expect(docBag(docs[0]!)).toEqual(docs[0]!.bag);
+    expect(search(docs, '案板')).toEqual([]);
     expect(search(docs, '黑炭昨天晚上吃了什么')[0]?.id).toBe('fish');
   });
   it('finds the relevant lore entry for a Chinese query', () => {

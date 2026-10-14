@@ -18,6 +18,7 @@
   import { liveEntries, stateView, type StateSetEvent } from 'annals/airp';
   import { parseBag, type Bag } from 'annals';
   import { fromUserMacro, toUserMacro } from '$kernel/context/userref';
+  import { dayOf, memoryWhen, storyStartOf } from '$kernel/context/days';
   import { explainRecall, RECALL_K, RECALL_MIN_SCORE, type RecallExplain } from '$kernel/memory/recall';
   import { ulid } from 'ulid';
 
@@ -61,7 +62,9 @@
     await repo.setClock(cp.id, clock.setRunning(clock.skipTo(cp.clock, ts), !clockPaused));
     editingClock = false;
   }
-  const clockText = (cp: Campaign) => `${clock.format(clock.now(cp.clock), character.value?.timeZone)}${cp.clock?.running === false ? ' · 停表' : ''}`;
+  const clockText = (cp: Campaign) => `Day ${dayOf(clock.now(cp.clock), storyStartOf(cp), character.value?.timeZone)} · ${clock.format(clock.now(cp.clock), character.value?.timeZone)}${cp.clock?.running === false ? ' · 停表' : ''}`;
+  // 记忆的时间：「Day 36（11/14 周五 晚上，4 天前）」，和给模型看的同一个格式
+  const memWhen = (m: EpisodicMemory) => (campaign.value ? memoryWhen(m, storyStartOf(campaign.value), clock.now(campaign.value.clock), character.value?.timeZone) : m.when);
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
   type Section = ProfileSection & { pluginId: string };
   const sections = $derived<Section[]>(registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.profileSections ?? []).map((s) => ({ ...s, pluginId: p.id }))));
@@ -87,21 +90,22 @@
 
   // ---- 编辑：记忆 ----
   let mem = $state<EpisodicMemory | null>(null);
-  let memText = $state(''), memWhen = $state(''), memImp = $state<1 | 2 | 3>(2);
+  let memText = $state(''), memWhenText = $state(''), memImp = $state<1 | 2 | 3>(2);
   // 检索词袋（annals 三档）：整理时模型写的，回忆和自动召回靠它；这里能看能改，用顿号或空格隔开
   let bagCore = $state(''), bagRelated = $state(''), bagHint = $state('');
   const joinTerms = (l?: readonly string[]) => (l ?? []).map(show).join('、');
   const splitTerms = (t: string) => t.split(/[、，,\s]+/).map((x) => keep(x.trim())).filter(Boolean);
   function openMem(m: EpisodicMemory | null) {
-    mem = m ?? { id: '', campaignId: campaignId!, characterId: id, when: '', text: '', importance: 2, sourceMessageIds: [], createdAt: Date.now() };
-    memText = show(mem.text); memWhen = show(mem.when); memImp = mem.importance;
+    // 手写的记忆记成现在的剧情时刻
+    mem = m ?? { id: '', campaignId: campaignId!, characterId: id, when: '', text: '', importance: 2, sourceMessageIds: [], createdAt: Date.now(), storyTs: clock.now(campaign.value?.clock) };
+    memText = show(mem.text); memWhenText = show(mem.when); memImp = mem.importance;
     bagCore = joinTerms(mem.bag?.core); bagRelated = joinTerms(mem.bag?.related); bagHint = joinTerms(mem.bag?.hint);
   }
   async function saveMem() {
     if (!mem || !memText.trim()) { mem = null; return; }
     const bag: Bag = parseBag({ core: splitTerms(bagCore), related: splitTerms(bagRelated), hint: splitTerms(bagHint) }, { core: 3, total: 30 });
     const { bag: _old, ...base } = $state.snapshot(mem);
-    const row: EpisodicMemory = { ...base, id: mem.id || ulid(), text: keep(memText.trim()), when: keep(memWhen.trim()), importance: memImp, ...(Object.keys(bag).length ? { bag } : {}) };
+    const row: EpisodicMemory = { ...base, id: mem.id || ulid(), text: keep(memText.trim()), when: keep(memWhenText.trim()), importance: memImp, ...(Object.keys(bag).length ? { bag } : {}) };
     await db().memories.put(row); mem = null;
   }
   async function deleteMem() { if (mem?.id) await db().memories.delete(mem.id); mem = null; }
@@ -215,7 +219,7 @@
   {:else}
     <List footer="三星的会作为近期要事常驻上下文；其余每轮按你说的话自动翻出相关的几条，模型也能自己搜。点一条可以改词袋、改内容或删除。">
       {#each memories.value as m (m.id)}
-        <Cell title={show(m.text)} subtitle={`${stars(m.importance)}${m.when ? ' · ' + show(m.when) : ''}`} chevron onclick={() => openMem(m)} />
+        <Cell title={show(m.text)} subtitle={`${stars(m.importance)}${memWhen(m) ? ' · ' + show(memWhen(m)) : ''}`} chevron onclick={() => openMem(m)} />
       {/each}
     </List>
   {/if}
@@ -249,7 +253,7 @@
   {#if mem}
     <List>
       <Field multiline rows={3} bind:value={memText} placeholder="发生了什么，一两句话" />
-      <Field label="时间" bind:value={memWhen} placeholder="剧情时间，可空" />
+      <Field label="时段" bind:value={memWhenText} placeholder="早上、放学后、半夜，可空（哪天由 Day 记）" />
     </List>
     <List footer="检索词：你聊到这些词时，这条会被自动翻出来。核心词最多 3 个，放主体和外号；相关词放动作、地点、时间；联想词放别人可能用来问起这件事的说法。用顿号或空格隔开。">
       <Field label="核心词" bind:value={bagCore} placeholder="小姨子、小猫" />

@@ -5,6 +5,7 @@ import { triggerL1 } from './l1';
 import { expandMacros } from './macros';
 import { timeLine } from './time';
 import { visibleHistory, isContext } from './append';
+import { dayOf, memoryWhen, storyStartOf } from './days';
 
 export interface AssembleInput {
   world: World;
@@ -163,7 +164,9 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   const hits = triggerL1(input.lore, input.overlays.filter((o) => !o.pending), { scanText: scan, budgetTokens: input.l1Budget });
   const styleHits = hits.filter((h) => isStyle(h.entry));
   const loreHits = hits.filter((h) => !isStyle(h.entry));
-  const memLine = (m: EpisodicMemory) => `- ${m.when ? m.when + '：' : ''}${m.text}`;
+  // 记忆的时间统一成「Day 36（11/14 周五 晚上，4 天前）」：第几天、哪天、隔了多久都由代码算好
+  const start = storyStartOf(input.campaign), tz = input.characters[0]?.timeZone;
+  const memLine = (m: EpisodicMemory) => { const w = memoryWhen(m, start, now.getTime(), tz); return `- ${w ? w + '：' : ''}${m.text}`; };
 
   // 所有段，内核的和外面给的放在一起排
   const sections = [
@@ -186,7 +189,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
     tailSec('loreHits', ORDER.loreHits, '世界书', loreHits.map((h) => `## ${h.entry.title}${h.overlaid ? '（本局已变化）' : ''}\n${h.content}`).join('\n\n')),
     tailSec('recall', ORDER.recall, '可能相关的往事', (input.recalled ?? []).map(memLine).join('\n')),
     tailSec('tailStyle', ORDER.tailStyle, '尾部指令', tailStyle.map((e) => e.content.trim()).filter(Boolean).join('\n\n')),
-    { id: 'time', place: 'tail', order: ORDER.time, text: timeLine(now, input.characters[0]?.timeZone, undefined, input.story) } as PromptSection,
+    { id: 'time', place: 'tail', order: ORDER.time, text: `${timeLine(now, tz, undefined, input.story)}\n今天是这局的 Day ${dayOf(now.getTime(), start, tz)}。` } as PromptSection,
     ...(input.sections ?? []).filter((x) => x.text.trim()),
   ].filter((x): x is PromptSection => !!x);
   // 同一 order 保持登记顺序（Array.prototype.sort 是稳定的）

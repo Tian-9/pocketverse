@@ -101,6 +101,8 @@ export const repo = {
       state: { relations: {}, mood: {}, facts: [] },
       ...(startTs !== undefined && Math.abs(startTs - now) >= 60_000 ? { clock: clock.skipTo(undefined, startTs, now) } : {}),
     };
+    // 这局的第 1 天：Day N 从这里数
+    c.storyStart = clock.now(c.clock, now);
     await db().campaigns.add(c);
     await db().setKV(currentKey(character.id), c.id);
     return c;

@@ -16,6 +16,10 @@ describe('auto recall', () => {
     const h = [msg('user', '早'), msg('assistant', '早啊'), msg('user', '周末'), msg('assistant', '（拍了拍你）', { narration: true }), msg('user', '去看小姨子吗')];
     expect(recallQuery(h)).toBe('周末\n去看小姨子吗');
   });
+  it('ignores content words that are only in the text, and single characters', () => {
+    const rec = M('rec', '{{user}}说明天去唱片店买三份一样的唱片', { core: ['物理卷子'], related: ['补习'] });
+    expect(recallMemories([rec], '我昨天去唱片店、珊姐说你买了三份一样唱片')).toEqual([]);
+  });
   it('finds the memory by bag terms, skips the ones already pinned, drops weak matches', () => {
     expect(recallMemories(mems, '小姨子最近胖了没').map((m) => m.id)).toEqual(['cat']);
     expect(recallMemories(mems, '小姨子最近胖了没', new Set(['cat']))).toEqual([]);
@@ -27,9 +31,8 @@ describe('auto recall', () => {
     const egg = M('egg', '方亦楷要{{user}}明早带一个加俩蛋的煎饼果子', { core: ['煎饼果子', '加俩蛋'] });
     const all = [...mems, egg];
     const q = '走走走 顺便再来一杯珍珠奶茶，加奶加茶加珍珠';
-    // 单字「加」只在 hint 档：会出现在解释里，但不够分，不会被召回
-    const ex = explainRecall(all, q);
-    expect(ex.find((e) => e.memory.id === 'egg')).toMatchObject({ status: 'weak', terms: ['加'] });
+    // 单字「加」只在 hint 档：单字凑不成命中，连解释里都不出现
+    expect(explainRecall(all, q).find((e) => e.memory.id === 'egg')).toBeUndefined();
     expect(recallMemories(all, q)).toEqual([]);
     const ex2 = explainRecall(all, '小姨子最近胖了没', new Set(['noodle']));
     expect(ex2[0]).toMatchObject({ status: 'recalled', terms: expect.arrayContaining(['小姨子']) });

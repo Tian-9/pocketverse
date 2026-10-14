@@ -5,6 +5,7 @@ import { db } from '../storage/db';
 import { applyPatches, stateLines } from './state';
 import { toUserMacro } from '../context/userref';
 import { repo } from '../data/repo';
+import { dayDivider, dayOf, memoryWhen, storyStartOf } from '../context/days';
 import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Message } from '../storage/db';
 import { textOf } from '../data/repo';
 import { loreApplies } from '../data/lore';
@@ -21,9 +22,10 @@ export const SCHEMA = {
   additionalProperties: false,
   required: ['memories', 'state', 'patches', 'overlays'],
   properties: {
-    memories: { type: 'array', maxItems: 12, items: { type: 'object', additionalProperties: false, required: ['text', 'when', 'importance', 'bag'], properties: {
+    memories: { type: 'array', maxItems: 12, items: { type: 'object', additionalProperties: false, required: ['text', 'day', 'when', 'importance', 'bag'], properties: {
       text: { type: 'string', description: '一两句话，第三人称，写清楚谁对谁做了什么' },
-      when: { type: 'string', description: '剧情时间，不确定就写相对时间，如"今天下午"' },
+      day: { type: 'integer', description: '这件事发生在第几天：照抄对话记录里它上方最近那条「—— Day N ——」分隔行的 N' },
+      when: { type: 'string', description: '一天里的时段，如「早上」「放学后」「半夜」，可空。不写日期、不写「今天」「昨天」，哪天由 day 定' },
       importance: { type: 'integer', minimum: 1, maximum: 3, description: '3=改变关系或剧情走向的大事，2=值得记住，1=日常' },
       bag: { ...BAG_SCHEMA, description: '这条记忆的检索词，三档。core 是主体和关键物件（含外号、别名），related 是动作地点时段，hint 是别人可能用来问起这件事的词。优先复用「已有检索词」' },
     } } },
@@ -39,7 +41,7 @@ export const SCHEMA = {
 };
 
 export interface ConsolidateOutput {
-  memories: { text: string; when: string; importance: 1 | 2 | 3; bag?: unknown }[];
+  memories: { text: string; day?: number; when: string; importance: 1 | 2 | 3; bag?: unknown }[];
   state: { location?: string; relation?: string; mood?: string };
   /** 状态 patch，形状见 annals/airp 的 PATCHES_SCHEMA；代码侧 parsePatches 防呆 */
   patches?: unknown;
@@ -47,17 +49,30 @@ export interface ConsolidateOutput {
 }
 
 export function buildPrompt(campaign: Campaign, character: Character, lore: LoreEntry[], msgs: Message[], existing: EpisodicMemory[], extra: { stateLines?: string[]; vocab?: string[] } = {}) {
-  const transcript = msgs.filter((m) => m.role !== 'system').map((m) => `${m.role === 'user' ? '{{user}}' : character.name}：${textOf(m)}`).join('\n');
+  // 跨天的地方插一行「—— Day N · 11/14 周五 ——」：模型照抄 N，日期和天数由代码算，不让它做日期算术
+  const start = storyStartOf(campaign), tz = character.timeZone;
+  const lines: string[] = [];
+  let lastDay: number | null = null;
+  for (const m of msgs.filter((x) => x.role !== 'system')) {
+    const ts = m.storyTs ?? m.ts;
+    const d = dayOf(ts, start, tz);
+    if (d !== lastDay) { lines.push(dayDivider(ts, start, tz)); lastDay = d; }
+    lines.push(`${m.role === 'user' ? '{{user}}' : '{{char}}'}：${textOf(m)}`);
+  }
+  const transcript = lines.join('\n');
   const dir = lore.map((e) => `- [${e.id}] ${e.title}：${e.summary}`).join('\n');
-  const prior = existing.slice(-15).map((m) => `- ${m.when}：${m.text}`).join('\n');
+  const nowTs = clock.now(campaign.clock);
+  const prior = existing.slice(-15).map((m) => `- ${memoryWhen(m, start, nowTs, tz)}：${m.text}`).join('\n');
   const s = campaign.state;
   return {
     system: `你是角色扮演对话的记忆整理员。读下面这段对话，提取值得长期记住的内容，输出 JSON。
 规则：
 - memories：只记发生了的事和透露的信息，不记寒暄。已经在"已有记忆"里的不要重复。
 - state：只填确实变化了的字段，没变就不填。
-- patches：当前仍然成立的硬事实的变化：东西在哪、归谁、谁欠谁多少、谁答应了什么、关系的定性。一条一个 entity+attr，value 写成主宾分明的一句话（"他 欠 用户 49.5 元"，不写"欠了钱"）；剧情没说清的写"未明确（原因）"。和「当前状态」里相同的不要再给。
-- 每条 memory 都要给 bag：core 最多 3 个，是这件事的主体和关键物件，有外号、别名一起写；related 是动作、地点、时段；hint 是别人可能用来问起这件事的词。「已有检索词」里有的优先用同一个词。
+- patches：当前仍然成立的硬事实的变化：东西在哪、归谁、谁欠谁多少、谁答应了什么、关系的定性。一条一个 entity+attr，value 写成主宾分明的一句话（"{{char}} 欠 {{user}} 49.5 元"，不写"欠了钱"）；剧情没说清的写"未明确（原因）"。和「当前状态」里相同的不要再给。
+- 每条 memory 的 day 照抄它上方最近那条「—— Day N ——」分隔行的 N；when 只写一天里的时段。
+- 每条 memory 都要给 bag：core 最多 3 个，是这件事的主体和关键物件，有外号、别名一起写；related 是具体的动作、地点；hint 是别人可能用来问起这件事的说法。「已有检索词」里有的优先用同一个词。
+- bag 里不要放时间词（昨天、今天、明早、晚上、Day 几——时间由 day 和 when 记），也不要放说、去、买、看、想这种什么事都能用上的词。
 - overlays：只有当剧情明确改变了世界书里的设定或世界本身时才填，宁缺毋滥。
 - 称呼对方一律用名字「{{user}}」，不要写「用户」。
 - 全部用中文。`,
@@ -65,7 +80,10 @@ export function buildPrompt(campaign: Campaign, character: Character, lore: Lore
   };
 }
 
-export async function applyOutput(campaign: Campaign, character: Character, lore: LoreEntry[], out: ConsolidateOutput, sourceIds: string[], at = clock.now(campaign.clock), userName?: string) {
+/**
+ * days：这批对话里每一天（Day N）最后一条消息的剧情时刻。模型给的 day 在里面就用那天的时刻，不在（编的、抄错的）就用 at（最后一条）。
+ */
+export async function applyOutput(campaign: Campaign, character: Character, lore: LoreEntry[], out: ConsolidateOutput, sourceIds: string[], at = clock.now(campaign.clock), userName?: string, days: Map<number, number> = new Map()) {
   const now = Date.now();
   // 存库前名字和「用户」换成 {{user}}：改名后旧记忆自动跟着变，也不会把「用户」喂回给聊天模型
   const u = (t: string) => toUserMacro(t, userName);
@@ -73,6 +91,7 @@ export async function applyOutput(campaign: Campaign, character: Character, lore
   const mems: EpisodicMemory[] = (out.memories ?? []).filter((m) => m.text?.trim()).slice(0, 12).map((m) => ({
     id: ulid(), campaignId: campaign.id, characterId: character.id, when: u(m.when ?? ''), text: u(m.text.trim()),
     importance: ([1, 2, 3].includes(m.importance) ? m.importance : 2) as 1 | 2 | 3, sourceMessageIds: sourceIds, createdAt: now,
+    storyTs: days.get(Number(m.day)) ?? at,
     bag: parseBag(m.bag),
   }));
   if (mems.length) await db().memories.bulkAdd(mems);
@@ -147,7 +166,10 @@ async function run(conversationId: string, opts: { force?: boolean; reason?: str
       return false;
     }
     const last = msgs[msgs.length - 1]!;
-    const { mems, state, overlays, patches } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id), last.storyTs ?? clock.now(campaign.clock), userName);
+    // 每一天最后一条消息的剧情时刻：模型给的 day 落到这里
+    const start = storyStartOf(campaign), days = new Map<number, number>();
+    for (const m of msgs) { const ts = m.storyTs ?? m.ts; days.set(dayOf(ts, start, character.timeZone), ts); }
+    const { mems, state, overlays, patches } = await applyOutput(campaign, character, lore, out, msgs.map((m) => m.id), last.storyTs ?? clock.now(campaign.clock), userName, days);
     await db().campaigns.update(campaign.id, { state, consolidatedUpTo: lastTs, consolidateFailedAt: undefined });
     log.info('consolidate', `完成：${mems.length} 条记忆，${patches.length} 条状态，${overlays.length} 条变化，${Date.now() - t0} ms`, { conversationId });
     bus.emit('memory.consolidated', { campaignId: campaign.id, memories: mems.length, overlays: overlays.length });

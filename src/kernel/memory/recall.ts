@@ -29,7 +29,7 @@ export function recallQuery(history: Message[]): string {
 export function recallMemories(mems: EpisodicMemory[], query: string, exclude: Set<string> = new Set()): EpisodicMemory[] {
   if (!query) return [];
   const pool = mems.filter((m) => !exclude.has(m.id));
-  const hits = search(pool.map((m) => ({ id: m.id, kind: 'mem', title: m.when, text: m.text, ...(m.bag ? { bag: m.bag } : {}) })), query, RECALL_K, { minScore: RECALL_MIN_SCORE });
+  const hits = search(pool.map((m) => ({ id: m.id, kind: 'mem', title: '', text: m.text, ...(m.bag ? { bag: m.bag } : {}) })), query, RECALL_K, { minScore: RECALL_MIN_SCORE });
   const byId = new Map(pool.map((m) => [m.id, m]));
   return hits.map((h) => byId.get(h.id)!).filter(Boolean);
 }
@@ -50,7 +50,7 @@ export interface RecallExplain {
 export function explainRecall(mems: EpisodicMemory[], query: string, pinned: Set<string> = new Set(), limit = 10): RecallExplain[] {
   if (!query.trim()) return [];
   const idx = new SparseIndex();
-  for (const m of mems) idx.add(m.id, docBag({ id: m.id, kind: 'mem', title: m.when, text: m.text, ...(m.bag ? { bag: m.bag } : {}) }));
+  for (const m of mems) idx.add(m.id, docBag({ id: m.id, kind: 'mem', title: '', text: m.text, ...(m.bag ? { bag: m.bag } : {}) }));
   const byId = new Map(mems.map((m) => [m.id, m]));
   let recalled = 0;
   return idx.search(query, { k: limit }).map((h) => {

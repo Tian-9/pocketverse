@@ -3,7 +3,8 @@ import { PATCHES_SCHEMA, parsePatches } from 'annals/airp';
 import { db } from '../storage/db';
 import { applyPatches } from '../memory/state';
 import { toUserMacro } from './userref';
-import type { Campaign, Character, LoreEntry, LoreOverlay } from '../storage/db';
+import { memoryWhen, storyStartOf } from './days';
+import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay } from '../storage/db';
 import type { ToolSpec } from '../llm/types';
 import { search } from './search';
 import { runMemoryCommand, type MemCommand } from './memfs';
@@ -73,9 +74,9 @@ export const kernelTools: KernelTool[] = [
     spec: { name: 'memory_search', description: '搜索以前发生过的事（情节记忆）。', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
     async handler(input, ctx) {
       const mems = await db().memories.where('campaignId').equals(ctx.campaign.id).toArray();
-      const hits = search(mems.map((m) => ({ id: m.id, kind: 'mem', title: m.when, text: m.text, ...(m.bag ? { bag: m.bag } : {}) })), str(input?.query, 200), 10);
+      const hits = search(mems.map((m) => ({ id: m.id, kind: 'mem', title: '', text: m.text, ...(m.bag ? { bag: m.bag } : {}) })), str(input?.query, 200), 10);
       if (!hits.length) return '没有相关记忆。';
-      return expandForModel(hits.map((h) => { const m = mems.find((x) => x.id === h.id)!; return `- ${m.when ? m.when + '：' : ''}${m.text}`; }).join('\n'), ctx);
+      return expandForModel(hits.map((h) => memLine(mems.find((x) => x.id === h.id)!, ctx)).join('\n'), ctx);
     },
   },
   {
@@ -85,7 +86,7 @@ export const kernelTools: KernelTool[] = [
       const n = Math.min(30, Math.max(1, Number(input?.n) || 10));
       const mems = await db().memories.where('campaignId').equals(ctx.campaign.id).reverse().sortBy('createdAt');
       if (!mems.length) return '还没有记忆。';
-      return expandForModel(mems.slice(0, n).map((m) => `- ${m.when ? m.when + '：' : ''}${m.text}`).join('\n'), ctx);
+      return expandForModel(mems.slice(0, n).map((m) => memLine(m, ctx)).join('\n'), ctx);
     },
   },
   {
@@ -264,6 +265,12 @@ export function attachedPrompt(tasks: AttachedTask[]): string {
   return '<顺手处理的事>\n你在回消息，顺便把这些也处理了。每件事用 handle_attached 工具提交，key 和结构如下；处理完再正常回复消息，不要在消息里复述。\n\n'
     + tasks.map((t) => `## ${t.item.label}（key：${t.key}）\n${t.item.prompt}\n提交结构（output）：${JSON.stringify(t.item.schema)}`).join('\n\n')
     + '\n</顺手处理的事>';
+}
+
+/** 记忆的一行：「- Day 36（11/14 周五 晚上，4 天前）：…」，和上下文里的近期要事、召回同一个格式 */
+function memLine(m: EpisodicMemory, ctx: ToolContext): string {
+  const when = memoryWhen(m, storyStartOf(ctx.campaign), clock.now(ctx.campaign.clock), ctx.characters[0]?.timeZone);
+  return `- ${when ? when + '：' : ''}${m.text}`;
 }
 
 /** 工具返回给模型的文本也要替换占位符 */

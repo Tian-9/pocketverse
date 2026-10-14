@@ -53,6 +53,8 @@ export interface Campaign {
   userPersona?: string;
   /** 你在这一局叫什么。留空＝设置里的名字。{{user}} 在这一局里都换成它（见 repo.userNameOf） */
   userName?: string;
+  /** 这局的第 1 天（剧情时刻）。Day N 从这里数（context/days.ts）；开局时记，老存档由 v9 迁移补 */
+  storyStart?: number;
   /** 上次合并处理到的消息 ts */
   consolidatedUpTo?: number;
   /** 上次补发的时间，和 lastPlayedAt 一起决定下次补发的档位 */
@@ -76,6 +78,8 @@ export interface EpisodicMemory {
   importance: 1 | 2 | 3; sourceMessageIds: string[]; createdAt: number;
   /** 整理时模型给的检索词袋（annals 三档）。没有的老记忆按正文分词检索 */
   bag?: Bag;
+  /** 这件事发生的剧情时刻：Day N 和「多久以前」由它算（context/days.ts）。when 只是一天里的时段。没有的老记忆只显示 when */
+  storyTs?: number;
 }
 /** 状态事件（annals）：scope = campaignId，type 目前只有 state.set。视图和状态块由 memory/state.ts 从这里折叠 */
 export type StateEventRow = EventRow<AnnalsEvent>;
@@ -111,7 +115,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 8;
+const KERNEL_VERSION = 9;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -163,6 +167,21 @@ export class PocketDB extends Dexie {
       await tx.table('overlays').toCollection().modify((o: LoreOverlay) => {
         o.title = u(o.title) as string; o.summary = u(o.summary) as string; o.content = u(o.content) as string; o.reason = u(o.reason) as string;
       });
+      // v9：双轨时间。存档补「第 1 天」（最早一条消息的剧情时刻，没有消息用时钟锚点或创建时间）；
+      // 记忆补剧情时刻（来源消息里最晚的那条），来源消息删了的保持原样，只显示 when。可重复跑（有了就不动）
+      const msgTs = (m: Message) => m.storyTs ?? m.ts;
+      for (const c of (await tx.table('campaigns').toArray()) as Campaign[]) {
+        if (c.storyStart !== undefined) continue;
+        const convIds = ((await tx.table('conversations').where('campaignId').equals(c.id).toArray()) as Conversation[]).map((x) => x.id);
+        let first = Infinity;
+        for (const id of convIds) for (const m of (await tx.table('messages').where('conversationId').equals(id).toArray()) as Message[]) first = Math.min(first, msgTs(m));
+        await tx.table('campaigns').update(c.id, { storyStart: Number.isFinite(first) ? first : (c.clock?.anchorStoryTs ?? c.createdAt) });
+      }
+      for (const m of (await tx.table('memories').toArray()) as EpisodicMemory[]) {
+        if (m.storyTs !== undefined || !m.sourceMessageIds?.length) continue;
+        const src = ((await tx.table('messages').bulkGet(m.sourceMessageIds)) as (Message | undefined)[]).filter((x): x is Message => !!x);
+        if (src.length) await tx.table('memories').update(m.id, { storyTs: Math.max(...src.map(msgTs)) });
+      }
     });
   }
 

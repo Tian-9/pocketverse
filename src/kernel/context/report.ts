@@ -7,6 +7,7 @@ import { loreApplies } from '../data/lore';
 import { triggerL1 } from './l1';
 import { estimateTokens } from './tokens';
 import { fromUserMacro } from './userref';
+import { memoryWhen, storyStartOf } from './days';
 
 /**
  * 「导出这一局的上下文」的报告：下一轮实际会发的请求，加上每样设定进了哪里、没进的原因。
@@ -169,7 +170,8 @@ export function buildReport(r: ReportInput): string {
     out.push('| 记忆 | 星 | 词袋 | 进了吗 |', '|---|---|---|---|');
     for (const m of r.memories) {
       const bag = m.bag ? [...(m.bag.core ?? []), ...(m.bag.related ?? [])].slice(0, 6).join('、') : '（无，按正文分词）';
-      out.push(`| ${cell(one(named(`${m.when ? m.when + '：' : ''}${m.text}`)))} | ${m.importance} | ${cell(named(bag))} | ${hi.has(m.id) ? '近期要事' : rc.has(m.id) ? '这一轮自动召回' : m.importance === 3 ? '三星但不在最近 10 条' : '只能搜'} |`);
+      const w = memoryWhen(m, storyStartOf(cp), input.now?.getTime() ?? Date.now(), ch.timeZone);
+      out.push(`| ${cell(one(named(`${w ? w + '：' : ''}${m.text}`)))} | ${m.importance} | ${cell(named(bag))} | ${hi.has(m.id) ? '近期要事' : rc.has(m.id) ? '这一轮自动召回' : m.importance === 3 ? '三星但不在最近 10 条' : '只能搜'} |`);
     }
     out.push('');
   }

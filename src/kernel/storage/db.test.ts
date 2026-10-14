@@ -60,3 +60,36 @@ describe('PocketDB v8 upgrade', () => {
     db.close();
   });
 });
+
+describe('PocketDB v9 upgrade', () => {
+  it('fills the story start from the earliest message and memory times from their source messages', async () => {
+    const Dexie = (await import('dexie')).default;
+    const name = 'test-v9-' + Math.random();
+    const old = new Dexie(name);
+    old.version(800).stores({ worlds: 'id', lore: 'id', characters: 'id', campaigns: 'id, worldId, lastPlayedAt', conversations: 'id, campaignId', messages: 'id, conversationId, ts', memories: 'id, campaignId', events: 'id, scope, [scope+seq], [scope+source]', overlays: 'id', kv: 'key', usage: 'id', memfs: '[campaignId+path]', logs: 'id' });
+    await old.open();
+    await old.table('campaigns').bulkPut([
+      { id: 'a', worldId: 'w', characterIds: ['c'], name: 'x', createdAt: 5, lastPlayedAt: 0, state: { relations: {}, mood: {}, facts: [] } },
+      { id: 'b', worldId: 'w', characterIds: ['c'], name: 'y', createdAt: 7, lastPlayedAt: 0, state: { relations: {}, mood: {}, facts: [] } },
+    ]);
+    await old.table('conversations').put({ id: 'v', campaignId: 'a', kind: 'direct', participantIds: ['c'], pluginId: 'chat' });
+    await old.table('messages').bulkPut([
+      { id: 'm1', conversationId: 'v', role: 'user', content: [], ts: 300, storyTs: 1000 },
+      { id: 'm2', conversationId: 'v', role: 'assistant', content: [], ts: 400, storyTs: 2000 },
+    ]);
+    await old.table('memories').bulkPut([
+      { id: 'k1', campaignId: 'a', when: '今天晚上', text: 't', importance: 2, sourceMessageIds: ['m1', 'm2'], createdAt: 0 },
+      { id: 'k2', campaignId: 'a', when: '导入前', text: 't', importance: 3, sourceMessageIds: [], createdAt: 0 },
+      { id: 'k3', campaignId: 'a', when: '', text: 't', importance: 2, sourceMessageIds: ['gone'], createdAt: 0 },
+    ]);
+    old.close();
+    const db = new PocketDB(name, []);
+    await db.open();
+    expect((await db.campaigns.get('a'))!.storyStart).toBe(1000);
+    expect((await db.campaigns.get('b'))!.storyStart).toBe(7);
+    expect((await db.memories.get('k1'))!.storyTs).toBe(2000);
+    expect((await db.memories.get('k2'))!.storyTs).toBeUndefined();
+    expect((await db.memories.get('k3'))!.storyTs).toBeUndefined();
+    db.close();
+  });
+});
