@@ -10,7 +10,8 @@
   const rows = live(async (): Promise<Row[]> => {
     // 一个角色一行：只列他当前这一局的会话，别的世界的局不出现
     const current = await repo.currentCampaignIds();
-    const convs = await db().conversations.filter((c) => c.pluginId === 'chat' && current.has(c.campaignId)).toArray();
+    // 线下会话在「线下」App 里列
+    const convs = await db().conversations.filter((c) => c.pluginId === 'chat' && c.kind === 'direct' && current.has(c.campaignId)).toArray();
     const out: Row[] = [];
     for (const cv of convs) {
       const ch = cv.participantIds[0] ? await db().characters.get(cv.participantIds[0]) : undefined;

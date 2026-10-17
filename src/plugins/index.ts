@@ -1,5 +1,6 @@
 import type { PluginManifest } from '$kernel/api';
 import chat from './chat';
+import scene from './chat/scene';
 import characters from './characters';
 import lore from './lore';
 import style from './style';
@@ -15,4 +16,4 @@ import calendar from './calendar';
 import weather from './weather';
 
 /** 内置插件清单。顺序决定桌面图标顺序。 */
-export const builtinPlugins: PluginManifest[] = [chat, characters, lore, style, settings, moments, diary, music, redpacket, forum, shop, calendar, weather, draw];
+export const builtinPlugins: PluginManifest[] = [chat, scene, characters, lore, style, settings, moments, diary, music, redpacket, forum, shop, calendar, weather, draw];

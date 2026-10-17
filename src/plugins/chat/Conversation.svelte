@@ -13,6 +13,7 @@
   import { registry } from '$kernel/registry/registry.svelte';
   import { theme } from '$kernel/theme/theme.svelte';
   import { clock } from '$kernel/context/clock';
+  import { dayOf, dateLabel, storyStartOf } from '$kernel/context/days';
   import { chatCtx } from './ctx';
   import type { ComposerAction, OutgoingMessage, MessageCard } from '$kernel/api';
 
@@ -34,6 +35,15 @@
   // 你在这一局叫什么（存档上填的，没填用设置里的）
   const myName = $derived(campaign.value?.userName?.trim() || chat.userName);
   const liveTurn = $derived(chat.live[id]);
+  // 这局现在几点（存档时钟）：空闲时显示在状态行，每 15 秒走一下；点一下就是「推进时间」
+  let nowTick = $state(Date.now());
+  $effect(() => { const t = setInterval(() => (nowTick = Date.now()), 15_000); return () => clearInterval(t); });
+  const clockLine = $derived.by(() => {
+    const cp = campaign.value; if (!cp) return '';
+    const now = clock.now(cp.clock, nowTick), tz = character.value?.timeZone;
+    const paused = cp.clock?.running === false;
+    return `Day ${dayOf(now, storyStartOf(cp), tz)} · ${dateLabel(now, tz)} ${clock.formatTime(now, tz)}${paused ? ' · 停表' : clock.aligned(cp.clock) ? '' : ' · 剧情时间'}`;
+  });
   // 流式时就按存库用的同一个 splitReply 分成几个气泡，生成完不会跳变
   const liveParts = $derived(liveTurn?.text ? (conv.value?.kind === 'scene' ? [liveTurn.text] : splitReply(liveTurn.text)) : []);
   // 这一轮结束到存好的几条出现在列表里之间有一两帧空档：先留着最后一帧的气泡，列表变长了再撤
@@ -207,7 +217,11 @@
       <button class="iconbtn" onclick={() => (menu = true)} aria-label="更多"><Glyph paths={['M5 12h.01M12 12h.01M19 12h.01']} size={22} color="var(--tint)" width={3} /></button>
     {/snippet}
   </NavBar>
-  <div class="status">{liveTurn?.statusText ?? ' '}</div>
+  {#if liveTurn}
+    <div class="status">{liveTurn.statusText}</div>
+  {:else}
+    <button class="status clockline" onclick={() => openTimeSheet()} title="推进时间">{clockLine || ' '}</button>
+  {/if}
 
   <div class="msgs" bind:this={scroller}>
     {#each shown as m, i (m.id)}
@@ -322,6 +336,8 @@
   .quick button { flex: 0 0 auto; padding: 7px 14px; border-radius: 999px; background: var(--fill-2); color: var(--label); font-size: 14px; }
   .conv :global(.nav) { background: var(--bg-surface); border-bottom: 0; }
   .status { font-size: 12px; color: var(--label-2); text-align: center; height: 16px; line-height: 16px; background: var(--bg-surface); border-bottom: 0.5px solid var(--separator); }
+  .clockline { width: 100%; font-variant-numeric: tabular-nums; }
+  .clockline:active { color: var(--tint); }
   .iconbtn { padding: 8px; display: inline-flex; }
   .msgs { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; background: var(--bg-surface); }
   .time { align-self: center; font-size: 11px; color: var(--label-2); margin: 10px 0 4px; }
