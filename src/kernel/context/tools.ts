@@ -4,7 +4,7 @@ import { db } from '../storage/db';
 import { applyPatches } from '../memory/state';
 import { toUserMacro } from './userref';
 import { memoryWhen, storyStartOf } from './days';
-import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay } from '../storage/db';
+import type { Campaign, Character, ConversationMode, EpisodicMemory, LoreEntry, LoreOverlay } from '../storage/db';
 import type { ToolSpec } from '../llm/types';
 import { search } from './search';
 import { runMemoryCommand, type MemCommand } from './memfs';
@@ -34,7 +34,7 @@ export interface ToolContext {
   events: { text: string; modelText: string }[];
 }
 export type ToolHandler = (input: any, ctx: ToolContext) => Promise<string>;
-export interface KernelTool { spec: ToolSpec; handler: ToolHandler; /** UI 状态文案 */ label: string }
+export interface KernelTool { spec: ToolSpec; handler: ToolHandler; /** UI 状态文案 */ label: string; /** 只在这些模式的会话里给；不填两边都给（见 ARCHITECTURE 6.1） */ modes?: ConversationMode[] }
 
 const str = (v: unknown, max = 2000) => (typeof v === 'string' ? v.slice(0, max) : '');
 
@@ -133,6 +133,7 @@ export const kernelTools: KernelTool[] = [
   },
   {
     label: '拍一拍',
+    modes: ['online'],
     spec: {
       name: 'nudge',
       description: '拍一拍对方（像微信的拍一拍）：一个轻轻的、不用说话的动作，提醒、撒娇、催、逗都行。对话里会出现一行「他拍了拍你」，然后你照常说话。别每轮都用。',
@@ -170,6 +171,7 @@ export const kernelTools: KernelTool[] = [
   },
   {
     label: '定闹钟',
+    modes: ['online'],
     spec: {
       name: 'wake_later',
       description: `过一会儿主动联系对方：afterMinutes 分钟后（${MIN_MINUTES} 到 ${MAX_MINUTES}，按你们这边的时间算），你会"拿起手机"，决定要不要发消息。intent 写你那时想做或想说的事（一句话），到时候会提醒你。只在确实有事或有话想晚点说时用（"等我下班跟你说""一小时后提醒你吃药"）；一次只记一件，新的覆盖旧的。onlyIfSilent 为 true 表示只在对方到时候还没回你时才联系（追一句），对方回了就作废。`,
@@ -211,6 +213,7 @@ export function shareTool(resolvers: ShareResolver[]): KernelTool | null {
   const types = resolvers.map((r) => r.type);
   return {
     label: '分享',
+    modes: ['online'],
     spec: {
       name: 'share',
       description: '在聊天里分享一样东西给对方，像微信里转发一首歌。插件会去查真实资料返回给你，并把卡片直接发给对方（你不用再描述卡片）。只在聊天里自然想分享时用，一轮最多一次。\n' + resolvers.map((r) => `- ${r.hint}`).join('\n'),
@@ -243,6 +246,7 @@ export function shareTool(resolvers: ShareResolver[]): KernelTool | null {
  */
 export const attachedTool: KernelTool = {
   label: '顺手处理',
+  modes: ['online'],
   spec: {
     name: 'handle_attached',
     description: '处理最后一条消息里「顺手处理的事」。每件事有一个 key 和要求的结构，按结构把结果放在 output 里提交，一件事调一次。没有列出来的事不要调。',

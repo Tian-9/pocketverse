@@ -127,8 +127,7 @@ export async function applyOutput(campaign: Campaign, character: Character, lore
  */
 export async function unconsolidate(campaignId: string, deleted: Message[]): Promise<void> {
   const cp = await db().campaigns.get(campaignId);
-  const upTo = cp?.consolidatedUpTo ?? 0;
-  const hit = deleted.filter((m) => m.ts <= upTo);
+  const hit = cp ? deleted.filter((m) => m.ts <= consolidatedOf(cp, m.conversationId).upTo) : [];
   if (!cp || !hit.length) return;
   const batches = cp.batches ?? [];
   const gone = batches.filter((b) => hit.some((m) => m.conversationId === b.conversationId && m.ts > b.from && m.ts <= b.to));
@@ -154,7 +153,11 @@ function withBatch(cp: Campaign, b: ConsolidateBatch): ConsolidateBatch[] {
 
 const inflight = new Set<string>();
 
-/** 对一个会话做一次合并：处理 consolidatedUpTo 之后的消息。 */
+/** 这条会话的整理进度（ARCHITECTURE 6.1：线上线下各一条，进度按会话记） */
+export const consolidatedOf = (cp: Campaign, conversationId: string) => cp.consolidated?.[conversationId] ?? { upTo: 0 };
+const setConsolidated = (cp: Campaign, conversationId: string, v: { upTo: number; failedAt?: number }) => ({ consolidated: { ...(cp.consolidated ?? {}), [conversationId]: v } });
+
+/** 对一个会话做一次合并：处理这条会话整理进度之后的消息。 */
 export async function consolidate(conversationId: string, opts: { force?: boolean; reason?: string } = {}): Promise<boolean> {
   if (inflight.has(conversationId)) { log.info('consolidate', '跳过：上一次还在进行', { conversationId }); return false; }
   // 在第一次 await 之前占位：两次检查几乎同时进来时，后一次必须看到前一次，否则同一批消息会发两次
@@ -186,14 +189,15 @@ async function run(conversationId: string, opts: { force?: boolean; reason?: str
     campaign = (await db().campaigns.get(campaign.id))!;
   }
 
-  const since = campaign.consolidatedUpTo ?? 0;
+  const progress = consolidatedOf(campaign, conversationId);
+  const since = progress.upTo;
   const msgs = all.filter((m) => m.ts > since);
   const replies = msgs.filter((m) => m.role === 'assistant').length;
   if (!opts.force && replies < CONSOLIDATE_EVERY) return false;
   if (replies === 0) return false;
   const lastTs = msgs[msgs.length - 1]!.ts;
   // 上次失败（出错、或你在预览里取消了）的那批不立刻重试：等失败点之后再攒够一批回复。刷新页面也不会重来，这个标记存在库里。
-  const failedAt = campaign.consolidateFailedAt ?? 0;
+  const failedAt = progress.failedAt ?? 0;
   if (!opts.force && failedAt) {
     const sinceFail = msgs.filter((m) => m.ts > failedAt && m.role === 'assistant').length;
     if (sinceFail < CONSOLIDATE_EVERY) { log.info('consolidate', `跳过：上次失败后只有 ${sinceFail} 条新回复，攒够 ${CONSOLIDATE_EVERY} 条再试`, { conversationId }); return false; }
@@ -202,12 +206,13 @@ async function run(conversationId: string, opts: { force?: boolean; reason?: str
   log.info('consolidate', `开始：${character.name}，${msgs.length} 条消息（${replies} 条回复），触发：${opts.reason ?? (opts.force ? '手动' : '未知')}`, { conversationId, since });
   try {
     const done = await extract(campaign, character, conversationId, msgs, false);
-    if (!done) { await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs }); return false; }
     const cp = (await db().campaigns.get(campaign.id))!;
-    await db().campaigns.update(campaign.id, { state: done.state, consolidatedUpTo: lastTs, consolidateFailedAt: undefined, batches: withBatch(cp, { id: msgs[msgs.length - 1]!.id, conversationId, from: since, to: lastTs }) });
+    if (!done) { await db().campaigns.update(campaign.id, setConsolidated(cp, conversationId, { upTo: since, failedAt: lastTs })); return false; }
+    await db().campaigns.update(campaign.id, { state: done.state, ...setConsolidated(cp, conversationId, { upTo: lastTs }), batches: withBatch(cp, { id: msgs[msgs.length - 1]!.id, conversationId, from: since, to: lastTs }) });
     return true;
   } catch (e) {
-    await db().campaigns.update(campaign.id, { consolidateFailedAt: lastTs });
+    const cp = (await db().campaigns.get(campaign.id))!;
+    await db().campaigns.update(campaign.id, setConsolidated(cp, conversationId, { upTo: since, failedAt: lastTs }));
     log.error('consolidate', `失败：${e instanceof Error ? e.message : String(e)}，这批消息不再自动重试`, { conversationId });
     throw e;
   }

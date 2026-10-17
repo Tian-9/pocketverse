@@ -143,7 +143,7 @@ interface CampaignState {
 // 对话：属于存档，一个存档可有多个对话（私聊、群聊）
 interface Conversation {
   id: string; campaignId: string;
-  kind: string;              // 'direct' | 'group' | 插件自定义（'wechat' 等）
+  kind: 'direct' | 'scene';  // direct 线上（手机聊天），scene 线下（见 6.1）；以后群聊再加
   participantIds: string[];
   pluginId: string;          // 哪个插件渲染它
 }
@@ -419,6 +419,19 @@ L2 工具（内核提供）：
 - 对话列表、对话页、流式气泡、"正在输入"状态（工具调用时显示具体在干什么）。回复按行拆成几条（`splitReply`），流式时聊天页就用同一个函数边生成边分条显示；生成完一个事务写进库（`repo.addMessages`，ts 逐条加 1 毫秒保证顺序），不再人为隔开冒出来。列表刷新前留着最后一帧的气泡，交接不闪。
 - 长按消息：编辑、删除、从此处分叉；菜单里「重新生成最后一条」。删除和重新生成怎么撤回见 5.12。
 - 消息里的插件卡片由注册的 `outputHandlers` 渲染，聊天插件本身不认识任何标签。
+### 6.1 线下（2026-10 定）
+
+同一局里和同一个角色有两条会话：**线上**（`kind: 'direct'`，手机聊天，原来的那条）和**线下**（`kind: 'scene'`，面对面，像 SillyTavern 那样推剧情：小说写法，动作、神态、环境、对白）。两条共用这一局的一切：记忆、硬事实、状态、时钟、钱包、世界书、Day N。一条会话一种「模式」（`ConversationMode`：`online` / `offline`），模式决定提示词和能力，这就是「提示词绑定场景」：
+
+- **规则按模式选**：`DEFAULT_RULES`（手机聊天）/ `OFFLINE_RULES`（线下叙事），设置里「对话规则」分两页改（kv `kernel.rules` / `kernel.rules.offline`）。线下的规则：角色说的话放「」里，动作和描写用叙述，第三人称写角色、「你」称呼对方；一次一到三段，推进一点就停；对方的输入可能是话也可能是动作，都当真发生了；不替对方行动。
+- **能力按模式过滤**：`ToolDef` / `PromptContributor` / 风格条目（`LoreEntry.mode`）都可以标模式，不标＝两边都有。线下没有手机：内核的 `nudge`、`share`、`wake_later`、`handle_attached` 只在线上；插件里红包转账、商店买卖、发朋友圈、画画只在线上；「+」面板线下整个不出现。查世界书、记忆、`state_update`、`overlay_write`、笔记、日历、天气、日记两边都有。追加段同理：钱包、朋友圈只在线上，他有的东西、日记两边都有。插件自己的模型调用（货架、日记、朋友圈补发）本来就各带各的提示词，和模式无关。
+- **回复不拆条**：线上按行拆成几条微信；线下一段一个气泡，整条是一条消息（`splitReply` 只在线上用）。流式显示同理。
+- **各自的缓存前缀**：两条会话的历史不同、工具表不同，各是各的前缀，互不影响。
+- **交接**：切过去的那一轮，如果另一条会话有比这条更新的消息，把那边最近的几句（最多 8 条）作为追加段 `<刚才在手机上>` / `<刚才线下>` 写进这条历史（内核的 `kernel/handoff`，变了才写，所以一次切换写一份），他知道刚才发生了什么。再往前的靠共用的记忆和近期要事。
+- **整理按会话**：整理进度原来挂在存档上（`consolidatedUpTo` / `consolidateFailedAt`），两条会话会互相盖掉；改成 `Campaign.consolidated[conversationId]`，v11 迁移把老值挪到线上那条。批次本来就带 `conversationId`。记忆、硬事实、状态都写进同一局，两边都看得到。
+- **入口**：角色主页「线下见面」；对话页菜单「转到线下」/「回到手机」；信息列表里线下会话单独一行（「名字 · 线下」）。线下会话第一次打开是空的，你先写一句开场（在哪、什么情况），他接着演。推进时间、重新生成、删除、撤回都和线上一样。
+- **补发、稍后联系**发到线上那条：那是手机上的事。
+
 - 群聊（未实现，设计已定 2026-10-11）：**一次调用出所有在场角色的话**，不是每人一次。`participantIds` 的 core 全进 system，模型按带名字前缀的分段返回（`[名字] 一行一条`），拼装器拆成各自的消息。便宜，也更像真群聊（互相接话）。
 
 ## 7. 插件接口
@@ -433,7 +446,7 @@ export default definePlugin({
   // 上下文
   promptContributors?: PromptContributor[],   // {stable: () => string, volatile: (ctx) => string}
   loreTriggers?: LoreTrigger[],               // 额外的 L1 规则
-  tools?: ToolDef[],                          // L2 工具，带 handler
+  tools?: ToolDef[],                          // L2 工具，带 handler；可标 modes 只在线上 / 线下给（见 6.1）
   outputHandlers?: OutputHandler[],           // 解析 <moment>…</moment> 并渲染卡片
   shares?: ShareResolver[],                   // 分享解析器：share 工具按 type 分发到这里
   catchup?: CatchupContributor[],             // 补发登记：离开一段时间回来，内核按档位统一调模型

@@ -93,3 +93,29 @@ describe('PocketDB v9 upgrade', () => {
     db.close();
   });
 });
+
+describe('PocketDB v11 upgrade', () => {
+  it('moves the campaign-level consolidation watermark onto the online conversation', async () => {
+    const Dexie = (await import('dexie')).default;
+    const name = 'test-v11-' + Math.random();
+    const old = new Dexie(name);
+    old.version(1000).stores({ worlds: 'id', lore: 'id', characters: 'id', campaigns: 'id, worldId, lastPlayedAt', conversations: 'id, campaignId', messages: 'id, conversationId, ts', memories: 'id, campaignId', events: 'id, scope, [scope+seq], [scope+source]', overlays: 'id', kv: 'key', usage: 'id', memfs: '[campaignId+path]', logs: 'id' });
+    await old.open();
+    await old.table('campaigns').bulkPut([
+      { id: 'a', worldId: 'w', characterIds: ['c'], name: 'x', createdAt: 5, lastPlayedAt: 0, state: { relations: {}, mood: {}, facts: [] }, storyStart: 1, batches: [], consolidatedUpTo: 500, consolidateFailedAt: 600 },
+      { id: 'b', worldId: 'w', characterIds: ['c'], name: 'y', createdAt: 7, lastPlayedAt: 0, state: { relations: {}, mood: {}, facts: [] }, storyStart: 1, batches: [] },
+    ]);
+    await old.table('conversations').bulkPut([
+      { id: 'v', campaignId: 'a', kind: 'direct', participantIds: ['c'], pluginId: 'chat' },
+      { id: 's', campaignId: 'a', kind: 'scene', participantIds: ['c'], pluginId: 'chat' },
+    ]);
+    old.close();
+    const db = new PocketDB(name, []);
+    await db.open();
+    const a = (await db.campaigns.get('a'))!;
+    expect(a.consolidated).toEqual({ v: { upTo: 500, failedAt: 600 } });
+    expect(a.consolidatedUpTo).toBeUndefined();
+    expect((await db.campaigns.get('b'))!.consolidated).toBeUndefined();
+    db.close();
+  });
+});

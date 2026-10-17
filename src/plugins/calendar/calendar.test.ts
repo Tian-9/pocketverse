@@ -127,7 +127,7 @@ describe('planWeek', () => {
 });
 
 describe('volatile line, tools, service', () => {
-  const pctx: PromptContext = { campaignId: 'cp1', conversationId: 'cv', characterIds: ['ch1'], now };
+  const pctx: PromptContext = { campaignId: 'cp1', conversationId: 'cv', mode: 'online', characterIds: ['ch1'], now };
   const tool = (name: string) => plugin.tools!.find((t) => t.name === name)!;
   it('tells him today, what he is doing now and what is next', async () => {
     const line = await volatileLine('cp1', 'ch1', now + 4 * H + 10 * 60_000); // 14:10，正在还书

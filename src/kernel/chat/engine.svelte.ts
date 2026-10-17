@@ -1,5 +1,5 @@
 import { ulid } from 'ulid';
-import { db } from '../storage/db';
+import { db, modeOf } from '../storage/db';
 import type { Message } from '../storage/db';
 import { loadState, stateLines } from '../memory/state';
 import { lastReply, rememberTurn, removeMessages, retract } from './retract';
@@ -8,7 +8,7 @@ import { appendTs, contextMessage, pendingAppends, visibleHistory, type AppendIt
 import { render } from '../llm/gate.svelte';
 import { buildReport } from '../context/report';
 import { ORDER, type AssembleInput, type PromptSection } from '../context/assemble';
-import { repo } from '../data/repo';
+import { repo, modelTextOf } from '../data/repo';
 import { loreApplies } from '../data/lore';
 import { assemble } from '../context/assemble';
 import { kernelTools, shareTool, attachedTool, attachedPrompt, toolLabel } from '../context/tools';
@@ -24,7 +24,9 @@ import { LlmError } from '../llm/types';
 import { bus } from '../bus/bus';
 import { registry } from '../registry/registry.svelte';
 import { consolidate } from '../memory/consolidate';
-import type { PromptContext, MessageCard, PluginManifest, ShareCard } from '../api/types';
+import type { PromptContext, MessageCard, PluginManifest, ShareCard, ConversationMode } from '../api/types';
+import type { Conversation } from '../storage/db';
+import { isContext } from '../context/append';
 import { log } from '../log/log';
 
 export type TurnStatus = 'idle' | 'thinking' | 'typing' | 'tool';
@@ -37,12 +39,16 @@ class ChatEngine {
   userName = $state('我');
   userProfile = $state('');
   rules = $state('');
+  /** 线下（面对面推剧情）的规则，空＝默认的 OFFLINE_RULES */
+  rulesOffline = $state('');
 
   async boot() {
     this.userName = await db().getKV('kernel.userName', '我');
     this.userProfile = await db().getKV('kernel.userProfile', '');
     this.rules = await db().getKV('kernel.rules', '');
+    this.rulesOffline = await db().getKV('kernel.rules.offline', '');
   }
+  async setRulesOffline(r: string) { this.rulesOffline = r; await db().setKV('kernel.rules.offline', r); }
   async setUserName(n: string) { this.userName = n.trim() || '我'; await db().setKV('kernel.userName', this.userName); }
   async setUserProfile(p: string) { this.userProfile = p; await db().setKV('kernel.userProfile', p); }
   async setRules(r: string) { this.rules = r; await db().setKV('kernel.rules', r); }
@@ -144,7 +150,10 @@ class ChatEngine {
     const recalled = recallMemories(allMemories, recallQuery(history), new Set(highlights.map((m) => m.id)));
 
     const storyNow = clock.now(campaign.clock);
-    const pctx: PromptContext = { campaignId: campaign.id, conversationId, characterIds: [character.id], now: storyNow, sourceId: turnId };
+    // 线上（手机）还是线下（面对面）：决定规则、给哪些工具和段（ARCHITECTURE 6.1）
+    const mode = modeOf(conv);
+    const inMode = (x: { modes?: ConversationMode[] }) => !x.modes || x.modes.includes(mode);
+    const pctx: PromptContext = { campaignId: campaign.id, conversationId, mode, characterIds: [character.id], now: storyNow, sourceId: turnId };
     const plugins = registry.plugins.filter((p) => registry.isEnabled(p.id));
     // 内核之外的段：插件的提示词片段、稍后联系、顺手处理的事。位置和先后见 context/assemble.ts 的 PromptSection
     const sections: PromptSection[] = [];
@@ -153,7 +162,10 @@ class ChatEngine {
     // 他的笔记最长 4000 字、只在他用 memory 工具写的时候变：变了才追加进历史。放 system 的话一变整段历史缓存作废
     const appends: AppendItem[] = notes.trim() ? [{ id: 'kernel/notes', text: `<你的笔记 /memories>\n${notes.trim()}\n</你的笔记>` }] : [];
     if (appends.length) contributions.push({ source: 'kernel/notes', kind: 'append', text: appends[0]!.text });
-    for (const p of plugins) for (const c of p.promptContributors ?? []) {
+    // 交接：另一条会话（线上↔线下）有比这条更新的消息，把那边最近几句写进这条历史，他知道刚才发生了什么
+    const handoff = await this.handoff(conv, history, userName, character.name);
+    if (handoff) { appends.push({ id: 'kernel/handoff', text: handoff }); contributions.push({ source: 'kernel/handoff', kind: 'append', text: handoff }); }
+    for (const p of plugins) for (const c of (p.promptContributors ?? []).filter(inMode)) {
       try {
         if (c.stable) { const t = await c.stable(pctx); sections.push({ id: `${p.id}/${c.id}`, place: 'cached', order: c.order ?? ORDER.pluginCached, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'stable', text: t }); }
         if (c.volatile) { const t = await c.volatile(pctx); sections.push({ id: `${p.id}/${c.id}`, place: 'tail', order: c.order ?? ORDER.pluginTail, text: t }); contributions.push({ source: `${p.id}/${c.id}`, kind: 'volatile', text: t }); }
@@ -170,19 +182,21 @@ class ChatEngine {
     }
 
     const useTools = llm.settings.tools !== false;
-    // 他给自己定过"稍后联系"：告诉他一声，免得每轮重新定
-    const pendingWake = useTools ? await wakes.get(campaign.id) : null;
+    const online = mode === 'online';
+    // 他给自己定过"稍后联系"：告诉他一声，免得每轮重新定。手机上的事，线下不提
+    const pendingWake = useTools && online ? await wakes.get(campaign.id) : null;
     if (pendingWake) { const t = wakeNotice(pendingWake); sections.push({ id: 'kernel/wake', place: 'tail', order: ORDER.pluginTail, text: t }); contributions.push({ source: 'kernel/wake', kind: 'volatile', text: t }); }
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
-    const attached = useTools && catchup.hasAttach() && !opts.dryRun ? await catchup.collectAttached(campaign, character) : [];
+    const hasAttach = useTools && online && catchup.hasAttach();
+    const attached = hasAttach && !opts.dryRun ? await catchup.collectAttached(campaign, character) : [];
     if (attached.length) { const t = attachedPrompt(attached); sections.push({ id: 'kernel/attached', place: 'tail', order: ORDER.pluginTail, text: t }); contributions.push({ source: 'kernel/attached', kind: 'volatile', text: t }); }
     const tctx: ToolContext = { campaign, characters: [character], lore, overlays, cards: [], attached, events: [], turnId, userName };
-    const share = shareTool(plugins.flatMap((p) => p.shares ?? []));
+    const share = online ? shareTool(plugins.flatMap((p) => p.shares ?? [])) : null;
     const hasWeb = useTools && !!llm.settings.web;
     const pluginCards: MessageCard[] = [];
     const tools: LoopTool[] = useTools ? [
-      ...[...kernelTools, ...(share ? [share] : []), ...(catchup.hasAttach() ? [attachedTool] : [])].map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
-      ...plugins.flatMap((p) => (p.tools ?? []).map((t) => ({
+      ...[...kernelTools, ...(share ? [share] : []), ...(hasAttach ? [attachedTool] : [])].filter(inMode).map((t) => ({ spec: t.spec, run: (input: unknown) => t.handler(input, tctx) })),
+      ...plugins.flatMap((p) => (p.tools ?? []).filter(inMode).map((t) => ({
         spec: { name: t.name, description: t.description, inputSchema: t.inputSchema },
         run: async (input: unknown) => {
           const ctx: PromptContext = { ...pctx, addCard: (tag, body, attrs = {}, alt) => pluginCards.push({ pluginId: p.id, tag, body, attrs, ...(alt ? { alt } : {}) }) };
@@ -195,11 +209,27 @@ class ChatEngine {
     const input: AssembleInput = {
       world, campaign, characters: [character], userName, userProfile: this.userProfile,
       lore, overlays, highlights, recalled, stateLines: lines, history,
-      sections, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach: useTools && catchup.hasAttach(), hasWeb, rules: this.rules,
+      sections, hasTools: tools.length > 0, hasShare: !!share && useTools, hasAttach, hasWeb, rules: online ? this.rules : this.rulesOffline, mode,
       now: new Date(storyNow), story: !clock.aligned(campaign.clock),
     };
     const assembled = assemble(input);
-    return { conv, character, campaign, world, plugins, pctx, tctx, tools, share, pluginCards, turnId, useTools, hasWeb, input, assembled, contributions, userName, dryRun: !!opts.dryRun };
+    return { conv, character, campaign, world, plugins, pctx, tctx, tools, share, pluginCards, turnId, useTools, hasWeb, input, assembled, contributions, userName, mode, dryRun: !!opts.dryRun };
+  }
+
+  /** 交接段：另一条会话里比这条最后一条还新的消息（最多 8 条），没有就空。见 ARCHITECTURE 6.1 */
+  private async handoff(conv: Conversation, history: Message[], userName: string, charName: string): Promise<string> {
+    const other = await repo.otherConversation(conv);
+    if (!other) return '';
+    // 这条会话上一次有来有回到哪：末尾你刚发、他还没回的几句不算（它们比那边的新，但那边的事发生在它们之前）
+    const settled = history.filter((m) => !isContext(m));
+    while (settled.length && settled.at(-1)!.role === 'user') settled.pop();
+    const mine = settled.at(-1)?.ts ?? 0;
+    const theirs = (await repo.messagesOf(other.id)).filter((m) => !isContext(m) && m.role !== 'system' && m.ts > mine);
+    if (!theirs.length) return '';
+    const lines = theirs.slice(-8).map((m) => `${m.role === 'user' ? userName : charName}：${modelTextOf(m).trim()}`).filter((l) => !l.endsWith('：'));
+    if (!lines.length) return '';
+    const tag = other.kind === 'scene' ? '刚才线下' : '刚才在手机上';
+    return `<${tag}>\n${lines.join('\n')}\n</${tag}>`;
   }
 
   /** 角色卡页「导出这一局的上下文」：下一轮实际会发的请求 + 每样设定进了哪里、没进的原因 + 原始设定 */
@@ -234,7 +264,7 @@ class ChatEngine {
   }
 
   private async runTurn(conversationId: string) {
-    const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, userName, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
+    const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, userName, mode, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
 
     const abort = new AbortController();
     // 地点、情绪、时钟是覆盖写：记下这一轮开始时的样子，撤回这一轮时退回去
@@ -280,7 +310,8 @@ class ChatEngine {
       if (r.refusal) {
         batch.push({ role: 'system', text: `（这条回复被安全策略拦下了${r.refusal.category ? '：' + r.refusal.category : ''}）` });
       } else if (text || cards.length) {
-        const parts = splitReply(text);
+        // 线上按行拆成几条微信；线下一段叙事就是一条
+        const parts = mode === 'online' ? splitReply(text) : text ? [text] : [];
         const { cards: metaCards, ...rest } = meta;
         parts.forEach((part, i) => {
           // 卡片挂在第一条（先分享再评论），其余 meta（工具、思考）挂在最后一条

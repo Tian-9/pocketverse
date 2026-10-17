@@ -6,7 +6,7 @@
   import { nav } from '$kernel/nav/nav.svelte';
   import { chat } from '$kernel/chat/engine.svelte';
 
-  interface Row { id: string; name: string; avatar?: Blob; last: string; ts: number }
+  interface Row { id: string; name: string; avatar?: Blob; last: string; ts: number; offline: boolean }
   const rows = live(async (): Promise<Row[]> => {
     // 一个角色一行：只列他当前这一局的会话，别的世界的局不出现
     const current = await repo.currentCampaignIds();
@@ -17,7 +17,8 @@
       if (!ch) continue;
       // 追加段（给模型看的隐藏快照）不当最后一条
       const last = await db().messages.where('conversationId').equals(cv.id).reverse().filter((m) => !m.meta?.context).first();
-      out.push({ id: cv.id, name: ch.name, avatar: ch.avatar, last: last ? previewOf(last) : '', ts: last?.ts ?? 0 });
+      // 线下会话（面对面推剧情）单独一行，标出来；空的线下会话也列着，不然建了找不到
+      out.push({ id: cv.id, name: ch.name, avatar: ch.avatar, last: last ? previewOf(last) : '', ts: last?.ts ?? 0, offline: cv.kind === 'scene' });
     }
     return out.sort((a, b) => b.ts - a.ts);
   }, []);
@@ -39,8 +40,8 @@
       <button class="row" onclick={() => nav.push('chat', 'conversation', { id: r.id })}>
         <Avatar blob={r.avatar} name={r.name} size={52} />
         <span class="text">
-          <span class="line1"><span class="name">{r.name}</span><span class="time">{when(r.ts)}</span></span>
-          <span class="last">{chat.statusOf(r.id) !== 'idle' ? '正在输入…' : r.last || '开始对话'}</span>
+          <span class="line1"><span class="name">{r.name}{#if r.offline}<span class="tag">线下</span>{/if}</span><span class="time">{when(r.ts)}</span></span>
+          <span class="last">{chat.statusOf(r.id) !== 'idle' ? (r.offline ? '…' : '正在输入…') : r.last || (r.offline ? '写一句开场，在哪、什么情况' : '开始对话')}</span>
         </span>
       </button>
     {/each}
@@ -55,6 +56,7 @@
   .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .line1 { display: flex; justify-content: space-between; align-items: baseline; }
   .name { font-size: 17px; font-weight: 600; }
+  .tag { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--tint); border: 1px solid var(--tint); border-radius: 4px; padding: 0 4px; vertical-align: 2px; }
   .time { font-size: 14px; color: var(--label-2); font-variant-numeric: tabular-nums; }
   .last { font-size: 15px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

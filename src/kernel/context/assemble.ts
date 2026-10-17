@@ -1,5 +1,5 @@
 import type { ChatMessage, TextBlock } from '../llm/types';
-import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, Message, World } from '../storage/db';
+import type { Campaign, Character, ConversationMode, EpisodicMemory, LoreEntry, LoreOverlay, Message, World } from '../storage/db';
 import { modelTextOf } from '../data/repo';
 import { triggerL1 } from './l1';
 import { expandMacros } from './macros';
@@ -41,8 +41,10 @@ export interface AssembleInput {
   hasWeb?: boolean;
   /** 有 handle_attached 工具（有插件登记了依附的事） */
   hasAttach?: boolean;
-  /** 自定义对话规则，空则用默认 */
+  /** 自定义对话规则，空则用默认（按 mode 选 DEFAULT_RULES / OFFLINE_RULES） */
   rules?: string;
+  /** 线上（手机聊天，默认）还是线下（面对面推剧情）。决定默认规则，过滤只在一边生效的风格条目。见 ARCHITECTURE 6.1 */
+  mode?: ConversationMode;
   /** 这局的钟和真实时间对不上（跳过了、或停表）：时间行标「剧情时间」 */
   story?: boolean;
 }
@@ -57,6 +59,21 @@ export const DEFAULT_RULES = [
   '不要反复提同一个梗、同一件事，前面说过的话不要换个说法再说一遍。对方推进了时间，之前的话题就是过去的事，按新的时间点说话。',
   '用中文回复，除非角色设定要求其他语言。',
 ].join('\n');
+
+/** 线下（面对面推剧情）的默认规则：小说写法，一次推进一点。和线上的 DEFAULT_RULES 二选一，按会话模式来 */
+export const OFFLINE_RULES = [
+  '你在扮演一个角色，此刻和{{user}}面对面在一起。这是线下的场景，不是手机聊天：用小说的写法，写角色的动作、神态、说的话和周围的环境。',
+  '始终以角色的身份和视角写，不要跳出角色解释自己是 AI。',
+  '角色说的话放在「」里；动作、神态、环境用叙述。第三人称写角色，用「你」称呼{{user}}。',
+  '一次回复一到三段、一两百字，推进一点就停，把回应的空间留给{{user}}。不要一口气演完一整场，不要替剧情下结论。',
+  '{{user}}发来的可能是说的话，也可能是动作或旁白（括号、星号或直接叙述），都当作真的发生了，接着往下演。',
+  '不要替{{user}}说话、决定{{user}}的行动或感受。',
+  '不要反复提同一个梗、同一件事，前面写过的不要换个说法再写一遍。对方推进了时间或换了场景，之前的事就是过去的事。',
+  '用中文回复，除非角色设定要求其他语言。',
+].join('\n');
+
+/** 这个模式的默认规则 */
+export const defaultRules = (mode: ConversationMode = 'online') => (mode === 'offline' ? OFFLINE_RULES : DEFAULT_RULES);
 
 /** 追加段（context/append.ts）的读法：完整快照，同一种以最后出现的为准 */
 export const APPEND_RULE = '对话里夹着的尖括号段落（如 <钱包>、<商店>）是系统记下的当时的情况，对方看不到。每一段都是完整的，同一种以最后出现的那段为准，前面的已经过时。';
@@ -134,9 +151,11 @@ function stateText(c: Campaign, chars: Character[], lines: string[] = []): strin
  * 缓存断点两处：system 末尾、倒数第二条消息末尾。易变内容只进最后一条用户消息，排在用户的话前面。
  */
 export function assemble(input: AssembleInput): { system: TextBlock[]; messages: ChatMessage[]; l1Hits: string[]; /** L1 扫描用的文本 */ l1Scan: string; /** 窗口和章节截断之后剩下的历史（排查用） */ recent: Message[] } {
-  const { windowSize = 60, chapterTail = 6, scanDepth = 4, now = new Date() } = input;
+  const { windowSize = 60, chapterTail = 6, scanDepth = 4, now = new Date(), mode = 'online' } = input;
   const isStyle = (e: LoreEntry) => e.kind === 'style';
   const loreOnly = input.lore.filter((e) => !isStyle(e));
+  // 风格条目可以只在线上或线下生效；标了另一边的在这条会话里当不存在
+  input = { ...input, lore: input.lore.filter((e) => !isStyle(e) || !e.mode || e.mode === mode) };
   const constant = loreOnly.filter((e) => e.enabled && e.constant).sort((a, b) => a.order - b.order);
   const constantStyleAll = input.lore.filter((e) => isStyle(e) && e.enabled && e.constant).sort((a, b) => a.order - b.order);
   const constantStyle = constantStyleAll.filter((e) => e.position !== 'tail');
@@ -169,7 +188,7 @@ export function assemble(input: AssembleInput): { system: TextBlock[]; messages:
   // 所有段，内核的和外面给的放在一起排
   const sections = [
     // ---- cached：又大又几乎不变 ----
-    cachedSec('rules', ORDER.rules, '规则', (input.rules?.trim() || DEFAULT_RULES) + '\n' + APPEND_RULE + (input.hasTools ? '\n\n' + toolRules(input) : '')),
+    cachedSec('rules', ORDER.rules, '规则', (input.rules?.trim() || defaultRules(mode)) + '\n' + APPEND_RULE + (input.hasTools ? '\n\n' + toolRules(input) : '')),
     cachedSec('style', ORDER.style, '写作风格与附加指令', constantStyle.map((e) => `## ${e.title}\n${e.content}`).join('\n\n')),
     // 名字只在这里写死一次，其余一律 {{user}}，最后统一换成这一局的名字
     cachedSec('user', ORDER.user, '对方', `和你聊天的人叫「{{user}}」。${input.campaign.userPersona?.trim() ? '\n在这个世界里，{{user}}是：' + input.campaign.userPersona.trim() : ''}${input.userProfile ? '\n' + input.userProfile : ''}`),

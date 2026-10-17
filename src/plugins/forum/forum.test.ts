@@ -127,7 +127,7 @@ describe('forum refresh', () => {
   });
 });
 
-const pctx: PromptContext = { campaignId: 'cp3', conversationId: 'cv', characterIds: ['ch1'], now: Date.now() };
+const pctx: PromptContext = { campaignId: 'cp3', conversationId: 'cv', mode: 'online', characterIds: ['ch1'], now: Date.now() };
 const cctx: CatchupContext = { campaignId: 'cp3', characterId: 'ch1', characterName: '阿一', elapsedMs: 8 * 3600_000, from: Date.now() - 8 * 3600_000, to: Date.now(), now: Date.now(), days: 0, tier: 'h6', elapsedText: '大约 8 小时' };
 const tool = (name: string) => tools.find((t) => t.name === name)!;
 

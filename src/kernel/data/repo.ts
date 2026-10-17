@@ -124,6 +124,21 @@ export const repo = {
     return out;
   },
 
+  /** 角色的线下会话（面对面推剧情），没有就建。第一次是空的，你先写开场。见 ARCHITECTURE 6.1 */
+  async sceneConversation(character: Character, pluginId = 'chat'): Promise<Conversation> {
+    const campaign = await this.campaignFor(character);
+    const found = await db().conversations.where('campaignId').equals(campaign.id).filter((c) => c.kind === 'scene' && c.pluginId === pluginId).first();
+    if (found) return found;
+    const conv: Conversation = { id: ulid(), campaignId: campaign.id, kind: 'scene', participantIds: [character.id], pluginId };
+    await db().conversations.add(conv);
+    return conv;
+  },
+  /** 同一局里的另一条：线上的另一条是线下，反之亦然；没有就 undefined */
+  async otherConversation(conv: Conversation): Promise<Conversation | undefined> {
+    const kind = conv.kind === 'scene' ? 'direct' : 'scene';
+    return db().conversations.where('campaignId').equals(conv.campaignId).filter((c) => c.kind === kind && c.pluginId === conv.pluginId).first();
+  },
+
   /** 角色的私聊会话，没有就建，并写入开场白。 */
   async directConversation(character: Character, pluginId = 'chat'): Promise<Conversation> {
     const campaign = await this.campaignFor(character);

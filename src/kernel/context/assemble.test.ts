@@ -196,3 +196,23 @@ describe('assemble (story clock)', () => {
     expect(tail.trim().endsWith('嗨')).toBe(true);
   });
 });
+
+describe('offline (scene) mode', () => {
+  it('uses the offline rules and drops style entries bound to the other mode', () => {
+    const styles: LoreEntry[] = [
+      { id: 's-on', worldId: 'global', title: '手机口吻', summary: '', content: '多用表情', scope: 'world', kind: 'style', triggers: { keywords: [] }, constant: true, order: 0, enabled: true, mode: 'online' },
+      { id: 's-off', worldId: 'global', title: '叙事口吻', summary: '', content: '多写环境', scope: 'world', kind: 'style', triggers: { keywords: [] }, constant: true, order: 1, enabled: true, mode: 'offline' },
+      { id: 's-both', worldId: 'global', title: '通用', summary: '', content: '别啰嗦', scope: 'world', kind: 'style', triggers: { keywords: [] }, constant: true, order: 2, enabled: true },
+    ];
+    const on = assemble({ ...base, lore: [...lore, ...styles], history: [], userText: '嗨' });
+    const off = assemble({ ...base, lore: [...lore, ...styles], history: [], userText: '嗨', mode: 'offline' });
+    const sys = (r: ReturnType<typeof assemble>) => r.system.map((b) => b.text).join('\n');
+    expect(sys(on)).toContain('在手机上聊天');
+    expect(sys(on)).toContain('多用表情'); expect(sys(on)).not.toContain('多写环境'); expect(sys(on)).toContain('别啰嗦');
+    expect(sys(off)).toContain('面对面');
+    expect(sys(off)).toContain('放在「」里');
+    expect(sys(off)).toContain('多写环境'); expect(sys(off)).not.toContain('多用表情'); expect(sys(off)).toContain('别啰嗦');
+    // 自定义规则照样按模式传进来
+    expect(sys(assemble({ ...base, history: [], userText: '嗨', mode: 'offline', rules: '我的线下规则' }))).toContain('我的线下规则');
+  });
+});

@@ -20,6 +20,7 @@
 - 用户主动发的东西（歌、红包…）走「+」面板 `composerActions`，产出 `OutgoingMessage`；插件工具往回复里放卡片用 `ctx.addCard`，不要新造消息类型。
 - 插件只能 import `$kernel/api`，不能 import 内核内部模块或其他插件；跨插件跳转走 `nav.push(pluginId, screen, params)`。读存档、世界、角色、记忆、条目目录走 `ctx.data`（只读快照），界面响应式查询用 `$kernel/api` 的 `live`。`ctx.data` 缺什么就加到它上面，别绕过去读 `db()`。
 - 有副作用的写入（扣钱、建订单、记日程、发动态…）一律带来源：工具和输出标签用 `PromptContext.sourceId`（这一轮的 turnId），「+」面板用 `ComposerActionProps.sourceId`（这条消息的 id），插件登记 `retract` 按来源删。钱只走 `wallet` 服务并带上 `sourceId`。删消息、重新生成走 `chat.deleteMessage(s)` / `regenerate`，不要直接删 messages 表（见 ARCHITECTURE 5.12）。
+- 一局两条会话：线上（`kind: 'direct'`，手机聊天）和线下（`kind: 'scene'`，面对面推剧情），模式决定规则和能力（ARCHITECTURE 6.1）。手机上才有的东西（发红包、买东西、发朋友圈、拍一拍、分享）工具和段都标 `modes: ['online']`；两边都该有的（世界书、记忆、状态、日历、天气）不标。整理进度按会话记在 `Campaign.consolidated[conversationId]`，不要再读 `consolidatedUpTo`。
 - 「现在几点」一律问存档时钟：插件用 `ctx.data.campaign().now` / `PromptContext.now`，内核用 `clock.now(cp.clock)`，不要 `Date.now()`（真实局两者一样，跳过时间或停表的局就不一样了）。
 - 调模型不要写死模型名和 effort：内核按 `purpose` 归档（`llm/roles.ts`），插件用 `cheap: true` 选批量档，用户在设置里按档位选模型和思考深度。
 - 模型写的 SVG 一律先 `sanitizeSvg`（`$kernel/api`）再存，显示只用 `Picture` 组件或分享卡 `cover`，不要把模型给的字符串内联进页面。

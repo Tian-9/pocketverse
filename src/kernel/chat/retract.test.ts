@@ -82,7 +82,7 @@ describe('retract by source', () => {
     const mem: EpisodicMemory = { id: 'mx', campaignId: cp, when: '', text: '吃了烤冷面', importance: 2, sourceMessageIds: ['x1', 'x2'], createdAt: 0 };
     await db().memories.add(mem);
     await applyPatches(cp, [{ entity: '烤冷面', attr: '归属', value: '吃掉了' }], { source: 'x2', at: 1 });
-    await db().campaigns.update(cp, { consolidatedUpTo: x2!.ts, batches: [{ id: 'x2', conversationId: cv, from: 0, to: x2!.ts }] });
+    await db().campaigns.update(cp, { consolidated: { [cv]: { upTo: x2!.ts } }, batches: [{ id: 'x2', conversationId: cv, from: 0, to: x2!.ts }] });
     // 没整理过的消息：不碰批次
     await removeMessages([x3!]);
     expect(await db().memories.get('mx')).toBeDefined();

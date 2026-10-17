@@ -134,6 +134,7 @@ export default definePlugin({
   profileSections: [{ id: 'latest', component: MomentsSection }],
   promptContributors: [{
     id: 'recent-moments',
+    modes: ['online'],
     // 几天才变一次（发了新的、你点赞评论了）：变了才追加进历史，不每轮在尾巴里全价重发
     async append(p: PromptContext) {
       // 只带最近两天（剧情钟）的和还没回评论的，老动态他自己翻，不然每轮都看到同一条就反复提
@@ -147,6 +148,7 @@ export default definePlugin({
   tools: [{
     name: 'moments_post',
     label: '发朋友圈',
+    modes: ['online'],
     description: '发一条朋友圈动态。只在角色真的想发的时候用，比如聊到一件值得记录的事，或者想让用户在朋友圈看到什么。一轮最多一条。',
     inputSchema: { type: 'object', properties: { text: { type: 'string', description: '动态正文，一两句话' } }, required: ['text'] },
     async handler(input: unknown, p: PromptContext) {

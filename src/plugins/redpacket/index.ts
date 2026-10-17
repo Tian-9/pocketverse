@@ -195,6 +195,7 @@ export default definePlugin({
   tools: [{
     name: 'redpacket_send',
     label: '发红包',
+    modes: ['online'],
     description: '给对方发一个红包，带一句留言。只在角色真的有理由发的时候用：节日、庆祝、道歉、还钱、心血来潮都行，但不要每轮都发。金额 0.01 到 520。',
     inputSchema: { type: 'object', properties: { amount: { type: 'number', minimum: 0.01, maximum: 520 }, note: { type: 'string', description: '红包上的一句话' } }, required: ['amount', 'note'] },
     async handler(input: unknown, p: PromptContext) {
@@ -213,6 +214,7 @@ export default definePlugin({
   }, {
     name: 'transfer_send',
     label: '转账',
+    modes: ['online'],
     description: '给对方转一笔钱，金额明摆着，可以附一句备注。和红包的区别：红包是送礼、图个热闹；转账是付钱、还钱、AA、借钱这种正经给钱。对方要点「收款」才到账，也可能退回来。金额 0.01 到 50000。',
     inputSchema: { type: 'object', properties: { amount: { type: 'number', minimum: 0.01, maximum: 50000 }, note: { type: 'string', description: '转账备注，可不填' } }, required: ['amount'] },
     async handler(input: unknown, p: PromptContext) {
@@ -231,6 +233,7 @@ export default definePlugin({
   }, {
     name: 'transfer_refund',
     label: '退回转账',
+    modes: ['online'],
     description: '把对方最近转给你、你还没收的那笔转账退回去。不想收他的钱（不要你的钱、这钱不该我收、太多了）就用这个；不调的话这轮回复完会自动收下。',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     async handler(_input: unknown, p: PromptContext) {
@@ -244,6 +247,7 @@ export default definePlugin({
   outputHandlers: [{ tag: 'redpacket', component: RedPacketCard }, { tag: 'transfer', component: TransferCard }],
   promptContributors: [{
     id: 'packets',
+    modes: ['online'],
     // 变了才追加进历史。只给余额和还没处理的：发过、领过的聊天记录里已经有卡片的文字版，再列一遍是重复，
     // 而且状态一变（刚收到→领了）就得重写一份快照
     async append(p: PromptContext) {

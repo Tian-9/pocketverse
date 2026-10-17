@@ -35,7 +35,7 @@
   const myName = $derived(campaign.value?.userName?.trim() || chat.userName);
   const liveTurn = $derived(chat.live[id]);
   // 流式时就按存库用的同一个 splitReply 分成几个气泡，生成完不会跳变
-  const liveParts = $derived(liveTurn?.text ? splitReply(liveTurn.text) : []);
+  const liveParts = $derived(liveTurn?.text ? (conv.value?.kind === 'scene' ? [liveTurn.text] : splitReply(liveTurn.text)) : []);
   // 这一轮结束到存好的几条出现在列表里之间有一两帧空档：先留着最后一帧的气泡，列表变长了再撤
   let ghost = $state<{ parts: string[]; count: number } | null>(null);
   const shownParts = $derived(liveTurn ? liveParts : (ghost?.parts ?? []));
@@ -73,7 +73,17 @@
     if (note) meta.note = note;
     await chat.send(id, withNote(msg.text, note), { id: msgId, ...(Object.keys(meta).length ? { meta } : {}) });
   }
-  const wechat = $derived(theme.chatStyle === 'wechat');
+  // 线下（面对面推剧情）：一段叙事一个气泡，不拆条、没有「+」面板，样式像读小说（ARCHITECTURE 6.1）
+  const offline = $derived(conv.value?.kind === 'scene');
+  const wechat = $derived(theme.chatStyle === 'wechat' && !offline);
+  /** 线上↔线下：同一局另一条会话，没有就建 */
+  async function switchMode() {
+    const ch = character.value; if (!ch) return;
+    menu = false;
+    const other = offline ? await repo.directConversation(ch) : await repo.sceneConversation(ch);
+    await nav.pop();
+    nav.push('chat', 'conversation', { id: other.id });
+  }
   // 推进时间：快捷项按这局的钟算，也能自己选一个时刻
   let timeSheet = $state(false);
   let timeWhen = $state('');
@@ -191,8 +201,8 @@
   }
 </script>
 
-<div class="conv" class:wechat>
-  <NavBar title={character.value?.name ?? '…'} back="信息">
+<div class="conv" class:wechat class:offline>
+  <NavBar title={character.value ? character.value.name + (offline ? ' · 线下' : '') : '…'} back="信息">
     {#snippet right()}
       <button class="iconbtn" onclick={() => (menu = true)} aria-label="更多"><Glyph paths={['M5 12h.01M12 12h.01M19 12h.01']} size={22} color="var(--tint)" width={3} /></button>
     {/snippet}
@@ -244,17 +254,17 @@
     <div class="quoting"><span class="qtext">{quoteLabel(quoting)}</span><button class="qclose" onclick={() => (quoting = null)} aria-label="取消引用">✕</button></div>
   {/if}
   <div class="composer">
-    {#if actions.length}
+    {#if actions.length && !offline}
       <button class="plus" class:open={panel} onclick={() => (panel = !panel)} aria-label="更多功能"><Glyph paths={icons.plus} size={22} color={wechat ? 'var(--label)' : 'var(--tint)'} width={2.2} /></button>
     {/if}
-    <textarea bind:this={textarea} bind:value={draft} placeholder={wechat ? '' : '信息'} rows="1" oninput={grow} onkeydown={onKey} onfocus={() => (panel = false)} enterkeyhint="send"></textarea>
+    <textarea bind:this={textarea} bind:value={draft} placeholder={offline ? (shown.length ? '你说的话，或你做的事' : '开场：在哪，什么情况') : wechat ? '' : '信息'} rows="1" oninput={grow} onkeydown={onKey} onfocus={() => (panel = false)} enterkeyhint="send"></textarea>
     {#if status !== 'idle'}
       <button class="send stop" onclick={() => chat.stop(id)} aria-label="停止"><span></span></button>
     {:else}
       <button class="send" onclick={send} disabled={!draft.trim()} aria-label="发送"><Glyph paths={['M12 19V5', 'm5 12 7-7 7 7']} size={20} color="#fff" width={2.6} /></button>
     {/if}
   </div>
-  {#if panel && actions.length}
+  {#if panel && actions.length && !offline}
     <div class="panel">
       {#each actions as a (a.pluginId + '/' + a.id)}
         <button class="act" onclick={() => openAction(a)}>
@@ -277,6 +287,7 @@
 <Sheet bind:open={menu} title={character.value?.name}>
   <List>
     <Cell title="重新生成最后一条" onclick={() => { menu = false; chat.regenerate(id); }} />
+    <Cell title={offline ? '回到手机' : '转到线下'} subtitle={offline ? '回去手机上聊，他知道刚才线下发生了什么' : '面对面推剧情：小说写法，他写动作神态和话，你写你说的和做的'} onclick={switchMode} />
     <Cell title="推进时间…" subtitle="跳到明早、三天后，角色会接着那个时间点说话" onclick={() => { menu = false; openTimeSheet(); }} />
     <Cell title="他的主页" subtitle="状态、钱包、朋友圈、他记得什么" onclick={() => { menu = false; openProfile(); }} />
     <Cell title="编辑角色卡" onclick={() => { menu = false; if (character.value) nav.push('characters', 'detail', { id: character.value.id }); }} />
@@ -346,6 +357,16 @@
   .plus.open { transform: rotate(45deg); }
   .panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 8px; padding: 14px 16px calc(var(--safe-bottom) + 14px); background: var(--bg-grouped); border-top: 0.5px solid var(--separator); }
   .act { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: var(--label-2); }
+
+  /* 线下：像读小说。他的叙事占满一行、不要气泡感；你的那段靠右、淡一点 */
+  .conv.offline .msgs { gap: 14px; padding: 14px 16px; }
+  .conv.offline .msg { max-width: 100%; align-items: flex-start; }
+  .conv.offline .msg.assistant .avatar-btn { display: none; }
+  .conv.offline .bubble { border-radius: 10px; font-size: 16px; line-height: 1.65; padding: 10px 14px; }
+  .conv.offline .assistant .bubble { background: transparent; color: var(--label); padding: 0 2px; }
+  .conv.offline .msg.user { max-width: 85%; }
+  .conv.offline .user .bubble { background: var(--fill-2); color: var(--label); }
+  .conv.offline textarea { border-radius: 12px; }
 
   /* 微信样式：灰底、绿白气泡、两边头像、方一点的角 */
   .conv.wechat { --wx-bg: #ededed; --wx-bar: #f7f7f7; }

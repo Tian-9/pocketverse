@@ -1,6 +1,8 @@
 import type { Component } from 'svelte';
 import type { Table } from 'dexie';
 import type { ShareResolver } from '../share/types';
+import type { ConversationMode } from '../storage/db';
+export type { ConversationMode };
 
 export type { ShareCard, ShareQuery, ShareResult, ShareResolver, ShareContext } from '../share/types';
 
@@ -91,11 +93,15 @@ export interface PromptContributor {
   append?: (ctx: PromptContext) => string | Promise<string>;
   /** 同一位置内的先后，小的在前。不给：stable 800、volatile 500。内核各段的位置见 context/assemble.ts 的 ORDER（时间行 900 固定最后） */
   order?: number;
+  /** 只在这些模式的会话里给；不填两边都给。手机上的东西（钱包、朋友圈）标 ['online'] */
+  modes?: ConversationMode[];
 }
 
 export interface PromptContext {
   campaignId: string;
   conversationId: string;
+  /** 这条会话是线上（手机聊天）还是线下（面对面推剧情），见 ARCHITECTURE 6.1 */
+  mode: ConversationMode;
   characterIds: string[];
   /** 这一轮的剧情此刻（存档时钟，毫秒）。插件要「现在几点」用它，不要自己 Date.now() */
   now: number;
@@ -182,6 +188,8 @@ export interface ToolDef {
   description: string;
   inputSchema: Record<string, unknown>;
   handler: (input: unknown, ctx: PromptContext) => Promise<unknown>;
+  /** 只在这些模式的会话里给模型；不填两边都给。线下没有手机：发红包、买东西、发朋友圈标 ['online'] */
+  modes?: ConversationMode[];
 }
 
 export interface OutputHandler {

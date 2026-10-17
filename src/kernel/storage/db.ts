@@ -15,6 +15,8 @@ export interface LoreEntry {
   kind?: 'lore' | 'style';
   /** 风格指令的位置：system（规则后面，默认）或 tail（对话历史之后、你这句之前，模型最听这里的） */
   position?: 'system' | 'tail';
+  /** 风格指令只在线上 / 线下生效；不填两边都生效（见 ARCHITECTURE 6.1） */
+  mode?: ConversationMode;
   /** 所属预设（风格包）名，整包可以一起开关、导出 */
   preset?: string;
   triggers: { keywords: string[]; regex?: string; recursive?: boolean };
@@ -55,21 +57,26 @@ export interface Campaign {
   userName?: string;
   /** 这局的第 1 天（剧情时刻）。Day N 从这里数（context/days.ts）；开局时记，老存档由 v9 迁移补 */
   storyStart?: number;
-  /** 上次合并处理到的消息 ts */
+  /** 旧字段：上次合并处理到的消息 ts。v11 起按会话记在 consolidated 里，这两个只在迁移时读 */
   consolidatedUpTo?: number;
   /** 上次补发的时间，和 lastPlayedAt 一起决定下次补发的档位 */
   catchupAt?: number;
   /** 上次互动 / 上次补发时的剧情时刻：补发按剧情时长算（停表的局你不来他不动；跳过时间算他过了那段） */
   playedStoryTs?: number; catchupStoryTs?: number;
-  /** 上次整理失败（出错或预览里取消）时处理到的消息 ts；之后再攒够一批回复才会再试 */
+  /** 旧字段，见 consolidatedUpTo */
   consolidateFailedAt?: number;
+  /** 每条会话的整理进度：upTo 是处理到的消息 ts；failedAt 是上次失败（出错或预览里取消）时处理到的 ts，之后再攒够一批回复才会再试 */
+  consolidated?: Record<string, { upTo: number; failedAt?: number }>;
   /** 整理过的批次（最近的在后）：id 是这批最后一条消息的 id（也是那批硬事实的 source），范围是 (from, to] 的消息 ts */
   batches?: ConsolidateBatch[];
   /** 被删了消息、已经撤回、等着重新整理的范围。下次整理检查时先做 */
   redo?: { conversationId: string; from: number; to: number }[];
 }
 export interface ConsolidateBatch { id: string; conversationId: string; from: number; to: number }
-export interface Conversation { id: string; campaignId: string; kind: string; participantIds: string[]; pluginId: string }
+/** direct：线上（手机聊天）；scene：线下（面对面推剧情，见 ARCHITECTURE 6.1）。同一局两条会话共用记忆、状态、时钟 */
+export interface Conversation { id: string; campaignId: string; kind: 'direct' | 'scene'; participantIds: string[]; pluginId: string }
+export type ConversationMode = 'online' | 'offline';
+export const modeOf = (c: Pick<Conversation, 'kind'>): ConversationMode => (c.kind === 'scene' ? 'offline' : 'online');
 export interface Message {
   id: string; conversationId: string; role: 'user' | 'assistant' | 'system';
   content: unknown[]; ts: number; tokens?: number;
@@ -122,7 +129,7 @@ const KERNEL_SCHEMA: Record<string, string> = {
 };
 
 /** 内核表结构改动时递增 */
-const KERNEL_VERSION = 10;
+const KERNEL_VERSION = 11;
 
 export class PocketDB extends Dexie {
   worlds!: Table<World, string>;
@@ -188,6 +195,13 @@ export class PocketDB extends Dexie {
         if (m.storyTs !== undefined || !m.sourceMessageIds?.length) continue;
         const src = ((await tx.table('messages').bulkGet(m.sourceMessageIds)) as (Message | undefined)[]).filter((x): x is Message => !!x);
         if (src.length) await tx.table('memories').update(m.id, { storyTs: Math.max(...src.map(msgTs)) });
+      }
+      // v11：整理进度按会话记。老的挪到线上那条（聊天插件的 direct 会话）。可重复跑
+      for (const c of (await tx.table('campaigns').toArray()) as Campaign[]) {
+        if (c.consolidated !== undefined || c.consolidatedUpTo === undefined) continue;
+        const direct = ((await tx.table('conversations').where('campaignId').equals(c.id).toArray()) as Conversation[]).find((x) => x.kind === 'direct' && x.pluginId === 'chat');
+        const consolidated = direct ? { [direct.id]: { upTo: c.consolidatedUpTo, ...(c.consolidateFailedAt !== undefined ? { failedAt: c.consolidateFailedAt } : {}) } } : {};
+        await tx.table('campaigns').update(c.id, { consolidated, consolidatedUpTo: undefined, consolidateFailedAt: undefined });
       }
       // v10：整理批次。老记忆的 sourceMessageIds 就是那一批，最后一条的 id 当批次 id（老的硬事实 source 也是它）。可重复跑（有了就不动）
       for (const c of (await tx.table('campaigns').toArray()) as Campaign[]) {

@@ -91,6 +91,7 @@ export function buildReport(r: ReportInput): string {
   out.push(`这一局：「${cp.name}」，世界「${world.name}」，你在这局叫「${input.userName}」。下面是**下一轮聊天实际会发的请求**（还没发，你下一句话没算进去），以及每样设定进了哪里、没进的原因。`, '');
   out.push('## 一眼看', '');
   out.push('| 项 | 值 |', '|---|---|');
+  out.push(`| 会话 | ${input.mode === 'offline' ? '线下（面对面推剧情，用线下规则）' : '线上（手机聊天）'} |`);
   out.push(`| 对话档模型 | ${r.settings.model} · ${r.settings.effort} |`);
   out.push(`| 工具 | ${r.settings.tools ? `开（${r.toolNames.length} 个）` : '**关**：世界书全文、完整设定、非三星记忆模型都读不到'} |`);
   out.push(`| 联网 | ${r.settings.web ? '开' : '关'} |`);

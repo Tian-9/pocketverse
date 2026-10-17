@@ -42,6 +42,7 @@ const thing = (o: Order) => `${o.name}${o.buyer === 'user' && o.to === 'char' ? 
 export const tools: ToolDef[] = [
   {
     name: 'shop_browse',
+    modes: ['online'],
     label: '逛商店',
     description: '逛这个世界的购物 App。不带参数看货架概览（带编号）；带 query 搜商品（没有的店家会现找）；带 n 看某一件的详情。只在聊到买东西、送礼、或者想看看有什么的时候用。',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: '关键词，可不填' }, n: { type: 'integer', description: '上一次列表里的编号，看这一件' } } },
@@ -62,6 +63,7 @@ export const tools: ToolDef[] = [
   {
     name: 'shop_buy',
     label: '买东西',
+    modes: ['online'],
     description: '买 shop_browse 列表里的第 n 件。给自己买就只给 n；buy_for_them 为 true 是买下送给对方（可附一句 note），对方会直接收到。钱从你自己的钱包扣，不够就买不了。只在真的想买的时候用，一轮最多一次。',
     inputSchema: { type: 'object', properties: { n: { type: 'integer', description: '列表里的编号' }, buy_for_them: { type: 'boolean', description: '送给对方' }, note: { type: 'string', description: '送礼附的一句话' } }, required: ['n'] },
     async handler(input: unknown, p: PromptContext) {

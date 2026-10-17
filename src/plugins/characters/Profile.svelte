@@ -68,9 +68,9 @@
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
   type Section = ProfileSection & { pluginId: string };
   const sections = $derived<Section[]>(registry.plugins.filter((p) => registry.isEnabled(p.id)).flatMap((p) => (p.profileSections ?? []).map((s) => ({ ...s, pluginId: p.id }))));
-  async function startChat() {
+  async function startChat(offline = false) {
     const ch = character.value; if (!ch) return;
-    const conv = await repo.directConversation(ch);
+    const conv = offline ? await repo.sceneConversation(ch) : await repo.directConversation(ch);
     await nav.home();
     nav.push('chat', 'app');
     nav.push('chat', 'conversation', { id: conv.id });
@@ -240,7 +240,8 @@
     </List>
   {/if}
   <div class="actions">
-    <Button onclick={startChat}>发消息</Button>
+    <Button onclick={() => startChat()}>发消息</Button>
+    <Button kind="tinted" onclick={() => startChat(true)}>线下见面</Button>
     <Button kind="tinted" onclick={consolidateNow} disabled={busy}>{busy ? '整理中…' : '现在整理记忆'}</Button>
     <Button kind="plain" onclick={() => openMem(null)}>手写一条记忆</Button>
     <Button kind="plain" onclick={() => nav.push('lore', 'overlays')}>查看本局世界变化</Button>
