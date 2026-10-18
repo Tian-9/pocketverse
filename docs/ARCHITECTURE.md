@@ -167,7 +167,7 @@ interface Message {
 // 不让模型从历史里推，由代码折叠成视图每轮注入（「当前事实」）。模型只给 {entity, attr, value}，旧值代码从视图取，
 // 没变的丢；每条带 source：整理挂那批最后一条消息 id，聊天里 state_update 挂这一轮的 turnId（回复的 meta.turn），手改是 manual。
 // 删消息、重新生成按 source 撤回（见 5.12），视图自动退回；手改清除是写一条空值，历史不丢。注入最多 20 条，按最近写入淘汰。
-// 类型和折叠函数在 annals/airp，存取在 kernel/memory/state.ts。
+// 类型和折叠函数在 annals/state，存取在 kernel/memory/state.ts。
 
 // 情节记忆：发生过什么
 interface EpisodicMemory {

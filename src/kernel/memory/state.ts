@@ -1,6 +1,6 @@
 import { EventLog } from 'annals';
 import { DexieEventStore } from 'annals/dexie';
-import { diffPatches, renderStateLines, stateView, type StatePatch, type StateSetEvent } from 'annals/airp';
+import { diffPatches, renderStateLines, stateView, type StatePatch, type StateSetEvent } from 'annals/state';
 import { db } from '../storage/db';
 import type { Table } from 'dexie';
 import type { EventRow } from 'annals/dexie';

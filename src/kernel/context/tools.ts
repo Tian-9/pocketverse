@@ -1,5 +1,5 @@
 import { ulid } from 'ulid';
-import { PATCHES_SCHEMA, parsePatches } from 'annals/airp';
+import { PATCHES_SCHEMA, parsePatches } from 'annals/state';
 import { db } from '../storage/db';
 import { applyPatches } from '../memory/state';
 import { toUserMacro } from './userref';

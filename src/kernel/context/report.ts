@@ -1,5 +1,5 @@
-import type { StateSetEvent } from 'annals/airp';
-import { liveEntries, stateView } from 'annals/airp';
+import type { StateSetEvent } from 'annals/state';
+import { liveEntries, stateView } from 'annals/state';
 import type { Campaign, Character, EpisodicMemory, LoreEntry, LoreOverlay, MemFile, Message, World } from '../storage/db';
 import type { ChatMessage, TextBlock } from '../llm/types';
 import type { AssembleInput } from './assemble';

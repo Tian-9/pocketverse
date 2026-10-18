@@ -15,7 +15,7 @@
   import { bus } from '$kernel/bus/bus';
   import { clock } from '$kernel/context/clock';
   import { applyPatches, loadState } from '$kernel/memory/state';
-  import { liveEntries, stateView, type StateSetEvent } from 'annals/airp';
+  import { liveEntries, stateView, type StateSetEvent } from 'annals/state';
   import { parseBag, type Bag } from 'annals';
   import { fromUserMacro, toUserMacro } from '$kernel/context/userref';
   import { dayOf, memoryWhen, storyStartOf } from '$kernel/context/days';

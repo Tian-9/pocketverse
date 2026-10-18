@@ -1,6 +1,6 @@
 import { ulid } from 'ulid';
 import { parseBag, rebuildIndex } from 'annals';
-import { BAG_SCHEMA, PATCHES_SCHEMA, parsePatches } from 'annals/airp';
+import { BAG_SCHEMA, PATCHES_SCHEMA, parsePatches } from 'annals/state';
 import { db } from '../storage/db';
 import { applyPatches, loadState, retractSource, stateLines } from './state';
 import { toUserMacro } from '../context/userref';
@@ -43,7 +43,7 @@ export const SCHEMA = {
 export interface ConsolidateOutput {
   memories: { text: string; day?: number; when: string; importance: 1 | 2 | 3; bag?: unknown }[];
   state: { location?: string; relation?: string; mood?: string };
-  /** 状态 patch，形状见 annals/airp 的 PATCHES_SCHEMA；代码侧 parsePatches 防呆 */
+  /** 状态 patch，形状见 annals/state 的 PATCHES_SCHEMA；代码侧 parsePatches 防呆 */
   patches?: unknown;
   overlays: { loreEntryId?: string; title: string; summary: string; content: string; reason?: string }[];
 }
