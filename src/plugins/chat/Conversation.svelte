@@ -212,7 +212,7 @@
 </script>
 
 <div class="conv" class:wechat class:offline>
-  <NavBar title={character.value ? character.value.name + (offline ? ' · 线下' : '') : '…'} back="信息">
+  <NavBar title={character.value ? character.value.name + (offline ? ' · 线下' : '') : '…'} back={offline ? '线下' : '信息'}>
     {#snippet right()}
       <button class="iconbtn" onclick={() => (menu = true)} aria-label="更多"><Glyph paths={['M5 12h.01M12 12h.01M19 12h.01']} size={22} color="var(--tint)" width={3} /></button>
     {/snippet}
