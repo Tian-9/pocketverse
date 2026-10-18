@@ -32,7 +32,7 @@
   async function like(p: Row) { await momentsApi.posts().update(p.id, { liked: !p.liked }); }
   async function comment() {
     const t = draft.trim(); if (!t || !commenting) return;
-    await momentsApi.comment(commenting, t);
+    await momentsApi.comment(commenting.id, t);
     draft = ''; commenting = null;
   }
   async function generateFor(campaignId: string, characterId: string) {

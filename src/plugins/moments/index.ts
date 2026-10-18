@@ -47,8 +47,10 @@ export const momentsApi = {
     ctx.emit('moments_posted', { postId: p.id, characterId: p.characterId });
     return p;
   },
-  /** 用户评论：挂起等角色下次"拿起手机"时处理 */
-  async comment(post: Post, text: string) {
+  /** 用户评论：挂起等角色下次"拿起手机"时处理。重新从库里读一遍再追加：界面传来的是 $state 代理，里面的旧评论直接存会 DataCloneError */
+  async comment(postId: string, text: string) {
+    const post = await ctx.table<Post>('posts').get(postId);
+    if (!post) return;
     await ctx.table<Post>('posts').update(post.id, { comments: [...post.comments, { by: 'user', text, ts: Date.now() }], pendingReply: true });
   },
   /** 手动：让角色现在发一条（补发走内核 catchup，不经这里） */
