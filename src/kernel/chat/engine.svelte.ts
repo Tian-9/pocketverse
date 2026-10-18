@@ -3,7 +3,7 @@ import { db, modeOf } from '../storage/db';
 import type { Message } from '../storage/db';
 import { loadState, stateLines } from '../memory/state';
 import { lastReply, rememberTurn, removeMessages, retract } from './retract';
-import { recallMemories, recallQuery } from '../memory/recall';
+import { recallMemories, recallQuery, recentlySurfaced } from '../memory/recall';
 import { appendTs, contextMessage, pendingAppends, visibleHistory, type AppendItem } from '../context/append';
 import { render } from '../llm/gate.svelte';
 import { buildReport } from '../context/report';
@@ -146,8 +146,8 @@ class ChatEngine {
     const userName = campaign.userName?.trim() || this.userName;
     // 近期要事：最近 10 条三星，常驻 system
     const highlights = allMemories.filter((m) => m.importance === 3).slice(-10);
-    // 自动召回：用你刚说的话搜情节记忆（不调模型），常驻的跳过，进最后一条消息
-    const recalled = recallMemories(allMemories, recallQuery(history), new Set(highlights.map((m) => m.id)));
+    // 自动召回：用你刚说的话搜情节记忆（不调模型），常驻的跳过，最近几轮带过的冷却，进最后一条消息
+    const recalled = recallMemories(allMemories, recallQuery(history), new Set(highlights.map((m) => m.id)), recentlySurfaced(history));
 
     const storyNow = clock.now(campaign.clock);
     // 线上（手机）还是线下（面对面）：决定规则、给哪些工具和段（ARCHITECTURE 6.1）
@@ -264,7 +264,9 @@ class ChatEngine {
   }
 
   private async runTurn(conversationId: string) {
-    const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, userName, mode, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
+    const { character, campaign, plugins, pctx, tctx, tools, pluginCards, turnId, userName, mode, input, assembled: { system, messages, l1Hits } } = await this.prepare(conversationId);
+    // 这一轮带了哪些记忆：记在每个回复气泡上，后面几轮按它冷却（memory/recall.ts recentlySurfaced）
+    const surfaced = (input.recalled ?? []).map((m) => m.id);
 
     const abort = new AbortController();
     // 地点、情绪、时钟是覆盖写：记下这一轮开始时的样子，撤回这一轮时退回去
@@ -315,10 +317,11 @@ class ChatEngine {
         const { cards: metaCards, ...rest } = meta;
         parts.forEach((part, i) => {
           // 卡片挂在第一条（先分享再评论），其余 meta（工具、思考）挂在最后一条
-          const mine: Record<string, unknown> = { turn: turnId, ...(i === 0 && metaCards ? { cards: metaCards } : {}), ...(i === parts.length - 1 ? rest : {}) };
+          // surfaced 每条都挂：删掉其中一条气泡，这一轮带过什么还在
+          const mine: Record<string, unknown> = { turn: turnId, ...(surfaced.length ? { surfaced } : {}), ...(i === 0 && metaCards ? { cards: metaCards } : {}), ...(i === parts.length - 1 ? rest : {}) };
           batch.push({ role: 'assistant', text: part, extra: { meta: mine } });
         });
-        if (!parts.length && cards.length) batch.push({ role: 'assistant', text: '', extra: { meta } });
+        if (!parts.length && cards.length) batch.push({ role: 'assistant', text: '', extra: { meta: { ...meta, ...(surfaced.length ? { surfaced } : {}) } } });
       }
       await repo.addMessages(conversationId, batch);
       await rememberTurn(campaign.id, turnId, before);

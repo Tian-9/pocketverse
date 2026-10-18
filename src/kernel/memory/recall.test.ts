@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { explainRecall, recallMemories, recallQuery } from './recall';
+import { explainRecall, recallMemories, recallQuery, recentlySurfaced } from './recall';
 import type { EpisodicMemory, Message } from '../storage/db';
 
 const M = (id: string, text: string, bag?: EpisodicMemory['bag']): EpisodicMemory => ({ id, campaignId: 'cp', when: '', text, importance: 2, sourceMessageIds: [], createdAt: 0, ...(bag ? { bag } : {}) });
@@ -25,6 +25,32 @@ describe('auto recall', () => {
     expect(recallMemories(mems, '小姨子最近胖了没', new Set(['cat']))).toEqual([]);
     expect(recallMemories(mems, '今天天气不错')).toEqual([]);
     expect(recallMemories(mems, '')).toEqual([]);
+  });
+
+  it('cooldown: picks the top hits first, then drops cooled ones without backfilling', () => {
+    const cat2 = M('cat2', '{{user}}给小姨子买了猫粮', { related: ['小姨子', '猫粮'] });
+    const all = [...mems, cat2];
+    expect(recallMemories(all, '小姨子要不要猫粮').map((m) => m.id)).toEqual(['cat', 'cat2']);
+    // 最相关的 cat 刚提过：这轮只剩 cat2，不会把别的往上补
+    expect(recallMemories(all, '小姨子要不要猫粮', new Set(), new Set(['cat'])).map((m) => m.id)).toEqual(['cat2']);
+    expect(recallMemories(all, '小姨子要不要猫粮', new Set(), new Set(['cat', 'cat2']))).toEqual([]);
+  });
+
+  it('cooldown window: memories surfaced in the last 5 reply turns, counting turns that surfaced nothing', () => {
+    const reply = (turn: string, surfaced?: string[], extra: Record<string, unknown> = {}) => msg('assistant', `回复 ${turn}`, { turn, ...(surfaced ? { surfaced } : {}), ...extra });
+    const h = [
+      reply('t1', ['old']),
+      msg('user', '在吗'), reply('t2', ['cat']),
+      msg('user', '嗯'), reply('t3'), msg('assistant', '（拍了拍你）', { narration: true, turn: 't4' }), reply('t4'),
+      msg('user', '好'), reply('t5'), reply('t5'),
+      msg('user', '然后呢'), reply('t6', ['noodle']),
+    ];
+    // 最近 5 轮是 t2…t6：t1 带过的 old 已经冷却完了；一轮拆成几个气泡、带旁白，都只算一轮
+    expect([...recentlySurfaced(h)].sort()).toEqual(['cat', 'noodle']);
+    expect([...recentlySurfaced(h, 1)]).toEqual(['noodle']);
+    // 删掉或重新生成那一轮，气泡没了，冷却跟着没了
+    expect([...recentlySurfaced(h.slice(0, -1))].sort()).toEqual(['cat', 'old']);
+    expect(recentlySurfaced([])).toEqual(new Set());
   });
 
   it('explains every hit with score, matched terms and a verdict that agrees with recallMemories', () => {
