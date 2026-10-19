@@ -27,6 +27,7 @@ import { consolidate } from '../memory/consolidate';
 import type { PromptContext, MessageCard, PluginManifest, ShareCard, ConversationMode } from '../api/types';
 import type { Conversation } from '../storage/db';
 import { isContext } from '../context/append';
+import { repeatNotice } from '../context/repeat';
 import { log } from '../log/log';
 
 export type TurnStatus = 'idle' | 'thinking' | 'typing' | 'tool';
@@ -186,6 +187,9 @@ class ChatEngine {
     // 他给自己定过"稍后联系"：告诉他一声，免得每轮重新定。手机上的事，线下不提
     const pendingWake = useTools && online ? await wakes.get(campaign.id) : null;
     if (pendingWake) { const t = wakeNotice(pendingWake); sections.push({ id: 'kernel/wake', place: 'tail', order: ORDER.pluginTail, text: t }); contributions.push({ source: 'kernel/wake', kind: 'volatile', text: t }); }
+    // 重复提醒：他连着两轮的最后一条开头一样、剧情时间又挨得近，点名让他换个说法（context/repeat.ts）。线下是成段的叙事，不看
+    const repeat = online ? repeatNotice(history) : '';
+    if (repeat) { sections.push({ id: 'kernel/repeat', place: 'tail', order: ORDER.repeat, text: repeat }); contributions.push({ source: 'kernel/repeat', kind: 'volatile', text: repeat }); }
     // 依附的事（如回朋友圈评论）挂在这一轮上：材料进最后一条用户消息，用 handle_attached 提交
     const hasAttach = useTools && online && catchup.hasAttach();
     const attached = hasAttach && !opts.dryRun ? await catchup.collectAttached(campaign, character) : [];

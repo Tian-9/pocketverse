@@ -115,7 +115,7 @@ export const ORDER = {
   // cached（system）
   rules: 100, style: 150, user: 200, world: 300, character: 400, loreConstant: 500, loreDirectory: 600, pluginCached: 800,
   // tail（最后一条用户消息里，越靠后离用户的话越近，越受重视）
-  state: 100, highlights: 150, styleHits: 200, loreHits: 300, recall: 400, pluginTail: 500, tailStyle: 800, time: 900,
+  state: 100, highlights: 150, styleHits: 200, loreHits: 300, recall: 400, pluginTail: 500, tailStyle: 800, repeat: 850, time: 900,
 } as const;
 
 const cachedSec = (id: string, order: number, title: string, body: string | undefined): PromptSection | null =>
